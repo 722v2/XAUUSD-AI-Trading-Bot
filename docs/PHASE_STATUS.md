@@ -40,7 +40,7 @@ Updated: 2026-10-16
 - Implemented a local Python MT5 bridge with token authentication, loopback-only binding, Demo-account enforcement, closed-candle retrieval, broker symbol specifications, order validation, SQLite idempotency, and bot-owned position monitoring/modification/closure.
 - TypeScript bridge client is implemented; Demo auto-execution is gated behind explicit UI opt-in, a Demo hedging account, fresh quotes, risk validation, persisted intent and an AI connectivity probe.
 - Automatic management tightens stops at 1R and trails after 1.5R using 1.2 ATR; it never loosens SL or moves TP. These baseline thresholds require strategy/backtest evaluation before any production use.
-- **External validation still pending:** real terminal Demo end-to-end verification, actual AI provider credentials, applying the Supabase migration to a real project, restart-time position/order reconciliation, and release deployment.
+- **External validation still pending:** real terminal Demo end-to-end verification, actual AI provider credentials, applying the Supabase migrations to a real project, and verifying restart recovery against a real broker/terminal before any release deployment.
 - Live trading remains disabled.
 
 ## Release gate
