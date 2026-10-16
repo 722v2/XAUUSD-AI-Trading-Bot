@@ -44,4 +44,4 @@ An independent, safety-first XAUUSD trading system. The project is built from sc
 7. Dashboard & Telegram
 8. Integration, Security & Release
 
-See `docs/PROJECT_SPEC.md`, `docs/ARCHITECTURE.md`, and `docs/PHASE_1_ACCEPTANCE.md` as those documents are added.
+See `docs/PROJECT_SPEC.md`, `docs/ARCHITECTURE.md`, `docs/PHASE_1_ACCEPTANCE.md`, and `docs/TEST_STRATEGY.md` for the current specification and acceptance criteria.
