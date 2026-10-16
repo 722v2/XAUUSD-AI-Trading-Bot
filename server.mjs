@@ -37,14 +37,47 @@ function configuredBridge(env) {
   try { return new MT5BridgeClient({baseUrl:env.MT5_BRIDGE_URL,token:env.MT5_BRIDGE_TOKEN}); }
   catch { return null; }
 }
-function configuredAI(env) {
-  if (!env.AI_API_KEY?.trim() || !env.AI_BASE_URL || !env.AI_MODEL_ID?.trim()) return null;
+function allowedAIBaseUrl(value) {
   try {
-    const endpoint = new URL(env.AI_BASE_URL);
-    if (endpoint.protocol !== "https:" && endpoint.hostname !== "localhost" && endpoint.hostname !== "127.0.0.1") return null;
+    const endpoint=new URL(value);
+    return endpoint.protocol==="https:" || endpoint.hostname==="localhost" || endpoint.hostname==="127.0.0.1";
+  } catch { return false; }
+}
+function aiProviderCatalogFromEnv(env) {
+  const catalog=[];
+  if (env.AI_PROVIDER_CATALOG_JSON) {
+    try {
+      const raw=JSON.parse(env.AI_PROVIDER_CATALOG_JSON);
+      if (Array.isArray(raw)) for (const item of raw) {
+        if (!item || typeof item!=="object" || typeof item.id!=="string" || !/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/.test(item.id) ||
+            typeof item.label!=="string" || typeof item.baseUrl!=="string" || !allowedAIBaseUrl(item.baseUrl) ||
+            typeof item.apiKeyEnv!=="string" || !/^[A-Z][A-Z0-9_]{1,79}$/.test(item.apiKeyEnv) || !Array.isArray(item.models)) continue;
+        const models=[];
+        for (const model of item.models) {
+          const modelId=typeof model==="string"?model:model && typeof model.id==="string"?model.id:null;
+          const label=typeof model==="object" && model && typeof model.label==="string"?model.label:modelId;
+          if (modelId && /^[A-Za-z0-9][A-Za-z0-9._:/-]{0,199}$/.test(modelId) && !models.some(existing=>existing.id===modelId)) models.push({id:modelId,label});
+        }
+        if (models.length && !catalog.some(existing=>existing.id===item.id)) catalog.push({id:item.id,label:item.label,baseUrl:item.baseUrl,apiKeyEnv:item.apiKeyEnv,models});
+      }
+    } catch {}
+  }
+  if (!catalog.length && env.AI_BASE_URL && env.AI_MODEL_ID && allowedAIBaseUrl(env.AI_BASE_URL)) {
+    const ids=[...(env.AI_ALLOWED_MODELS??"").split(","),env.AI_MODEL_ID].map(value=>value.trim()).filter(value=>/^[A-Za-z0-9][A-Za-z0-9._:/-]{0,199}$/.test(value));
+    const models=[...new Set(ids)].map(id=>({id,label:id}));
+    catalog.push({id:env.AI_PROVIDER_ID||"openai-compatible",label:env.AI_PROVIDER_LABEL||env.AI_PROVIDER_ID||"OpenAI-compatible",baseUrl:env.AI_BASE_URL,apiKeyEnv:"AI_API_KEY",models});
+  }
+  return catalog;
+}
+function configuredAI(env, catalog, providerId, modelId) {
+  const provider=catalog.find(item=>item.id===providerId);
+  if (!provider || !provider.models.some(model=>model.id===modelId)) return null;
+  const apiKey=env[provider.apiKeyEnv];
+  if (typeof apiKey!=="string" || !apiKey.trim()) return null;
+  try {
     return new OpenAICompatibleAIProvider({
-      providerId:env.AI_PROVIDER_ID || "openai-compatible", modelId:env.AI_MODEL_ID,
-      baseUrl:env.AI_BASE_URL, apiKey:env.AI_API_KEY, timeoutMs:15000, assessmentTtlMs:60000
+      providerId:provider.id,modelId,
+      baseUrl:provider.baseUrl,apiKey,timeoutMs:15000,assessmentTtlMs:60000
     });
   } catch { return null; }
 }
@@ -55,7 +88,13 @@ export function createAppServer(env = process.env) {
   const telegram = new TelegramBotClient(env.TELEGRAM_BOT_TOKEN);
   const supabase = configuredSupabase(env);
   const bridge = configuredBridge(env);
-  const aiProvider = configuredAI(env);
+  const aiCatalog = aiProviderCatalogFromEnv(env);
+  const config = {
+    aiProviderId:env.AI_PROVIDER_ID && aiCatalog.some(provider=>provider.id===env.AI_PROVIDER_ID) ? env.AI_PROVIDER_ID : aiCatalog[0]?.id ?? null,
+    aiModelId:env.AI_MODEL_ID && aiCatalog.find(provider=>provider.id===(env.AI_PROVIDER_ID??aiCatalog[0]?.id))?.models.some(model=>model.id===env.AI_MODEL_ID) ? env.AI_MODEL_ID : aiCatalog.find(provider=>provider.id===(env.AI_PROVIDER_ID??aiCatalog[0]?.id))?.models[0]?.id ?? null
+  };
+  let aiProvider = configuredAI(env,aiCatalog,config.aiProviderId,config.aiModelId);
+  let aiConfigured = Boolean(aiProvider);
   const enabledChats = new Set();
   const localNotificationKeys = new Set();
   let riskSettings = null;
@@ -65,7 +104,7 @@ export function createAppServer(env = process.env) {
   let aiProbePassed = false;
   let scannerTimer = null;
   let scanInFlight = false;
-  const config = { aiProviderId:env.AI_PROVIDER_ID ?? null, aiModelId:env.AI_MODEL_ID ?? null };
+  let settingsHydrated = false;
   let outboxInFlight = false;
   async function sendWithOutbox(chatId, message, messageType, dedupeKey) {
     if (!telegram.configured) return {ok:false,errorCode:"NOT_CONFIGURED",persisted:Boolean(supabase)};
