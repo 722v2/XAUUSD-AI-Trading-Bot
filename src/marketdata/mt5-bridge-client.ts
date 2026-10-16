@@ -57,7 +57,7 @@ export class MT5BridgeClient {
   quote(): Promise<BridgeResult<{ readonly symbol: "XAUUSD"; readonly bid: number; readonly ask: number; readonly tickTime: string; readonly receivedAt: string }>> {
     return this.#request("/market/quote");
   }
-  symbolSpec(): Promise<BridgeResult<{ readonly symbol: "XAUUSD"; readonly tickSize: number; readonly tickValuePerLot: number; readonly volumeMin: number; readonly volumeMax: number; readonly volumeStep: number; readonly priceDigits: number }>> {
+  symbolSpec(): Promise<BridgeResult<{ readonly symbol: "XAUUSD"; readonly tickSize: number; readonly tickValuePerLot: number; readonly volumeMin: number; readonly volumeMax: number; readonly volumeStep: number; readonly priceDigits: number; readonly point: number; readonly stopsLevelPoints: number }>> {
     return this.#request("/market/spec");
   }
   candles(timeframe: Timeframe, count = 100): Promise<BridgeResult<{ readonly symbol: "XAUUSD"; readonly timeframe: Timeframe; readonly candles: readonly RawCandle[] }>> {
@@ -78,7 +78,7 @@ export class MT5BridgeClient {
       })
     });
   }
-  positions(): Promise<BridgeResult<{ readonly environment: "DEMO"; readonly positions: readonly { readonly ticket: number; readonly symbol: "XAUUSD"; readonly direction: "BUY" | "SELL"; readonly volume: number; readonly entryPrice: number; readonly stopLoss: number; readonly takeProfit: number; readonly profit: number; readonly openedAt: string; readonly comment: string }[] }>> {
+  positions(): Promise<BridgeResult<{ readonly environment: "DEMO"; readonly accountLogin?: string; readonly positions: readonly { readonly ticket: number; readonly symbol: "XAUUSD"; readonly direction: "BUY" | "SELL"; readonly volume: number; readonly entryPrice: number; readonly stopLoss: number; readonly takeProfit: number; readonly profit: number; readonly openedAt: string; readonly comment: string }[] }>> {
     return this.#request("/positions");
   }
   modifyPosition(input: { readonly ticket: number; readonly stopLoss?: number; readonly takeProfit?: number }): Promise<BridgeResult<{ readonly state: "CONFIRMED" | "REJECTED" | "RECONCILIATION_REQUIRED"; readonly ticket?: number }>> {
