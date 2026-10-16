@@ -329,11 +329,6 @@ class BridgeService:
         if not isinstance(payload, dict) or isinstance(payload.get("ticket"), bool) or not isinstance(payload.get("ticket"), int):
             return 400, {"state": "REJECTED", "error": "INVALID_TICKET"}
         with self._mt5_lock:
-            previous = self.store.get(key)
-            if previous:
-                if previous["status"] in ("CONFIRMED", "REJECTED"):
-                    return 200, json.loads(previous["result_json"] or "{}")
-                return 409, {"state": "RECONCILIATION_REQUIRED", "error": "CLOSE_RESULT_MAY_BE_AMBIGUOUS"}
             allowed, reason = self._account_is_demo()
             if not allowed:
                 return 503 if reason != "NON_DEMO_ACCOUNT_BLOCKED" else 403, {"state": "REJECTED", "error": reason}
@@ -374,6 +369,11 @@ class BridgeService:
         if not isinstance(key, str) or not key.strip() or len(key) > 180:
             return 400, {"state": "REJECTED", "error": "INVALID_IDEMPOTENCY_KEY"}
         with self._mt5_lock:
+            previous = self.store.get(key)
+            if previous:
+                if previous["status"] in ("CONFIRMED", "REJECTED"):
+                    return 200, json.loads(previous["result_json"] or "{}")
+                return 409, {"state": "RECONCILIATION_REQUIRED", "error": "CLOSE_RESULT_MAY_BE_AMBIGUOUS"}
             allowed, reason = self._account_is_demo()
             if not allowed:
                 return 503 if reason != "NON_DEMO_ACCOUNT_BLOCKED" else 403, {"state": "REJECTED", "error": reason}
