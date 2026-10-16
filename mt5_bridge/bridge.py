@@ -188,13 +188,17 @@ class BridgeService:
                 return 503, {"error": "SYMBOL_INFO_UNAVAILABLE"}
             tick_size = float(getattr(info, "trade_tick_size", 0) or 0)
             tick_value = float(getattr(info, "trade_tick_value", 0) or 0)
-            if not math.isfinite(tick_size) or not math.isfinite(tick_value) or tick_size <= 0 or tick_value <= 0:
+            point = float(getattr(info, "point", 0) or 0)
+            volume_min, volume_max, volume_step = float(info.volume_min), float(info.volume_max), float(info.volume_step)
+            stops_level = int(getattr(info, "trade_stops_level", 0) or 0)
+            if (not all(math.isfinite(value) for value in (tick_size,tick_value,point,volume_min,volume_max,volume_step))
+                    or tick_size <= 0 or tick_value <= 0 or point <= 0 or volume_min <= 0 or volume_max < volume_min or volume_step <= 0):
                 return 503, {"error": "TICK_SPEC_UNAVAILABLE"}
             return 200, {
                 "symbol": "XAUUSD", "tickSize": tick_size, "tickValuePerLot": tick_value,
-                "volumeMin": float(info.volume_min), "volumeMax": float(info.volume_max),
-                "volumeStep": float(info.volume_step), "priceDigits": int(info.digits),
-                "point": float(getattr(info, "point", 0) or 0), "stopsLevelPoints": int(getattr(info, "trade_stops_level", 0) or 0),
+                "volumeMin": volume_min, "volumeMax": volume_max,
+                "volumeStep": volume_step, "priceDigits": int(info.digits),
+                "point": point, "stopsLevelPoints": stops_level,
             }
 
     def candles(self, timeframe: str, count: int) -> tuple[int, dict[str, Any]]:
