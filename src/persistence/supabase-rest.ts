@@ -43,7 +43,7 @@ export class SupabaseRestRepository implements ExecutionIntentRepository, Runtim
     return { apikey: this.#key, authorization: `Bearer ${this.#key}`, "content-type": "application/json", ...extra };
   }
   async #request(path: string, init: RequestInit = {}): Promise<Response> {
-    try { return await this.#fetch(this.#base + path, { ...init, headers: this.#headers((init.headers ?? {}) as Record<string, string>) }); }
+    try { return await this.#fetch(this.#base + path, { ...init, headers: this.#headers((init.headers ?? {}) as Record<string, string>), signal: AbortSignal.timeout(5000) }); }
     catch { throw new Error("Supabase storage request failed"); }
   }
   async findById(id: ExecutionIntentId): Promise<ExecutionIntent | null> {
