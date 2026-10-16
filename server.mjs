@@ -138,12 +138,12 @@ export function createAppServer(env = process.env) {
         });
         if (result.ok) queued++; else if (result.errorCode!=="ALREADY_EXISTS") failed++;
       }
-      await drainOutbox();
+      void drainOutbox().catch(()=>undefined);
       return {sent:queued,failed,reason:failed?"OUTBOX_PARTIAL_FAILURE":"QUEUED"};
     }
     const recipients=[...enabledChats];
-    const results=await telegram.sendToDiscoveredChats(message,recipients);
-    return {sent:results.filter(item=>item.ok).length,failed:results.filter(item=>!item.ok).length,reason:"PROCESS_LOCAL"};
+    void telegram.sendToDiscoveredChats(message,recipients).catch(()=>undefined);
+    return {sent:0,failed:0,reason:"PROCESS_LOCAL_QUEUED"};
   }
 
 
