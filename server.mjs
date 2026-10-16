@@ -611,7 +611,6 @@ export function createAppServer(env = process.env) {
       let bridgeHealth = null;
       if (bridge) { const result=await bridge.health(); if (result.ok) bridgeHealth=result.value; }
       const marketState = !bridge ? "NOT_CONFIGURED" : bridgeHealth?.state === "CONNECTED" ? "CONNECTED" : bridgeHealth?.state === "BLOCKED" ? "DISCONNECTED" : "NOT_READY";
-      const aiConfigured = Boolean(aiProvider);
       return sendJson(res,200,{
         marketData:{state:marketState,label:marketState==="CONNECTED"?"MT5 Demo متصل":"MT5 غير متصل",reason:marketState==="CONNECTED"?(bridgeHealth?.executionReady?"تم تأكيد حساب Demo من نوع Hedging.":"بيانات السوق متاحة؛ التنفيذ الآلي يتطلب حساب Demo من نوع Hedging."):(bridgeHealth?.reason??"لم يتم ضبط جسر MT5؛ لا توجد بيانات سوق فعلية.")},
         ai:{state:!aiConfigured?"NOT_CONFIGURED":aiProbePassed?"CONNECTED":"CONFIGURED_NOT_TESTED",label:!aiConfigured?"لم يتم الاتصال":aiProbePassed?"AI متصل":"إعدادات موجودة · الاتصال يحتاج اختبارًا"},
