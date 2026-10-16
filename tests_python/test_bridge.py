@@ -12,6 +12,7 @@ from http.server import ThreadingHTTPServer
 
 class FakeMT5:
     ACCOUNT_TRADE_MODE_DEMO = 0
+    ACCOUNT_MARGIN_MODE_RETAIL_HEDGING = 2
     TRADE_ACTION_DEAL = 1
     TRADE_ACTION_SLTP = 2
     ORDER_TYPE_BUY = 0
@@ -31,7 +32,7 @@ class FakeMT5:
 
     def initialize(self, **kwargs): return True
     def terminal_info(self): return SimpleNamespace(connected=True)
-    def account_info(self): return SimpleNamespace(trade_mode=self.trade_mode, login=12345, server="Demo", currency="USD")
+    def account_info(self): return SimpleNamespace(trade_mode=self.trade_mode, margin_mode=2, login=12345, server="Demo", currency="USD")
     def symbol_select(self, symbol, enabled): return True
     def symbol_info_tick(self, symbol): return SimpleNamespace(bid=2000.0, ask=2000.2, time=1792152000)
     def symbol_info(self, symbol): return SimpleNamespace(volume_min=0.01, volume_max=100.0, volume_step=0.01, digits=2, trade_tick_size=0.1, trade_tick_value=1.0)
