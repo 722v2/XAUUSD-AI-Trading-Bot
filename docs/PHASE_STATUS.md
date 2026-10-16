@@ -19,7 +19,7 @@ Updated: 2026-10-16
 ## Phase 4 — Risk & Execution Contracts
 - Implemented broker-spec-based position sizing and RR/geometry checks.
 - Added Demo-only intent preparation, durable intent persistence, and a local bridge that refuses ambiguous retries.
-- Added deterministic break-even and ATR-trailing stop management that never loosens SL or changes TP; open positions are reconciled and persisted. Unowned XAUUSD positions block automated management and new entries.
+- Added deterministic break-even and ATR-trailing stop management that never loosens SL or changes TP; open positions are reconciled and persisted. Unowned XAUUSD positions block automated management and new entries, and the scanner permits at most one bot-owned XAUUSD position at a time.
 - This is not yet proof of real-terminal MT5 order execution.
 
 ## Phase 5 — AI Decision Engine
