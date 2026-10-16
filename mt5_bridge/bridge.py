@@ -150,12 +150,17 @@ class BridgeService:
                 return {"state": "DISCONNECTED", "reason": "ACCOUNT_INFO_UNAVAILABLE", "environment": "DEMO", "liveTradingEnabled": False}
             demo_mode = getattr(mt5, "ACCOUNT_TRADE_MODE_DEMO", 0)
             is_demo = getattr(account, "trade_mode", None) == demo_mode
+            hedging_mode = getattr(mt5, "ACCOUNT_MARGIN_MODE_RETAIL_HEDGING", 2)
+            is_hedging = getattr(account, "margin_mode", None) == hedging_mode
+            execution_ready = is_demo and is_hedging
+            reason = "DEMO_ACCOUNT_CONFIRMED" if execution_ready else "HEDGING_ACCOUNT_REQUIRED" if is_demo else "NON_DEMO_ACCOUNT_BLOCKED"
             return {
                 "state": "CONNECTED" if is_demo else "BLOCKED",
-                "reason": "DEMO_ACCOUNT_CONFIRMED" if is_demo else "NON_DEMO_ACCOUNT_BLOCKED",
+                "reason": reason,
                 "environment": "DEMO" if is_demo else "BLOCKED",
                 "accountMode": "DEMO" if is_demo else "BLOCKED",
                 "accountLogin": str(getattr(account, "login", "")) if is_demo else None,
+                "executionReady": execution_ready,
                 "liveTradingEnabled": False,
             }
 
@@ -234,6 +239,8 @@ class BridgeService:
             return False, "ACCOUNT_INFO_UNAVAILABLE"
         if getattr(account, "trade_mode", None) != getattr(mt5, "ACCOUNT_TRADE_MODE_DEMO", 0):
             return False, "NON_DEMO_ACCOUNT_BLOCKED"
+        if getattr(account, "margin_mode", None) != getattr(mt5, "ACCOUNT_MARGIN_MODE_RETAIL_HEDGING", 2):
+            return False, "HEDGING_ACCOUNT_REQUIRED"
         return True, "DEMO_ACCOUNT_CONFIRMED"
 
     def submit_order(self, payload: Any) -> tuple[int, dict[str, Any]]:
