@@ -84,12 +84,14 @@ export class OpenAICompatibleAIProvider {
       clearTimeout(timeout);
       if (error instanceof Error && error.name === "AbortError") throw new AIProviderError("TIMEOUT", "AI provider request timed out");
       throw new AIProviderError("PROVIDER_ERROR", "AI provider request failed");
-    } finally {
-      clearTimeout(timeout);
     }
-    if (!response.ok) throw new AIProviderError("HTTP_ERROR", `AI provider returned HTTP ${response.status}`);
+    if (!response.ok) {
+      clearTimeout(timeout);
+      throw new AIProviderError("HTTP_ERROR", `AI provider returned HTTP ${response.status}`);
+    }
     let body: unknown;
-    try { body = await response.json(); } catch { throw new AIProviderError("INVALID_RESPONSE", "AI provider returned invalid JSON"); }
+    try { body = await response.json(); } catch { clearTimeout(timeout); throw new AIProviderError("INVALID_RESPONSE", "AI provider returned invalid JSON"); }
+    clearTimeout(timeout);
     const choices = typeof body === "object" && body !== null ? (body as { choices?: unknown }).choices : undefined;
     const first = Array.isArray(choices) ? choices[0] : undefined;
     const message = typeof first === "object" && first !== null ? (first as { message?: { content?: unknown } }).message : undefined;
