@@ -148,11 +148,11 @@ export class SupabaseRestRepository implements ExecutionIntentRepository, Runtim
   }
   async upsertPosition(input: {
     readonly accountLogin: string; readonly ticket: number; readonly direction: "BUY" | "SELL";
-    readonly volume: number; readonly entryPrice: number; readonly stopLoss: number; readonly takeProfit: number;
+    readonly volume: number; readonly entryPrice: number; readonly stopLoss: number; readonly takeProfit: number; readonly initialStopLoss?: number;
     readonly openedAt: string;
   }): Promise<PersistResult<{ readonly id: string }>> {
     if (!input.accountLogin.trim() || !Number.isInteger(input.ticket) || !Number.isFinite(input.volume) || input.volume <= 0 ||
-        ![input.entryPrice,input.stopLoss,input.takeProfit].every(Number.isFinite) || input.entryPrice <= 0 || input.stopLoss < 0 || input.takeProfit < 0 ||
+        ![input.entryPrice,input.stopLoss,input.takeProfit].every(Number.isFinite) || (input.initialStopLoss !== undefined && (!Number.isFinite(input.initialStopLoss) || input.initialStopLoss <= 0)) || input.entryPrice <= 0 || input.stopLoss < 0 || input.takeProfit < 0 ||
         !Number.isFinite(Date.parse(input.openedAt))) return { ok: false, errorCode: "UNKNOWN" };
     const now = new Date().toISOString();
     const response = await this.#request("/positions?on_conflict=account_login,broker_position_id", {
@@ -160,6 +160,7 @@ export class SupabaseRestRepository implements ExecutionIntentRepository, Runtim
       body: JSON.stringify({
         account_login:input.accountLogin,broker_position_id:String(input.ticket),symbol:"XAUUSD",direction:input.direction,
         volume:input.volume,entry_price:input.entryPrice,stop_loss:input.stopLoss,take_profit:input.takeProfit,
+        ...(input.initialStopLoss !== undefined ? {initial_stop_loss:input.initialStopLoss} : {}),
         status:"OPEN",opened_at:input.openedAt,closed_at:null,updated_at:now
       })
     }).catch(()=>null);
