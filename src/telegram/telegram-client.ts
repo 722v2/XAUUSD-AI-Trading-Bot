@@ -5,7 +5,7 @@ export interface TelegramChat {
   readonly username?: string;
   readonly lastSeenAt: string;
 }
-export type TelegramErrorCode = "NOT_CONFIGURED" | "HTTP_ERROR" | "API_ERROR" | "RATE_LIMITED" | "INVALID_RESPONSE" | "WEBHOOK_CONFLICT";
+export type TelegramErrorCode = "NOT_CONFIGURED" | "HTTP_ERROR" | "API_ERROR" | "RATE_LIMITED" | "INVALID_RESPONSE" | "WEBHOOK_CONFLICT" | "TIMEOUT";
 export class TelegramClientError extends Error {
   readonly code: TelegramErrorCode;
   readonly retryAfterSeconds?: number;
@@ -41,9 +41,9 @@ export class TelegramBotClient {
     let response: Response;
     try {
       response = await this.#fetch("https://api.telegram.org/bot" + this.#token + "/" + method, {
-        method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(payload)
+        method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(payload), signal: AbortSignal.timeout(8000)
       });
-    } catch { throw new TelegramClientError("HTTP_ERROR", "Telegram API request failed"); }
+    } catch (error) { throw new TelegramClientError(error instanceof Error && error.name === "TimeoutError" ? "TIMEOUT" : "HTTP_ERROR", error instanceof Error && error.name === "TimeoutError" ? "Telegram API request timed out" : "Telegram API request failed"); }
     let body: ApiResponse;
     try { body = await response.json() as ApiResponse; }
     catch { throw new TelegramClientError("INVALID_RESPONSE", "Telegram returned invalid JSON"); }
