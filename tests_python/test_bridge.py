@@ -24,15 +24,16 @@ class FakeMT5:
     TRADE_RETCODE_DONE_PARTIAL = 10010
     POSITION_TYPE_BUY = 0
 
-    def __init__(self, trade_mode=0):
+    def __init__(self, trade_mode=0, margin_mode=2):
         self.trade_mode = trade_mode
+        self.margin_mode = margin_mode
         self.order_send_calls = 0
         self.position = SimpleNamespace(ticket=77, magic=61016001, comment="XAUAI-abcd", type=0,
             volume=0.1, price_open=1990.0, sl=1980.0, tp=2010.0, profit=2.0, time=1792152000)
 
     def initialize(self, **kwargs): return True
     def terminal_info(self): return SimpleNamespace(connected=True)
-    def account_info(self): return SimpleNamespace(trade_mode=self.trade_mode, margin_mode=2, login=12345, server="Demo", currency="USD")
+    def account_info(self): return SimpleNamespace(trade_mode=self.trade_mode, margin_mode=self.margin_mode, login=12345, server="Demo", currency="USD")
     def symbol_select(self, symbol, enabled): return True
     def symbol_info_tick(self, symbol): return SimpleNamespace(bid=2000.0, ask=2000.2, time=1792152000)
     def symbol_info(self, symbol): return SimpleNamespace(volume_min=0.01, volume_max=100.0, volume_step=0.01, digits=2, trade_tick_size=0.1, trade_tick_value=1.0)
@@ -100,6 +101,21 @@ class BridgeUnitTests(unittest.TestCase):
             self.assertEqual(result["error"],"NON_DEMO_ACCOUNT_BLOCKED")
             self.assertEqual(fake.order_send_calls,0)
             self.assertIsNone(self.store.get("real-account-test"))
+        finally:
+            bridge_module.mt5 = previous
+
+
+    def test_netting_account_is_blocked_from_automated_execution(self):
+        import mt5_bridge.bridge as bridge_module
+        previous = bridge_module.mt5
+        fake = FakeMT5(trade_mode=0, margin_mode=0)
+        bridge_module.mt5 = fake
+        try:
+            payload = {"environment":"DEMO","symbol":"XAUUSD","direction":"BUY","idempotencyKey":"netting-account-test","volume":0.1,"stopLoss":1990,"takeProfit":2020}
+            status, result = self.service.submit_order(payload)
+            self.assertEqual(status,503)
+            self.assertEqual(result["error"],"HEDGING_ACCOUNT_REQUIRED")
+            self.assertEqual(fake.order_send_calls,0)
         finally:
             bridge_module.mt5 = previous
 
