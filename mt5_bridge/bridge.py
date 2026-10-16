@@ -153,9 +153,7 @@ class BridgeService:
                 "state": "CONNECTED" if is_demo else "BLOCKED",
                 "reason": "DEMO_ACCOUNT_CONFIRMED" if is_demo else "NON_DEMO_ACCOUNT_BLOCKED",
                 "environment": "DEMO" if is_demo else "BLOCKED",
-                "accountLogin": str(getattr(account, "login", "")) if is_demo else None,
-                "server": str(getattr(account, "server", "")) if is_demo else None,
-                "currency": str(getattr(account, "currency", "")) if is_demo else None,
+                "accountMode": "DEMO" if is_demo else "BLOCKED",
                 "liveTradingEnabled": False,
             }
 
@@ -317,7 +315,7 @@ def create_handler(service: BridgeService):
 
         def do_GET(self) -> None:
             parsed = urlparse(self.path)
-            if parsed.path != "/health" and not self._authorized():
+            if not self._authorized():
                 return self._send(401, {"error": "UNAUTHORIZED"})
             if parsed.path == "/health":
                 return self._send(200, service.health())
