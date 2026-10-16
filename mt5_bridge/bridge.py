@@ -456,7 +456,7 @@ class BridgeService:
             return 400, {"error": "INVALID_IDEMPOTENCY_KEY"}
         row = self.store.get(key)
         if row is None:
-            return 404, {"state": "NOT_FOUND"}
+            return 404, {"state": "NOT_FOUND", "error": "NOT_FOUND"}
         if row["status"] in ("SUBMITTING", "UNKNOWN"):
             return 202, {"state": "RECONCILIATION_REQUIRED", "comment": row["comment"]}
         return 200, json.loads(row["result_json"] or "{}")
