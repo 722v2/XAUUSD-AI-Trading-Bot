@@ -429,6 +429,10 @@ export function createAppServer(env = process.env) {
       let execution = "NOT_SUBMITTED";
       let executionDetail = "التنفيذ الآلي غير مفعّل.";
       if ((decision.outcome === "BUY" || decision.outcome === "SELL") && autoTradingEnabled) {
+        if (notification.failed > 0 || notification.reason === "OUTBOX_UNAVAILABLE") {
+          const entry=record("FAILED","NOTIFICATION_OUTBOX_UNAVAILABLE");
+          return {status:503,body:{error:"NOTIFICATION_OUTBOX_UNAVAILABLE",message:"تعذر ضمان تسجيل تنبيه القرار؛ تم منع إرسال الأمر.",decision,execution:"NOT_SUBMITTED",run:entry}};
+        }
         if (managedOpenPositionCount >= 1) {
           const entry=record("SKIPPED_OPEN_POSITION_EXISTS","MAX_ONE_BOT_POSITION");
           return {status:200,body:{status:"OPEN_POSITION_EXISTS",message:"يوجد مركز XAUUSD مفتوح للبوت؛ تمت إدارته ومنع فتح مركز ثانٍ.",decision,execution:"NOT_SUBMITTED",run:entry}};
