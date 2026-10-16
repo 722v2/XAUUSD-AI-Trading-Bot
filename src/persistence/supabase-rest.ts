@@ -117,7 +117,7 @@ export class SupabaseRestRepository implements ExecutionIntentRepository, Runtim
     return Object.freeze({ ...data[0] });
   }
   async updateRecord(
-    table: "scanner_runs" | "strategy_candidates" | "execution_intents" | "notification_outbox",
+    table: "scanner_runs" | "strategy_candidates" | "execution_intents" | "notification_outbox" | "positions",
     id: string,
     payload: Readonly<Record<string, unknown>>
   ): Promise<PersistResult<{ readonly updated: boolean }>> {
@@ -145,6 +145,36 @@ export class SupabaseRestRepository implements ExecutionIntentRepository, Runtim
     let data: unknown;
     try { data = await response.json(); } catch { return { ok: false, errorCode: "UNKNOWN" }; }
     return { ok: true, value: { updated: Array.isArray(data) && data.length > 0 } };
+  }
+  async upsertPosition(input: {
+    readonly accountLogin: string; readonly ticket: number; readonly direction: "BUY" | "SELL";
+    readonly volume: number; readonly entryPrice: number; readonly stopLoss: number; readonly takeProfit: number;
+    readonly openedAt: string;
+  }): Promise<PersistResult<{ readonly id: string }>> {
+    if (!input.accountLogin.trim() || !Number.isInteger(input.ticket) || !Number.isFinite(input.volume) || input.volume <= 0 ||
+        !Number.isFinite(Date.parse(input.openedAt))) return { ok: false, errorCode: "UNKNOWN" };
+    const now = new Date().toISOString();
+    const response = await this.#request("/positions?on_conflict=account_login,broker_position_id", {
+      method: "POST", headers: { Prefer: "resolution=merge-duplicates,return=representation" },
+      body: JSON.stringify({
+        account_login:input.accountLogin,broker_position_id:String(input.ticket),symbol:"XAUUSD",direction:input.direction,
+        volume:input.volume,entry_price:input.entryPrice,stop_loss:input.stopLoss,take_profit:input.takeProfit,
+        status:"OPEN",opened_at:input.openedAt,closed_at:null,updated_at:now
+      })
+    }).catch(()=>null);
+    if (!response) return { ok: false, errorCode: "STORAGE_UNAVAILABLE" };
+    if (!response.ok) return { ok: false, errorCode: response.status >= 500 ? "STORAGE_UNAVAILABLE" : "UNKNOWN" };
+    let data: unknown;
+    try { data=await response.json(); } catch { return { ok:false,errorCode:"UNKNOWN" }; }
+    if (!Array.isArray(data) || !data[0] || !isRecord(data[0]) || typeof data[0].id!=="string") return { ok:false,errorCode:"UNKNOWN" };
+    return { ok:true,value:{id:data[0].id} };
+  }
+  async listOpenPositions(accountLogin: string): Promise<readonly Readonly<Record<string, unknown>>[]> {
+    const response = await this.#request(`/positions?account_login=eq.${encodeURIComponent(accountLogin)}&status=eq.OPEN&select=*`);
+    if (!response.ok) throw new Error("Supabase open positions read failed");
+    const data: unknown=await response.json();
+    if (!Array.isArray(data)) throw new Error("Supabase open positions response is invalid");
+    return data.filter(isRecord).map(row=>Object.freeze({...row}));
   }
   async listTelegramChats(): Promise<readonly Readonly<Record<string, unknown>>[]> {
     const response = await this.#request("/telegram_chats?select=*&order=display_name.asc");
