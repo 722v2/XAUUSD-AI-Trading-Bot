@@ -21,7 +21,7 @@ test('risk manager rejects invalid geometry, RR and broker-minimum risk mismatch
   assert.equal(assessTradeRisk({...settings,riskCash:0.01},trade,spec).accepted,false);
 });
 test('execution intent is Demo-only and does not submit a live order', () => {
-  const base = {id:'intent-1',idempotencyKey:'key-1',opportunityId:'opp-1',settings,trade,spec,now:'2026-10-16T12:00:00Z'};
+  const base = {id:'intent-1',idempotencyKey:'key-1',opportunityId:'opp-1',decisionId:'decision-1',settings,trade,spec,now:'2026-10-16T12:00:00Z'};
   assert.deepEqual(prepareExecutionIntent({...base,environment:'LIVE'}),{accepted:false,reason:'LIVE_DISABLED'});
   assert.equal(prepareExecutionIntent({...base,environment:'DEMO'}).accepted,true);
 });
