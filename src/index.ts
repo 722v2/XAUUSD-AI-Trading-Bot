@@ -17,3 +17,4 @@ export * from "./persistence/supabase-rest.js";
 export * from "./telegram/telegram-client.js";
 export * from "./marketdata/mt5-bridge-client.js";
 export * from "./execution/trade-manager.js";
+export * from "./analysis/strategy-selector.js";
