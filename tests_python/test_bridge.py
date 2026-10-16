@@ -63,7 +63,8 @@ class BridgeUnitTests(unittest.TestCase):
             request = Request(url,headers={"X-Bridge-Token":"test-bridge-key"})
             with urlopen(request,timeout=2) as response:
                 data=json.loads(response.read())
-                self.assertIn(data["state"],("NOT_CONFIGURED","DISCONNECTED"))
+                self.assertEqual(response.status,503)
+                self.assertIn(data["error"],("MT5_PACKAGE_MISSING","MT5_INITIALIZE_FAILED","MT5_TERMINAL_DISCONNECTED","MT5_CONNECTION_ERROR"))
         finally:
             server.shutdown()
             server.server_close()
