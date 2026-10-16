@@ -1,7 +1,7 @@
 function finite(value) { return typeof value === "number" && Number.isFinite(value); }
 function round(value, digits = 2) { const scale = 10 ** digits; return Math.round((value + Number.EPSILON) * scale) / scale; }
 function closedBefore(candles, timeMs) { return candles.filter(bar => Date.parse(bar.closeTime) <= timeMs); }
-function simulateTrade(candidate, bars, spreadPrice, lots, tickSize, tickValuePerLot, commissionPerLot) {
+function simulateTrade(candidate, bars, spreadPrice, slippagePrice, lots, tickSize, tickValuePerLot, commissionPerLot) {
   const entryIndex = candidate.index + 1;
   if (entryIndex >= bars.length) return null;
   const signal = candidate.evidence;
@@ -9,7 +9,7 @@ function simulateTrade(candidate, bars, spreadPrice, lots, tickSize, tickValuePe
   const targetDistance = signal.direction === "BUY" ? signal.takeProfit - signal.entryPrice : signal.entryPrice - signal.takeProfit;
   if (!(stopDistance > 0 && targetDistance > 0)) return null;
   const entryBar = bars[entryIndex];
-  const entryPrice = signal.direction === "BUY" ? entryBar.open + spreadPrice : entryBar.open;
+  const entryPrice = signal.direction === "BUY" ? entryBar.open + spreadPrice + slippagePrice : entryBar.open - slippagePrice;
   // MT5 chart OHLC is bid-based: BUY exits are checked on bid; SELL exits on ask.
   const stopLoss = signal.direction === "BUY" ? entryBar.open - stopDistance : entryBar.open + spreadPrice + stopDistance;
   const takeProfit = signal.direction === "BUY" ? entryBar.open + targetDistance : entryBar.open + spreadPrice - targetDistance;
@@ -28,6 +28,7 @@ function simulateTrade(candidate, bars, spreadPrice, lots, tickSize, tickValuePe
     const last = bars[bars.length - 1];
     exitPrice = signal.direction === "BUY" ? last.close : last.close + spreadPrice;
   }
+  exitPrice += signal.direction === "BUY" ? -slippagePrice : slippagePrice;
   const signedMove = signal.direction === "BUY" ? exitPrice - entryPrice : entryPrice - exitPrice;
   const grossPnl = signedMove / tickSize * tickValuePerLot * lots;
   const commission = commissionPerLot * lots;
@@ -38,7 +39,7 @@ function simulateTrade(candidate, bars, spreadPrice, lots, tickSize, tickValuePe
     entryPrice: round(entryPrice, 3), stopLoss: round(stopLoss, 3), takeProfit: round(takeProfit, 3),
     exitPrice: round(exitPrice, 3), exitReason, lots: round(lots, 4),
     grossPnl: round(grossPnl, 2), commission: round(commission, 2), netPnl: round(netPnl, 2),
-    rMultiple: round(netPnl / (((stopDistance + spreadPrice) / tickSize * tickValuePerLot * lots + commission) || 1), 3),
+    rMultiple: round(netPnl / (((stopDistance + spreadPrice + 2 * slippagePrice) / tickSize * tickValuePerLot * lots + commission) || 1), 3),
     _exitIndex: exitIndex
   };
 }
@@ -55,14 +56,16 @@ export async function runHistoricalBacktest(input) {
   const barsCount = request.barsCount;
   const lots = request.lots;
   const spreadPrice = request.spreadPrice;
+  const slippagePrice = request.slippagePrice ?? 0;
   const commissionPerLot = request.commissionPerLot;
   const maxAiCalls = request.maxAiCalls;
-  if (!Number.isInteger(barsCount) || barsCount < 100 || barsCount > 1000 ||
+  if (!Number.isInteger(barsCount) || barsCount < 100 || barsCount > 5000 ||
       !finite(lots) || lots <= 0 || lots > 100 ||
       !finite(spreadPrice) || spreadPrice < 0 || spreadPrice > 100 ||
+      !finite(slippagePrice) || slippagePrice < 0 || slippagePrice > 100 ||
       !finite(commissionPerLot) || commissionPerLot < 0 || commissionPerLot > 10000 ||
-      !Number.isInteger(maxAiCalls) || maxAiCalls < 1 || maxAiCalls > 100) {
-    throw Object.assign(new Error("إعدادات الاختبار غير صالحة. الشموع 100–1000، وعدد تقييمات AI من 1 إلى 100."), { status: 400, code: "INVALID_BACKTEST_CONFIG" });
+      !Number.isInteger(maxAiCalls) || maxAiCalls < 1 || maxAiCalls > 50) {
+    throw Object.assign(new Error("إعدادات الاختبار غير صالحة. الشموع 100–5000، والانزلاق غير سالب، وعدد تقييمات AI من 1 إلى 50."), { status: 400, code: "INVALID_BACKTEST_CONFIG" });
   }
   const health = await bridge.health();
   if (!health.ok || health.value.state !== "CONNECTED" || health.value.environment !== "DEMO") {
@@ -128,7 +131,7 @@ export async function runHistoricalBacktest(input) {
     }
     const decision = coordinateTechnicalAndAI([candidate.evidence], assessment);
     if (decision.outcome !== candidate.evidence.direction) { aiRejected++; continue; }
-    const trade = simulateTrade({ ...candidate, aiOutcome: assessment.outcome }, bars, spreadPrice, lots, tickSize, tickValuePerLot, commissionPerLot);
+    const trade = simulateTrade({ ...candidate, aiOutcome: assessment.outcome }, bars, spreadPrice, slippagePrice, lots, tickSize, tickValuePerLot, commissionPerLot);
     if (!trade) continue;
     lastExitIndex = trade._exitIndex;
     delete trade._exitIndex;
@@ -157,7 +160,7 @@ export async function runHistoricalBacktest(input) {
       source: "MT5_BRIDGE_CLOSED_CANDLES"
     },
     assumptions: {
-      lots, spreadPrice, spreadSource: request.spreadSource || "USER_INPUT",
+      lots, spreadPrice, slippagePrice, spreadSource: request.spreadSource || "USER_INPUT",
       commissionPerLotRoundTurn: commissionPerLot, tickSize, tickValuePerLot,
       entry: "next M1 candle open; buy entry includes configured spread",
       sameCandleStopAndTarget: "stop loss first (conservative)",
