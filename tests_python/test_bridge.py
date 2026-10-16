@@ -61,9 +61,12 @@ class BridgeUnitTests(unittest.TestCase):
                 urlopen(url,timeout=2)
             self.assertEqual(caught.exception.code,401)
             request = Request(url,headers={"X-Bridge-Token":"test-bridge-key"})
-            with urlopen(request,timeout=2) as response:
+            try:
+                with urlopen(request,timeout=2) as response:
+                    self.fail("Expected an unavailable response without the MT5 package")
+            except HTTPError as response:
                 data=json.loads(response.read())
-                self.assertEqual(response.status,503)
+                self.assertEqual(response.code,503)
                 self.assertIn(data["error"],("MT5_PACKAGE_MISSING","MT5_INITIALIZE_FAILED","MT5_TERMINAL_DISCONNECTED","MT5_CONNECTION_ERROR"))
         finally:
             server.shutdown()
