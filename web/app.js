@@ -162,7 +162,7 @@ $("positions-table").addEventListener("click",async event => {
     const row = modify.closest("tr"); modify.disabled = true;
     try {
       const result = await api("/api/positions/modify",{method:"POST",body:JSON.stringify({ticket:Number(modify.dataset.modifyPosition),stopLoss:Number(row.querySelector(".position-sl").value),takeProfit:Number(row.querySelector(".position-tp").value)})});
-      $("scan-result").textContent = result.state === "CONFIRMED" ? "تم تأكيد تعديل SL/TP." : "نتيجة التعديل تحتاج مصالحة.";
+      $("scan-result").textContent = result.state === "CONFIRMED" ? (result.persisted===false ? "تم تأكيد تعديل SL/TP لدى الوسيط، لكن التخزين الدائم لم يتأكد." : "تم تأكيد تعديل SL/TP.") : "نتيجة التعديل تحتاج مصالحة.";
       await loadPositions();
     } catch(error) { $("scan-result").textContent = error.data?.message || error.message; }
     finally { modify.disabled = false; }
@@ -173,7 +173,7 @@ $("positions-table").addEventListener("click",async event => {
     close.disabled = true;
     try {
       const result = await api("/api/positions/close",{method:"POST",body:JSON.stringify({ticket})});
-      $("scan-result").textContent = result.state === "CONFIRMED" ? "تم تأكيد طلب الإغلاق من الوسيط." : "نتيجة الإغلاق تحتاج مصالحة؛ لن يعاد إرسال الطلب تلقائيًا.";
+      $("scan-result").textContent = result.state === "CONFIRMED" ? (result.persisted===false ? "تم تأكيد الإغلاق لدى الوسيط، لكن التخزين الدائم لم يتأكد." : "تم تأكيد طلب الإغلاق من الوسيط.") : "نتيجة الإغلاق تحتاج مصالحة؛ لن يعاد إرسال الطلب تلقائيًا.";
       await loadPositions();
     } catch(error) { $("scan-result").textContent = error.data?.message || error.message; }
     finally { close.disabled = false; }
