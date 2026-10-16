@@ -104,6 +104,7 @@ export function createAppServer(env = process.env) {
   let autoTradingEnabled = false;
   let aiProbePassed = false;
   let scannerTimer = null;
+  let nextScheduledScanAt = null;
   let scanInFlight = false;
   let settingsHydrated = false;
   let outboxInFlight = false;
@@ -390,11 +391,11 @@ export function createAppServer(env = process.env) {
       const analysis = analyzeClosedMarket({symbol:"XAUUSD",candles:normalized,now,maxM1AgeMs:120000,minimumM1Bars:35});
       if (analysis.status === "NO_ANALYSIS") {
         const entry=record("NO_ANALYSIS",analysis.reason,{latestClosedBarTime:analysis.latestClosedBarTime});
-        return {status:409,body:{error:analysis.reason,message:"البيانات غير كافية أو قديمة؛ لا توجد إشارة.",analysis,run:entry}};
+        return {status:409,body:{error:analysis.reason,message:"البيانات غير كافية أو قديمة؛ لا توجد إشارة.",analysis,chartCandles:normalized.M1.slice(-60),run:entry}};
       }
       if (analysis.status === "WAIT") {
         const entry=record("WAIT",analysis.reason,{metrics:analysis.metrics});
-        return {status:200,body:{status:"WAIT",message:"اكتمل التحليل الفني دون فرصة مطابقة؛ لم يتم إصدار إشارة.",analysis,run:entry}};
+        return {status:200,body:{status:"WAIT",message:"اكتمل التحليل الفني دون فرصة مطابقة؛ لم يتم إصدار إشارة.",analysis,chartCandles:normalized.M1.slice(-60),run:entry}};
       }
       const evidence = analysis.evidence[0];
       const candidateKey = evidence.strategyId + ":" + evidence.direction + ":" + analysis.latestClosedBarTime;
@@ -429,7 +430,7 @@ export function createAppServer(env = process.env) {
       if (!aiProvider) {
         await queueNotificationToEnabled("تنبيه النظام: مرشح فني لـ XAUUSD لم يُعتمد لأن مزود AI غير مهيأ. لا يوجد أمر تداول.","SYSTEM_ALERT","ai-not-configured:"+candidateKey);
         const entry=record("AI_NOT_CONFIGURED","TECHNICAL_CANDIDATE_ONLY",{metrics:analysis.metrics});
-        return {status:503,body:{error:"AI_NOT_CONFIGURED",message:"تم رصد مرشح فني، لكن AI غير مهيأ. لا يتم اعتماد اتجاه أو إرسال أمر.",analysis:{...analysis,evidence:analysis.evidence.map(({entryPrice,stopLoss,takeProfit,direction,strategyId})=>({entryPrice,stopLoss,takeProfit,direction,strategyId}))},run:entry}};
+        return {status:503,body:{error:"AI_NOT_CONFIGURED",message:"تم رصد مرشح فني، لكن AI غير مهيأ. لا يتم اعتماد اتجاه أو إرسال أمر.",analysis:{...analysis,evidence:analysis.evidence.map(({entryPrice,stopLoss,takeProfit,direction,strategyId})=>({entryPrice,stopLoss,takeProfit,direction,strategyId}))},chartCandles:normalized.M1.slice(-60),run:entry}};
       }
       let assessment;
       try {
@@ -582,7 +583,7 @@ export function createAppServer(env = process.env) {
           message:execution==="CONFIRMED" ? "تم تأكيد أمر Demo من الوسيط." : decision.outcome==="BUY"||decision.outcome==="SELL"
             ? "قرار تحليلي متوافق؛ "+executionDetail
             : "لم يتم اعتماد دخول بسبب الانتظار أو التعارض أو الرفض.",
-          reasonCodes:decision.reasonCodes,analysis,assessment,decision,notification,execution,executionDetail,run:entry
+          reasonCodes:decision.reasonCodes,analysis,assessment,decision,notification,execution,executionDetail,chartCandles:normalized.M1.slice(-60),run:entry
         }
       };
     } catch {
@@ -690,6 +691,7 @@ export function createAppServer(env = process.env) {
         autoTradingEnabled=false;
         if (scannerTimer) clearInterval(scannerTimer);
         scannerTimer=null;
+        nextScheduledScanAt=null;
         return sendJson(res,200,{ok:true,enabled:false});
       }
       if (!bridge || !aiProvider) return sendJson(res,409,{error:"DEPENDENCIES_NOT_CONFIGURED",message:"يلزم ضبط جسر MT5 ومزود AI قبل تفعيل السكانر."});
@@ -697,7 +699,8 @@ export function createAppServer(env = process.env) {
       if (!health.ok || health.value.state!=="CONNECTED" || health.value.environment!=="DEMO") return sendJson(res,409,{error:"MT5_NOT_READY",message:"لا يمكن تفعيل السكانر دون حساب MT5 Demo متصل."});
       scannerEnabled=true;
       if (scannerTimer) clearInterval(scannerTimer);
-      scannerTimer=setInterval(()=>{ void performScan("SCHEDULED"); },60000);
+      nextScheduledScanAt=Date.now()+60000;
+      scannerTimer=setInterval(()=>{ nextScheduledScanAt=Date.now()+60000; void performScan("SCHEDULED"); },60000);
       scannerTimer.unref?.();
       void performScan("SCHEDULED");
       return sendJson(res,200,{ok:true,enabled:true,intervalSeconds:60});
