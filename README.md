@@ -1,47 +1,76 @@
 # XAUUSD AI Trading Bot
 
-An independent, safety-first XAUUSD trading system. The project is built from scratch and is not derived from GB-V5 or GB-V6.
+Independent XAUUSD trading system, built from scratch. It does not import or modify GB-V5 or GB-V6.
 
-## Current status
+## Current implementation
 
-- Specification: approved for Phase 1 foundation work.
-- Trading execution: not implemented; no live trading.
-- MT5 integration: not implemented.
-- AI decision engine: not implemented.
-- UI: not implemented.
-- Phase 1 status: in progress until CI evidence confirms acceptance criteria.
+- Strict TypeScript domain contracts, explicit opportunity lifecycle, risk sizing and execution-state contracts.
+- Closed-candle market normalization and deterministic EMA, RSI, MACD and ATR calculations.
+- Authenticated local MT5 bridge in Python, with Demo-account enforcement and SQLite idempotency ledger.
+- Configurable OpenAI-compatible AI assessment adapter; AI responses are analysis only and cannot directly place orders.
+- Supabase REST persistence adapters and initial schema migration with RLS and atomic versioned settings RPC.
+- Arabic RTL dashboard, scanner manual/scheduled controls, risk settings and Telegram multi-chat discovery.
+- GitHub Actions runs TypeScript tests and Python bridge safety tests.
 
-## Locked product decisions
+## Run the dashboard locally
 
-- XAUUSD; M1 entry timing with M5/M15/H1 context.
-- Scanner scheduled every 60 seconds plus manual scan.
-- Hybrid strategy style leaning toward scalping; balanced opportunity frequency.
-- Internal deterministic technical analysis plus an AI decision provider configurable through the UI.
-- MT5 is the market-data source; Demo first. Live requires explicit approval and verified safety gates.
-- Arabic-first RTL dashboard with separate sections for scanner, analysis/AI, risk/capital, MT5, trades/journal, Telegram, settings and health.
-- Risk is user-configurable as either a percentage of reference capital or a fixed cash amount; user sets minimum RR.
-- Multiple Telegram chat IDs, discovery where Telegram updates make them available, and per-chat notification controls.
-- No claim of profitability or defect-free software without evidence.
+Requirements: Node.js 22.16 or newer.
 
-## Engineering principles
+```bash
+npm ci
+npm start
+```
 
-- Strict domain contracts and explicit state transitions.
-- Fail closed for missing security-critical configuration and invalid data.
-- No order execution from an AI response alone.
-- Idempotent execution intents and broker reconciliation before retrying ambiguous orders.
-- No silent persistence failures.
-- Tests and CI evidence required before a phase is considered complete.
-- No production changes or live trading without explicit user approval.
+Open http://127.0.0.1:3000. The dashboard binds to loopback by default. Until the bridge and AI are configured, the scanner deliberately returns NOT_READY and does not fabricate signals.
 
-## Phase plan
+## Connect an MT5 Demo terminal (Windows)
 
-1. Foundation
-2. Market Data & Analysis
-3. Opportunity Lifecycle
-4. Risk & Execution
-5. AI Decision Engine
-6. Persistence & Recovery
-7. Dashboard & Telegram
-8. Integration, Security & Release
+Install the MT5 Python package in the Python environment used by the terminal bridge:
 
-See `docs/PROJECT_SPEC.md`, `docs/ARCHITECTURE.md`, `docs/PHASE_1_ACCEPTANCE.md`, and `docs/TEST_STRATEGY.md` for the current specification and acceptance criteria.
+```powershell
+py -m pip install -r mt5_bridge/requirements.txt
+```
+
+Generate a private bridge token and set the same value in both processes. Example PowerShell commands:
+
+```powershell
+$env:MT5_BRIDGE_TOKEN = py -c "import secrets; print(secrets.token_urlsafe(32))"
+$env:MT5_BRIDGE_PORT = "8765"
+py mt5_bridge/bridge.py
+```
+
+In a second PowerShell window, set the token to the same value printed in the first window, then start the dashboard:
+
+```powershell
+$env:MT5_BRIDGE_URL = "http://127.0.0.1:8765"
+$env:MT5_BRIDGE_TOKEN = "paste-the-same-local-token-here"
+$env:AI_BASE_URL = "https://your-openai-compatible-provider/v1"
+$env:AI_PROVIDER_ID = "your-provider"
+$env:AI_MODEL_ID = "your-model"
+$env:AI_API_KEY = "your-secret-key"
+npm start
+```
+
+The AI key and bridge token are server-side environment variables; never commit them or place them in dashboard code. Keep MetaTrader logged into a Demo account. The bridge rejects non-Demo accounts and refuses Live orders.
+
+## Database configuration
+
+Set `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` on the server only. Apply the SQL migration in `supabase/migrations/` to a dedicated Supabase project before expecting durable settings. RLS is enabled and no browser-facing table policies are created by this migration.
+
+## Validation
+
+```bash
+npm ci
+npm test
+python -m unittest discover -s tests_python -v
+```
+
+## Safety boundaries
+
+- Live trading is disabled and not exposed as a dashboard option.
+- The scanner can run only after MT5 Demo and AI are configured and health checks pass.
+- Analysis decisions are not execution authorization. Execution requires separate risk validation, durable intent persistence, Demo verification and broker reconciliation.
+- Ambiguous MT5 order results are not blindly retried.
+- Do not infer profitability from unit tests or architecture completeness.
+
+See `docs/PROJECT_SPEC.md`, `docs/ARCHITECTURE.md`, `docs/PHASE_1_ACCEPTANCE.md`, `docs/TEST_STRATEGY.md`, and `docs/PHASE_STATUS.md`.
