@@ -89,6 +89,23 @@ class BridgeUnitTests(unittest.TestCase):
             bridge_module.mt5 = previous
 
 
+
+    def test_health_distinguishes_market_connected_from_execution_ready(self):
+        import mt5_bridge.bridge as bridge_module
+        previous = bridge_module.mt5
+        try:
+            bridge_module.mt5 = FakeMT5(trade_mode=0, margin_mode=2)
+            healthy = self.service.health()
+            self.assertEqual(healthy["state"],"CONNECTED")
+            self.assertTrue(healthy["executionReady"])
+            bridge_module.mt5 = FakeMT5(trade_mode=0, margin_mode=0)
+            netting = self.service.health()
+            self.assertEqual(netting["state"],"CONNECTED")
+            self.assertFalse(netting["executionReady"])
+            self.assertEqual(netting["reason"],"HEDGING_ACCOUNT_REQUIRED")
+        finally:
+            bridge_module.mt5 = previous
+
     def test_live_account_is_rejected_before_any_order_submission(self):
         import mt5_bridge.bridge as bridge_module
         previous = bridge_module.mt5
