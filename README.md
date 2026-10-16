@@ -69,7 +69,7 @@ python -m unittest discover -s tests_python -v
 
 - Live trading is disabled and not exposed as a dashboard option.
 - The scanner can run only after MT5 Demo and AI are configured and health checks pass.
-- Auto-execution starts disabled and can only be armed for Demo after scanner, AI probe, risk settings, Supabase persistence and Demo-account checks pass. Stopping the scanner disarms it.
+- Auto-execution starts disabled and can only be armed for Demo after scanner, AI probe, risk settings, Supabase persistence and Demo-account checks pass. Netting accounts or any unowned XAUUSD position block automation. Stopping the scanner disarms it.
 - Analysis decisions are not execution authorization. Execution requires separate risk validation, durable intent persistence, Demo verification and broker reconciliation.
 - Ambiguous MT5 order results are not blindly retried.
 - Do not infer profitability from unit tests or architecture completeness.
