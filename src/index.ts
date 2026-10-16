@@ -12,3 +12,4 @@ export * from "./analysis/technical-analysis.js";
 export * from "./opportunities/lifecycle.js";
 export * from "./risk/risk-manager.js";
 export * from "./execution/mt5-demo-port.js";
+export * from "./ai/openai-compatible-provider.js";
