@@ -443,8 +443,8 @@ def create_handler(service: BridgeService):
     class Handler(BaseHTTPRequestHandler):
         server_version = "XAUUSD-MT5-Bridge"
         def log_message(self, fmt: str, *args: Any) -> None:
-            # Do not log request bodies, authorization headers or credentials.
-            super().log_message(fmt, *args)
+            # Do not log request paths, query parameters, authorization headers or credentials.
+            return None
 
         def _send(self, status: int, body: dict[str, Any]) -> None:
             data = json.dumps(body, separators=(",", ":"), allow_nan=False).encode("utf-8")
@@ -520,8 +520,7 @@ def main() -> None:
         raise SystemExit("MT5_BRIDGE_TOKEN is required; refusing to start without bridge authentication.")
     host = os.getenv("MT5_BRIDGE_HOST", "127.0.0.1")
     if host not in ("127.0.0.1", "localhost", "::1"):
-        if os.getenv("MT5_BRIDGE_ALLOW_REMOTE", "").lower() != "true":
-            raise SystemExit("Remote binding is disabled. Use loopback or explicitly configure a secured network.")
+        raise SystemExit("Remote binding is disabled. Keep the MT5 bridge on loopback and use a secured local deployment.")
     port = int(os.getenv("MT5_BRIDGE_PORT", "8765"))
     db_path = os.getenv("MT5_BRIDGE_DB", str(ROOT / "state.sqlite3"))
     service = BridgeService(token, IdempotencyStore(db_path))
