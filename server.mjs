@@ -434,10 +434,11 @@ export function createAppServer(env = process.env) {
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const host = process.env.HOST ?? "127.0.0.1";
   if (!["127.0.0.1","localhost","::1"].includes(host)) {
-    process.stderr.write("Remote dashboard binding is disabled. Keep the dashboard on loopback.\\n");
+    process.stderr.write("Remote dashboard binding is disabled. Keep the dashboard on loopback.\n");
     process.exitCode = 1;
   } else {
-  const port = Number(process.env.PORT ?? 3000);
-  const server = createAppServer();
-  server.listen(port,host,()=>process.stdout.write("XAUUSD dashboard listening on "+host+":"+port+"\n"));
+    const port = Number(process.env.PORT ?? 3000);
+    const server = createAppServer();
+    server.listen(port,host,()=>process.stdout.write("XAUUSD dashboard listening on "+host+":"+port+"\n"));
+  }
 }
