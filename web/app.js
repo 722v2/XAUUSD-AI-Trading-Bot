@@ -35,6 +35,7 @@ async function refreshHealth() {
     setStatus("scanner-status",health.scanner.state);
     setStatus("execution-status",health.execution.state);
     $("scanner-toggle").textContent = health.scanner.state === "CONNECTED" ? "إيقاف السكانر" : "تشغيل السكانر";
+    $("auto-trading-toggle").textContent = health.execution.state === "ARMED_DEMO" ? "إيقاف التنفيذ الآلي (Demo)" : "تفعيل التنفيذ الآلي (Demo)";
     $("scanner-title").textContent = health.scanner.label;
     $("scanner-detail").textContent = health.scanner.reason;
     $("mt5-title").textContent = health.marketData.label;
@@ -66,6 +67,7 @@ async function loadConfig() {
     }
     updateRiskMode();
     $("scanner-toggle").textContent = config.scannerEnabled ? "إيقاف السكانر" : "تشغيل السكانر";
+    $("auto-trading-toggle").textContent = config.autoTradingEnabled ? "إيقاف التنفيذ الآلي (Demo)" : "تفعيل التنفيذ الآلي (Demo)";
   } catch {}
 }
 $("risk-mode").addEventListener("change",updateRiskMode);
@@ -103,6 +105,16 @@ async function loadScanLog() {
     $("scan-log").innerHTML = scanLog.length ? scanLog.map(item => `<tr><td>${escapeHtml(item.time)}</td><td>${escapeHtml(item.stage)}</td><td>${escapeHtml(item.status)}</td><td>${escapeHtml(item.details)}</td></tr>`).join("") : '<tr><td colspan="4" class="empty">لا توجد دورات فحص مسجلة.</td></tr>';
   } catch {}
 }
+$("auto-trading-toggle").addEventListener("click",async () => {
+  const enabled = $("auto-trading-toggle").textContent.includes("تفعيل");
+  $("auto-trading-toggle").disabled = true;
+  try {
+    await api("/api/trading/auto",{method:"POST",body:JSON.stringify({enabled})});
+    $("scan-result").textContent = enabled ? "تم تفعيل التنفيذ الآلي على Demo. التداول الحقيقي ما زال معطّلًا." : "تم إيقاف التنفيذ الآلي.";
+    await refreshHealth(); await loadConfig();
+  } catch(error) { $("scan-result").textContent = error.data?.message || error.message; }
+  finally { $("auto-trading-toggle").disabled = false; }
+});
 $("scan-now").addEventListener("click",async () => {
   $("scan-now").disabled = true; $("scan-result").textContent = "جارٍ التحقق من جاهزية البيانات…";
   try {
