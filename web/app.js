@@ -294,7 +294,7 @@ function renderBacktestResult(result) {
   const start=data.startTime?new Date(data.startTime).toLocaleString():"—";
   const end=data.endTime?new Date(data.endTime).toLocaleString():"—";
   const assumptions=result.assumptions||{};
-  $("backtest-data-note").textContent=`مصدر البيانات: MT5 Bridge · ${start} — ${end} · السبريد ${assumptions.spreadPrice??"—"} · العمولة لكل Lot ${assumptions.commissionPerLotRoundTurn??"—"} · لا توجد أوامر تداول.`;
+  $("backtest-data-note").textContent=`مصدر البيانات: MT5 Bridge · ${start} — ${end} · السبريد ${assumptions.spreadPrice??"—"} · الانزلاق ${assumptions.slippagePrice??"—"} · العمولة لكل Lot ${assumptions.commissionPerLotRoundTurn??"—"} · لا توجد أوامر تداول.`;
   const trades=Array.isArray(result.trades)?result.trades:[];
   $("backtest-trades").innerHTML=trades.length?trades.slice().reverse().map(trade=>`<tr><td>${escapeHtml(new Date(trade.signalTime).toLocaleString())}</td><td>${trade.direction==="BUY"?"شراء":"بيع"}</td><td>${escapeHtml(trade.strategyId)}</td><td>${escapeHtml(trade.entryPrice)}</td><td>${escapeHtml(trade.exitPrice)}</td><td>${escapeHtml(trade.exitReason)}</td><td class="${trade.netPnl>=0?"profit-text":"loss-text"}">${escapeHtml(money(trade.netPnl))}</td><td>${escapeHtml(trade.rMultiple)}</td></tr>`).join(""):'<tr><td colspan="8" class="empty">لم ينتج الاختبار صفقات متوافقة مع قرار AI ضمن الإعدادات الحالية.</td></tr>';
   $("backtest-results").hidden=false;
@@ -308,7 +308,7 @@ $("backtest-form").addEventListener("submit",async event=>{
   const request={
     providerId,modelId,barsCount:Number($("backtest-bars").value),lots:Number($("backtest-lots").value),
     spreadPrice:spreadText===""?null:Number(spreadText),
-    commissionPerLot:Number($("backtest-commission").value),maxAiCalls:Number($("backtest-max-ai").value)
+    slippagePrice:Number($("backtest-slippage").value),commissionPerLot:Number($("backtest-commission").value),maxAiCalls:Number($("backtest-max-ai").value)
   };
   button.disabled=true;
   $("backtest-results").hidden=true;
