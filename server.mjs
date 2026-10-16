@@ -61,6 +61,7 @@ export function createAppServer(env = process.env) {
   let scannerRuns = [];
   let scannerEnabled = false;
   let autoTradingEnabled = false;
+  let aiProbePassed = false;
   let scannerTimer = null;
   let scanInFlight = false;
   const config = { aiProviderId:env.AI_PROVIDER_ID ?? null, aiModelId:env.AI_MODEL_ID ?? null };
@@ -246,6 +247,7 @@ export function createAppServer(env = process.env) {
         return {status:503,body:{error:"AI_NOT_CONFIGURED",message:"تم رصد مرشح فني، لكن AI غير مهيأ. لا يتم اعتماد اتجاه أو إرسال أمر.",analysis:{...analysis,evidence:analysis.evidence.map(({entryPrice,stopLoss,takeProfit,direction,strategyId})=>({entryPrice,stopLoss,takeProfit,direction,strategyId}))},run:entry}};
       }
       const assessment = await aiProvider.assess({symbol:"XAUUSD",evidence:analysis.evidence,now});
+      aiProbePassed = true;
       if (Date.parse(assessment.expiresAt) <= Date.now() || Date.parse(evidence.expiresAt) <= Date.now()) {
         if (supabase) await supabase.updateRecord("strategy_candidates",candidateId,{status:"EXPIRED"});
         const entry=record("EXPIRED","AI_ASSESSMENT_EXPIRED");
@@ -385,6 +387,7 @@ export function createAppServer(env = process.env) {
         }
       };
     } catch {
+      aiProbePassed=false;
       await queueNotificationToEnabled("تنبيه النظام: فشلت دورة فحص XAUUSD. راجع سجل النظام قبل إعادة المحاولة.","SYSTEM_ALERT","scan-failure:"+runId);
       const entry=record("FAILED","UNEXPECTED_SCAN_FAILURE");
       return {status:503,body:{error:"SCAN_FAILED",message:"فشل الفحص؛ تم تسجيله دون إعلان نجاح.",run:entry}};
@@ -412,7 +415,7 @@ export function createAppServer(env = process.env) {
       const aiConfigured = Boolean(aiProvider);
       return sendJson(res,200,{
         marketData:{state:marketState,label:marketState==="CONNECTED"?"MT5 Demo متصل":"MT5 غير متصل",reason:marketState==="CONNECTED"?"تم تأكيد حساب Demo.":bridgeHealth?.reason??"لم يتم ضبط جسر MT5؛ لا توجد بيانات سوق فعلية."},
-        ai:{state:aiConfigured?"CONFIGURED_NOT_TESTED":"NOT_CONFIGURED",label:aiConfigured?"إعدادات موجودة · الاتصال يحتاج اختبارًا":"لم يتم الاتصال"},
+        ai:{state:!aiConfigured?"NOT_CONFIGURED":aiProbePassed?"CONNECTED":"CONFIGURED_NOT_TESTED",label:!aiConfigured?"لم يتم الاتصال":aiProbePassed?"AI متصل":"إعدادات موجودة · الاتصال يحتاج اختبارًا"},
         database:{state:databaseState,label:databaseState==="CONNECTED"?"Supabase متصل":"Supabase غير متصل"},
         telegram:{state:telegram.configured?"CONFIGURED":"NOT_CONFIGURED",label:telegram.configured?"البوت مهيأ":"التنبيهات غير جاهزة"},
         scanner:{state:scannerEnabled?"CONNECTED":"NOT_READY",label:scannerEnabled?"السكانر مفعّل":"السكانر غير جاهز",reason:scannerEnabled?"يفحص كل 60 ثانية؛ التنفيذ يعتمد على إعدادات Demo والمخاطر.":"يتطلب اتصال MT5 Demo وتهيئة AI."},
@@ -480,6 +483,7 @@ export function createAppServer(env = process.env) {
       try {
         const probe=await aiProvider.assess({symbol:"XAUUSD",evidence:[],now:new Date().toISOString()});
         if (probe.outcome==="BUY" || probe.outcome==="SELL") return sendJson(res,409,{error:"AI_PROBE_UNSAFE",message:"مزود AI أعاد اتجاه تداول دون أدلة؛ التنفيذ الآلي مرفوض."});
+        aiProbePassed=true;
       } catch { return sendJson(res,503,{error:"AI_PROVIDER_UNAVAILABLE",message:"اختبار اتصال AI فشل؛ التنفيذ الآلي مرفوض."}); }
       autoTradingEnabled=true;
       return sendJson(res,200,{ok:true,enabled:true,environment:"DEMO",liveTradingEnabled:false});
