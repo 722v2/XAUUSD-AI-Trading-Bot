@@ -51,7 +51,7 @@ $env:AI_API_KEY = "your-secret-key"
 npm start
 ```
 
-The AI key and bridge token are server-side environment variables; never commit them or place them in dashboard code. Keep MetaTrader logged into a Demo account. The bridge rejects non-Demo accounts and refuses Live orders.
+The AI key and bridge token are server-side environment variables; never commit them or place them in dashboard code. Keep MetaTrader logged into a Demo hedging account. The bridge rejects non-Demo accounts, blocks automated execution on ambiguous netting accounts, and refuses Live orders. It manages only bot-owned positions.
 
 ## Database configuration
 
