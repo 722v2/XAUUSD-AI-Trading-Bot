@@ -549,7 +549,7 @@ export function createAppServer(env = process.env) {
       await hydrateSettings();
       if (!scannerEnabled || !bridge || !aiProvider || !supabase || !riskSettings) return sendJson(res,409,{error:"EXECUTION_PREREQUISITES_MISSING",message:"يلزم تفعيل السكانر وضبط MT5 Demo وAI والمخاطرة وSupabase قبل التنفيذ الآلي."});
       const health=await bridge.health();
-      if (!health.ok || health.value.state!=="CONNECTED" || health.value.environment!=="DEMO" || !health.value.accountLogin) return sendJson(res,409,{error:"MT5_DEMO_NOT_CONFIRMED",message:"لم يتم تأكيد حساب Demo؛ التنفيذ الآلي ما زال متوقفًا."});
+      if (!health.ok || health.value.state!=="CONNECTED" || health.value.environment!=="DEMO" || !health.value.accountLogin || health.value.executionReady!==true) return sendJson(res,409,{error:"MT5_DEMO_NOT_CONFIRMED",message:"يلزم حساب MT5 Demo من نوع Hedging مع تأكيد جاهزية التنفيذ؛ التنفيذ الآلي ما زال متوقفًا."});
       try { await supabase.readCurrent(); } catch { return sendJson(res,503,{error:"PERSISTENCE_UNAVAILABLE",message:"قاعدة البيانات غير متاحة؛ التنفيذ الآلي مرفوض."}); }
       try {
         const probe=await aiProvider.assess({symbol:"XAUUSD",evidence:[],now:new Date().toISOString()});
