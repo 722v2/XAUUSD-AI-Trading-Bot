@@ -361,6 +361,7 @@ export function createAppServer(env = process.env) {
       }
       const reconciliation=await reconcilePendingExecutionIntents(health.value);
       if (!reconciliation.ok) {
+        autoTradingEnabled=false;
         const entry=record("RECONCILIATION_REQUIRED",reconciliation.reason);
         return {status:503,body:{error:"RECONCILIATION_REQUIRED",message:"هناك نية تنفيذ سابقة تحتاج مصالحة؛ تم منع أي دخول جديد.",run:entry}};
       }
@@ -383,6 +384,7 @@ export function createAppServer(env = process.env) {
       if (autoTradingEnabled) {
         const management = await manageOpenPositions(normalized,health.value);
         if (!management.ok) {
+          autoTradingEnabled=false;
           const entry=record("RECONCILIATION_REQUIRED",management.reason);
           return {status:503,body:{error:"POSITION_MANAGER_NOT_READY",message:"تعذرت مصالحة أو حماية الصفقات المفتوحة؛ تم منع أي دخول جديد.",run:entry}};
         }
@@ -484,6 +486,7 @@ export function createAppServer(env = process.env) {
       let executionDetail = "التنفيذ الآلي غير مفعّل.";
       if ((decision.outcome === "BUY" || decision.outcome === "SELL") && autoTradingEnabled) {
         if (notification.failed > 0 || notification.reason === "OUTBOX_UNAVAILABLE") {
+          autoTradingEnabled=false;
           const entry=record("FAILED","NOTIFICATION_OUTBOX_UNAVAILABLE");
           return {status:503,body:{error:"NOTIFICATION_OUTBOX_UNAVAILABLE",message:"تعذر ضمان تسجيل تنبيه القرار؛ تم منع إرسال الأمر.",decision,execution:"NOT_SUBMITTED",run:entry}};
         }
