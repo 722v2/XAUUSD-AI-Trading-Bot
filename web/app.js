@@ -3,7 +3,7 @@ const scanLog = [];
 const labels = {
   CONNECTED: ["متصل", "ok-tag"], CONFIGURED: ["مهيأ", "ok-tag"], CONFIGURED_NOT_TESTED: ["مهيأ · غير مختبر", "warn-tag"],
   DISCONNECTED: ["غير متصل", "error-tag"], NOT_CONFIGURED: ["غير مهيأ", "muted-tag"], NOT_READY: ["غير جاهز", "warn-tag"],
-  DEGRADED: ["متدهور", "warn-tag"], HEALTHY: ["سليم", "ok-tag"], DISABLED: ["معطّل", "muted-tag"]
+  DEGRADED: ["متدهور", "warn-tag"], HEALTHY: ["سليم", "ok-tag"], DISABLED: ["معطّل", "muted-tag"], ARMED_DEMO: ["مفعّل · Demo", "warn-tag"]
 };
 function setStatus(id, state, fallback) {
   const node = $(id); const [label, css] = labels[state] || [fallback || state, "muted-tag"];
