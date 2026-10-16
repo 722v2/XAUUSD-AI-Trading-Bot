@@ -10,6 +10,7 @@ Independent XAUUSD trading system, built from scratch. It does not import or mod
 - Configurable OpenAI-compatible AI assessment adapter; AI responses are analysis only and cannot directly place orders.
 - Supabase REST persistence adapters and initial schema migration with RLS and atomic versioned settings RPC.
 - Arabic RTL dashboard with scanner countdown, M1 candlestick chart, technical metrics/evidence, risk settings, Demo position monitoring/modification/closure, and Telegram multi-chat discovery with a persistent notification outbox when Supabase is configured.
+- Historical AI backtesting panel: retrieves closed XAUUSD candles from the authenticated MT5 bridge (up to 5,000 M1 bars plus M5/M15/H1 context), tests the selected allowlisted AI model, models bid/ask spread, slippage and round-turn commission, and reports win rate, net P/L, profit factor, drawdown and individual trades. Backtests never submit orders.
 - GitHub Actions runs TypeScript tests and Python bridge safety tests.
 
 ## Run the dashboard locally
