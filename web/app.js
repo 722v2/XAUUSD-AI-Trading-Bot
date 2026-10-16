@@ -398,7 +398,7 @@ document.querySelectorAll(".nav-link").forEach(link => link.addEventListener("cl
   document.querySelectorAll(".nav-link").forEach(item=>item.classList.remove("active")); link.classList.add("active");
 }));
 updateRiskMode();
-refreshHealth(); loadConfig(); loadTelegramChats(); loadScanLog(); loadPositions(); loadLatestScan();
+refreshHealth(); loadConfig(); loadAIProviders(); loadTelegramChats(); loadScanLog(); loadPositions(); loadLatestScan();
 setInterval(()=>{void refreshHealth();},10000);
 setInterval(updateCountdown,1000);
 setInterval(()=>{void loadLatestScan();void loadScanLog();void loadPositions();},15000);
