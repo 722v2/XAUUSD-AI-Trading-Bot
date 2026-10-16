@@ -107,6 +107,7 @@ export function createAppServer(env = process.env) {
   let scannerTimer = null;
   let nextScheduledScanAt = null;
   let scanInFlight = false;
+  let backtestInFlight = false;
   let settingsHydrated = false;
   let outboxInFlight = false;
   async function sendWithOutbox(chatId, message, messageType, dedupeKey) {
@@ -695,6 +696,8 @@ export function createAppServer(env = process.env) {
         spreadPrice=quote.value.ask-quote.value.bid;
         spreadSource="CURRENT_MT5_QUOTE";
       }
+      if (backtestInFlight) return sendJson(res,409,{error:"BACKTEST_ALREADY_RUNNING",message:"يوجد اختبار تاريخي قيد التنفيذ؛ انتظر حتى ينتهي."});
+      backtestInFlight=true;
       try {
         const result=await runHistoricalBacktest({
           bridge,aiProvider:testProvider,aiProviderId:provider.id,aiModelId:body.modelId,
@@ -704,7 +707,7 @@ export function createAppServer(env = process.env) {
         return sendJson(res,200,result);
       } catch(error) {
         return sendJson(res,error.status??503,{error:error.code??"BACKTEST_FAILED",message:error.message??"فشل الاختبار التاريخي."});
-      }
+      } finally { backtestInFlight=false; }
     }
     if (method === "POST" && url.pathname === "/api/config/risk") {
       let body;
