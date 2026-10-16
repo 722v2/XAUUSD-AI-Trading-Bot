@@ -15,3 +15,4 @@ export * from "./execution/mt5-demo-port.js";
 export * from "./ai/openai-compatible-provider.js";
 export * from "./persistence/supabase-rest.js";
 export * from "./telegram/telegram-client.js";
+export * from "./marketdata/mt5-bridge-client.js";
