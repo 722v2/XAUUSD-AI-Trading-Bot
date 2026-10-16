@@ -76,7 +76,7 @@ export function analyzeClosedMarket(input: TechnicalAnalysisInput): TechnicalAna
   const direction: Direction = up ? "BUY" : "SELL";
   const entryPrice = latest.close;
   const stopLoss = direction === "BUY" ? entryPrice - 1.5 * av : entryPrice + 1.5 * av;
-  const takeProfit = direction === "BUY" ? entryPrice + 2 * av : entryPrice - 2 * av;
+  const takeProfit = direction === "BUY" ? entryPrice + 3 * av : entryPrice - 3 * av;
   const contextCodes = Object.entries(higherTimeframeContext).map(([timeframe, trend]) => `${timeframe}_${trend}`);
   const evidence: TechnicalEvidence = {
     strategyId: "M1_EMA_MACD_RSI_ATR_V1",
