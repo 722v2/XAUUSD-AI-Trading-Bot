@@ -13,6 +13,18 @@ test('MT5 bridge client authenticates and parses readiness state', async () => {
   assert.equal(captured.headers['X-Bridge-Token'],'bridge-test-token');
   assert.equal(result.value.liveTradingEnabled,false);
 });
+test('MT5 bridge client requests closed historical candles with an extended data timeout', async () => {
+  let captured;
+  const client = new MT5BridgeClient({baseUrl:'http://127.0.0.1:8765',token:'bridge-test-token'},async (url,init) => {
+    captured={url:String(url),token:init.headers['X-Bridge-Token'],signal:init.signal};
+    return new Response(JSON.stringify({symbol:'XAUUSD',timeframe:'M1',candles:[]}),{status:200});
+  });
+  const result=await client.candles('M1',5000);
+  assert.equal(result.ok,true);
+  assert.match(captured.url,/\/market\/candles\?timeframe=M1&count=5000$/);
+  assert.equal(captured.token,'bridge-test-token');
+  assert.ok(captured.signal);
+});
 test('MT5 bridge client blocks remote plain HTTP and missing token', () => {
   assert.throws(()=>new MT5BridgeClient({baseUrl:'http://remote.example',token:'x'}),/HTTPS/);
   assert.throws(()=>new MT5BridgeClient({baseUrl:'http://127.0.0.1:8765',token:' '}),/token/);
