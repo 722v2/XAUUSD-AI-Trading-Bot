@@ -109,6 +109,28 @@ export class SupabaseRestRepository implements ExecutionIntentRepository, Runtim
     if (!Array.isArray(data) || !data[0] || !isRecord(data[0])) return { ok: false, errorCode: "UNKNOWN" };
     return { ok: true, value: Object.freeze({ ...data[0] }) };
   }
+  async findCandidateByKey(key: string): Promise<Readonly<Record<string, unknown>> | null> {
+    const response = await this.#request(`/strategy_candidates?candidate_key=eq.${encodeURIComponent(key)}&select=*`);
+    if (!response.ok) throw new Error("Supabase candidate lookup failed");
+    const data: unknown = await response.json();
+    if (!Array.isArray(data) || !data[0] || !isRecord(data[0])) return null;
+    return Object.freeze({ ...data[0] });
+  }
+  async updateRecord(
+    table: "scanner_runs" | "strategy_candidates" | "execution_intents",
+    id: string,
+    payload: Readonly<Record<string, unknown>>
+  ): Promise<PersistResult<{ readonly updated: boolean }>> {
+    if (!isUuid(id)) return { ok: false, errorCode: "UNKNOWN" };
+    const response = await this.#request(`/${table}?id=eq.${encodeURIComponent(id)}`, {
+      method: "PATCH", headers: { Prefer: "return=representation" }, body: JSON.stringify(payload)
+    }).catch(() => null);
+    if (!response) return { ok: false, errorCode: "STORAGE_UNAVAILABLE" };
+    if (!response.ok) return { ok: false, errorCode: response.status >= 500 ? "STORAGE_UNAVAILABLE" : "UNKNOWN" };
+    let data: unknown;
+    try { data = await response.json(); } catch { return { ok: false, errorCode: "UNKNOWN" }; }
+    return { ok: true, value: { updated: Array.isArray(data) && data.length > 0 } };
+  }
   async updateExecutionIntentStatus(
     id: ExecutionIntentId,
     status: "SUBMITTED" | "CONFIRMED" | "REJECTED" | "UNKNOWN" | "RECONCILIATION_REQUIRED" | "CANCELLED"
