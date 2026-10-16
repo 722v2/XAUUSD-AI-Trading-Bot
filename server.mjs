@@ -165,12 +165,14 @@ export function createAppServer(env = process.env) {
       if (!livePositions.ok || !quote.ok || !spec.ok || livePositions.value.environment!=="DEMO" || livePositions.value.accountLogin!==health.accountLogin) {
         return {ok:false,reason:"POSITION_RECONCILIATION_UNAVAILABLE"};
       }
+      if (livePositions.value.positions.some(position=>!position.ownedByBot)) return {ok:false,reason:"UNOWNED_XAUUSD_POSITION_CONFLICT"};
+      const botPositions=livePositions.value.positions.filter(position=>position.ownedByBot);
       const m1=normalized.M1;
       const atrValues=atr(m1.map(bar=>bar.high),m1.map(bar=>bar.low),m1.map(bar=>bar.close),14);
       const atrValue=atrValues[atrValues.length-1];
       if (atrValue===undefined || !Number.isFinite(atrValue) || atrValue<=0) return {ok:false,reason:"POSITION_ATR_UNAVAILABLE"};
       const accountLogin=String(health.accountLogin);
-      const liveTickets=new Set(livePositions.value.positions.map(position=>String(position.ticket)));
+      const liveTickets=new Set(botPositions.map(position=>String(position.ticket)));
       const databasePositions=await supabase.listOpenPositions(accountLogin);
       for (const stored of databasePositions) {
         if (typeof stored.id!=="string" || typeof stored.broker_position_id!=="string") continue;
@@ -181,7 +183,7 @@ export function createAppServer(env = process.env) {
         }
       }
       let changed=0;
-      for (const position of livePositions.value.positions) {
+      for (const position of botPositions) {
         const existing=databasePositions.find(item=>item.broker_position_id===String(position.ticket));
         const storedInitial=Number(existing?.initial_stop_loss ?? existing?.stop_loss);
         const initialStopLoss=Number.isFinite(storedInitial) && storedInitial>0 ? storedInitial : position.stopLoss;
@@ -553,6 +555,8 @@ export function createAppServer(env = process.env) {
       if (!scannerEnabled || !bridge || !aiProvider || !supabase || !riskSettings) return sendJson(res,409,{error:"EXECUTION_PREREQUISITES_MISSING",message:"يلزم تفعيل السكانر وضبط MT5 Demo وAI والمخاطرة وSupabase قبل التنفيذ الآلي."});
       const health=await bridge.health();
       if (!health.ok || health.value.state!=="CONNECTED" || health.value.environment!=="DEMO" || !health.value.accountLogin || health.value.executionReady!==true) return sendJson(res,409,{error:"MT5_DEMO_NOT_CONFIRMED",message:"يلزم حساب MT5 Demo من نوع Hedging مع تأكيد جاهزية التنفيذ؛ التنفيذ الآلي ما زال متوقفًا."});
+      const positions=await bridge.positions();
+      if (!positions.ok || positions.value.positions.some(position=>!position.ownedByBot)) return sendJson(res,409,{error:"UNOWNED_XAUUSD_POSITION_CONFLICT",message:"يوجد مركز XAUUSD لا يمكن تأكيد ملكيته للبوت؛ أغلقه أو افحصه يدويًا قبل تفعيل التنفيذ الآلي."});
       try { await supabase.readCurrent(); } catch { return sendJson(res,503,{error:"PERSISTENCE_UNAVAILABLE",message:"قاعدة البيانات غير متاحة؛ التنفيذ الآلي مرفوض."}); }
       try {
         const probe=await aiProvider.assess({symbol:"XAUUSD",evidence:[],now:new Date().toISOString()});
@@ -569,7 +573,7 @@ export function createAppServer(env = process.env) {
       if (!health.ok || health.value.state!=="CONNECTED" || health.value.environment!=="DEMO") return sendJson(res,503,{error:"MT5_DEMO_NOT_READY",positions:[]});
       const result=await bridge.positions();
       if (!result.ok) return sendJson(res,503,{error:result.message,positions:[]});
-      return sendJson(res,200,{positions:result.value.positions,environment:"DEMO"});
+      return sendJson(res,200,{positions:result.value.positions.filter(position=>position.ownedByBot).map(({ownedByBot,...position})=>position),ownershipConflict:result.value.positions.some(position=>!position.ownedByBot),environment:"DEMO"});
     }
     if (method === "POST" && url.pathname === "/api/positions/modify") {
       let body;
