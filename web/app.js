@@ -34,6 +34,7 @@ async function refreshHealth() {
     $("telegram-value").textContent = health.telegram.label;
     setStatus("scanner-status",health.scanner.state);
     setStatus("execution-status",health.execution.state);
+    $("scanner-toggle").textContent = health.scanner.state === "CONNECTED" ? "إيقاف السكانر" : "تشغيل السكانر";
     $("scanner-title").textContent = health.scanner.label;
     $("scanner-detail").textContent = health.scanner.reason;
     $("mt5-title").textContent = health.marketData.label;
@@ -64,6 +65,7 @@ async function loadConfig() {
       $("min-rr").value = config.riskSettings.minimumRiskRewardRatio;
     }
     updateRiskMode();
+    $("scanner-toggle").textContent = config.scannerEnabled ? "إيقاف السكانر" : "تشغيل السكانر";
   } catch {}
 }
 $("risk-mode").addEventListener("change",updateRiskMode);
@@ -83,16 +85,36 @@ $("risk-form").addEventListener("submit",async event => {
     await refreshHealth();
   } catch(error) { feedback.textContent = error.message; }
 });
+$("scanner-toggle").addEventListener("click",async () => {
+  const enabled = $("scanner-toggle").textContent.includes("تشغيل");
+  $("scanner-toggle").disabled = true;
+  try {
+    await api("/api/scanner/enabled",{method:"POST",body:JSON.stringify({enabled})});
+    $("scan-result").textContent = enabled ? "تم تفعيل الفحص الدوري كل 60 ثانية." : "تم إيقاف الفحص الدوري.";
+    await refreshHealth(); await loadConfig();
+  } catch(error) { $("scan-result").textContent = error.data?.message || error.message; }
+  finally { $("scanner-toggle").disabled = false; }
+});
+async function loadScanLog() {
+  try {
+    const data = await api("/api/scanner/log");
+    scanLog.length = 0;
+    for (const run of data.runs || []) scanLog.push({time:run.at ? new Date(run.at).toLocaleTimeString("ar-JO") : "—",stage:run.triggerType === "SCHEDULED" ? "دوري" : "يدوي",status:run.status || "—",details:run.reason || "—"});
+    $("scan-log").innerHTML = scanLog.length ? scanLog.map(item => `<tr><td>${escapeHtml(item.time)}</td><td>${escapeHtml(item.stage)}</td><td>${escapeHtml(item.status)}</td><td>${escapeHtml(item.details)}</td></tr>`).join("") : '<tr><td colspan="4" class="empty">لا توجد دورات فحص مسجلة.</td></tr>';
+  } catch {}
+}
 $("scan-now").addEventListener("click",async () => {
   $("scan-now").disabled = true; $("scan-result").textContent = "جارٍ التحقق من جاهزية البيانات…";
   try {
     const result = await api("/api/scan",{method:"POST",body:"{}"});
     $("scan-result").textContent = result.message;
-    addScanLog("فحص يدوي","مكتمل",result.message);
+    addScanLog("فحص يدوي",result.status || "مكتمل",result.message);
+    await loadScanLog();
   } catch(error) {
     const message = error.data?.message || error.message;
     $("scan-result").textContent = message;
     addScanLog("فحص يدوي","مرفوض بأمان",message);
+    await loadScanLog();
   } finally { $("scan-now").disabled = false; }
 });
 async function loadTelegramChats() {
@@ -128,4 +150,4 @@ document.querySelectorAll(".nav-link").forEach(link => link.addEventListener("cl
   document.querySelectorAll(".nav-link").forEach(item=>item.classList.remove("active")); link.classList.add("active");
 }));
 updateRiskMode();
-refreshHealth(); loadConfig(); loadTelegramChats();
+refreshHealth(); loadConfig(); loadTelegramChats(); loadScanLog();
