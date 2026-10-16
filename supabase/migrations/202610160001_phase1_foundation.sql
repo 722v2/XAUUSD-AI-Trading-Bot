@@ -20,9 +20,9 @@ create table if not exists public.risk_settings (
   version integer not null default 1 check (version > 0),
   updated_at timestamptz not null default now(),
   constraint risk_mode_fields_valid check (
-    (mode = 'PERCENT_OF_CAPITAL' and risk_percent > 0 and risk_cash is null)
+    (mode = 'PERCENT_OF_CAPITAL' and risk_percent is not null and risk_percent > 0 and risk_cash is null)
     or
-    (mode = 'FIXED_CASH' and risk_cash > 0 and risk_percent is null)
+    (mode = 'FIXED_CASH' and risk_cash is not null and risk_cash > 0 and risk_percent is null)
   )
 );
 
