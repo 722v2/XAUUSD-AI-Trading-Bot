@@ -358,6 +358,30 @@ export function createAppServer(env = process.env) {
       return sendJson(res,200,{ok:true,enabled:true,environment:"DEMO",liveTradingEnabled:false});
     }
     if (method === "GET" && url.pathname === "/api/scanner/log") return sendJson(res,200,{runs:scannerRuns});
+    if (method === "GET" && url.pathname === "/api/positions") {
+      if (!bridge) return sendJson(res,503,{error:"MT5_NOT_CONFIGURED",positions:[]});
+      const health=await bridge.health();
+      if (!health.ok || health.value.state!=="CONNECTED" || health.value.environment!=="DEMO") return sendJson(res,503,{error:"MT5_DEMO_NOT_READY",positions:[]});
+      const result=await bridge.positions();
+      if (!result.ok) return sendJson(res,503,{error:result.message,positions:[]});
+      return sendJson(res,200,{positions:result.value.positions,environment:"DEMO"});
+    }
+    if (method === "POST" && url.pathname === "/api/positions/modify") {
+      let body;
+      try { body=await readJson(req); } catch(error) { return sendJson(res,error.status??400,{error:"INVALID_BODY",message:error.message}); }
+      if (!bridge || !Number.isInteger(body.ticket) || (body.stopLoss!==undefined && (!Number.isFinite(body.stopLoss)||body.stopLoss<0)) || (body.takeProfit!==undefined && (!Number.isFinite(body.takeProfit)||body.takeProfit<0))) return sendJson(res,400,{error:"INVALID_POSITION_UPDATE",message:"بيانات تعديل الوقف أو الهدف غير صالحة."});
+      const result=await bridge.modifyPosition({ticket:body.ticket,...(body.stopLoss!==undefined?{stopLoss:body.stopLoss}:{}),...(body.takeProfit!==undefined?{takeProfit:body.takeProfit}:{})});
+      if (!result.ok) return sendJson(res,result.status===202?202:503,{error:result.errorCode,message:result.message});
+      return sendJson(res,result.value.state==="CONFIRMED"?200:result.value.state==="RECONCILIATION_REQUIRED"?202:422,result.value);
+    }
+    if (method === "POST" && url.pathname === "/api/positions/close") {
+      let body;
+      try { body=await readJson(req); } catch(error) { return sendJson(res,error.status??400,{error:"INVALID_BODY",message:error.message}); }
+      if (!bridge || !Number.isInteger(body.ticket)) return sendJson(res,400,{error:"INVALID_TICKET",message:"رقم الصفقة غير صالح."});
+      const result=await bridge.closePosition({ticket:body.ticket,idempotencyKey:"manual-close:"+body.ticket});
+      if (!result.ok) return sendJson(res,result.status===202?202:503,{error:result.errorCode,message:result.message});
+      return sendJson(res,result.value.state==="CONFIRMED"?200:result.value.state==="RECONCILIATION_REQUIRED"?202:422,result.value);
+    }
     if (method === "GET" && url.pathname === "/api/telegram/chats") {
       return sendJson(res,200,{chats:telegram.listDiscoveredChats().map(chat=>({...chat,enabled:enabledChats.has(chat.chatId)}))});
     }
