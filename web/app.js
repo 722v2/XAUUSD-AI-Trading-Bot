@@ -9,6 +9,7 @@ function setStatus(id, state, fallback) {
   const node = $(id); const [label, css] = labels[state] || [fallback || state, "muted-tag"];
   node.textContent = label; node.className = "status-tag " + css;
 }
+let nextScanAtMs=null;
 function timeNow() { return new Intl.DateTimeFormat("ar-JO",{hour:"2-digit",minute:"2-digit",second:"2-digit"}).format(new Date()); }
 async function api(path, options = {}) {
   const response = await fetch(path,{...options,headers:{"content-type":"application/json",...(options.headers||{})}});
@@ -34,6 +35,8 @@ async function refreshHealth() {
     $("telegram-value").textContent = health.telegram.label;
     setStatus("scanner-status",health.scanner.state);
     setStatus("execution-status",health.execution.state);
+    nextScanAtMs=health.scanner.nextScanAt?Date.parse(health.scanner.nextScanAt):null;
+    updateCountdown();
     $("scanner-toggle").textContent = health.scanner.state === "CONNECTED" ? "إيقاف السكانر" : "تشغيل السكانر";
     $("auto-trading-toggle").textContent = health.execution.state === "ARMED_DEMO" ? "إيقاف التنفيذ الآلي (Demo)" : "تفعيل التنفيذ الآلي (Demo)";
     $("scanner-title").textContent = health.scanner.label;
@@ -160,15 +163,94 @@ $("auto-trading-toggle").addEventListener("click",async () => {
   } catch(error) { $("scan-result").textContent = error.data?.message || error.message; }
   finally { $("auto-trading-toggle").disabled = false; }
 });
+function updateCountdown() {
+  const el=$("scanner-countdown");
+  if(!nextScanAtMs || !Number.isFinite(nextScanAtMs)){el.textContent="—";return;}
+  const seconds=Math.ceil((nextScanAtMs-Date.now())/1000);
+  if(seconds<=0){el.textContent="جارٍ الفحص";return;}
+  el.textContent=String(Math.floor(seconds/60)).padStart(2,"0")+":"+String(seconds%60).padStart(2,"0");
+}
+function renderAnalysis(data) {
+  if(!data || typeof data!=="object") return;
+  const candles=Array.isArray(data.chartCandles)?data.chartCandles.filter(c=>c&&[c.open,c.high,c.low,c.close].every(Number.isFinite)&&c.high>=c.low):[];
+  if(candles.length>=2) {
+    const svg=$("price-chart"); svg.replaceChildren();
+    const ns="http://www.w3.org/2000/svg", width=900,height=280,left=52,right=18,top=18,bottom=26;
+    const plotW=width-left-right,plotH=height-top-bottom;
+    const lo=Math.min(...candles.map(c=>c.low)),hi=Math.max(...candles.map(c=>c.high));
+    const span=Math.max(hi-lo,0.000001);
+    const y=value=>top+(hi-value)/span*plotH;
+    const add=(tag,attrs,text)=>{
+      const node=document.createElementNS(ns,tag);
+      for(const [key,value] of Object.entries(attrs)) node.setAttribute(key,String(value));
+      if(text!==undefined) node.textContent=String(text);
+      svg.appendChild(node);return node;
+    };
+    svg.setAttribute("viewBox",`0 0 ${width} ${height}`);
+    for(let i=0;i<=4;i++){
+      const gy=top+i*plotH/4, price=hi-i*span/4;
+      add("line",{x1:left,y1:gy,x2:width-right,y2:gy,stroke:"#263344","stroke-width":1});
+      add("text",{x:left-8,y:gy+4,"text-anchor":"end",fill:"#8d9bb0","font-size":11},price.toFixed(2));
+    }
+    const step=plotW/candles.length,bodyW=Math.max(2,Math.min(10,step*0.62));
+    candles.forEach((c,i)=>{
+      const x=left+(i+0.5)*step, bullish=c.close>=c.open, color=bullish?"#37c88a":"#f06b78";
+      add("line",{x1:x,y1:y(c.high),x2:x,y2:y(c.low),stroke:color,"stroke-width":1.3});
+      const topY=Math.min(y(c.open),y(c.close)), bodyH=Math.max(1,Math.abs(y(c.open)-y(c.close)));
+      add("rect",{x:x-bodyW/2,y:topY,width:bodyW,height:bodyH,rx:0.6,fill:color});
+    });
+  }
+  const analysis=data.analysis||{}, metrics=analysis.metrics||{}, evidence=Array.isArray(analysis.evidence)?analysis.evidence:[];
+  const primary=evidence[0]||{}, decision=data.decision||{}, assessment=data.assessment||{};
+  $("selected-strategy").textContent=primary.strategyId||decision.outcome||data.status||"لا توجد فرصة";
+  $("selected-strategy").className="status-tag "+(primary.strategyId?"ok-tag":"muted-tag");
+  if(analysis.latestClosedBarTime) $("chart-caption").textContent="آخر شمعة مغلقة: "+new Date(analysis.latestClosedBarTime).toLocaleTimeString();
+  else if(data.message) $("chart-caption").textContent=data.message;
+  const metricRows=[
+    ["الحالة",analysis.status||data.status||data.error||"—"],
+    ["النظام",metrics.marketRegime||"—"],
+    ["قوة الاتجاه",Number.isFinite(metrics.trendStrength)?metrics.trendStrength.toFixed(3):"—"],
+    ["EMA 9",Number.isFinite(metrics.ema9)?metrics.ema9.toFixed(2):"—"],
+    ["EMA 21",Number.isFinite(metrics.ema21)?metrics.ema21.toFixed(2):"—"],
+    ["RSI 14",Number.isFinite(metrics.rsi14)?metrics.rsi14.toFixed(2):"—"],
+    ["MACD Histogram",Number.isFinite(metrics.macdHistogram)?metrics.macdHistogram.toFixed(4):"—"],
+    ["ATR 14",Number.isFinite(metrics.atr14)?metrics.atr14.toFixed(3):"—"],
+    ["M5 / M15 / H1",metrics.higherTimeframeContext?[metrics.higherTimeframeContext.M5,metrics.higherTimeframeContext.M15,metrics.higherTimeframeContext.H1].join(" / "):"—"],
+    ["الدخول / SL / TP",primary.entryPrice?[primary.entryPrice,primary.stopLoss,primary.takeProfit].map(v=>Number(v).toFixed(2)).join(" / "):"—"],
+    ["قرار AI",assessment.outcome||"—"]
+  ];
+  const metricsEl=$("analysis-metrics");metricsEl.replaceChildren();
+  for(const [label,value] of metricRows){
+    const row=document.createElement("div"),dt=document.createElement("dt"),dd=document.createElement("dd");
+    dt.textContent=label;dd.textContent=value;row.append(dt,dd);metricsEl.appendChild(row);
+  }
+  const codes=[...(primary.evidenceCodes||[]),...(assessment.rationaleCodes||[]),...(decision.reasonCodes||[])];
+  const list=$("analysis-evidence");list.replaceChildren();
+  if(!codes.length){
+    const li=document.createElement("li");li.textContent=data.message||analysis.reason||"لا توجد أدلة كافية لإصدار فرصة.";list.appendChild(li);
+  } else {
+    for(const code of [...new Set(codes)]){
+      const li=document.createElement("li");li.textContent=code;list.appendChild(li);
+    }
+  }
+}
+async function loadLatestScan() {
+  try {
+    const data=await api("/api/scanner/latest");
+    if(data.scan?.body) renderAnalysis(data.scan.body);
+  } catch {}
+}
 $("scan-now").addEventListener("click",async () => {
   $("scan-now").disabled = true; $("scan-result").textContent = "جارٍ التحقق من جاهزية البيانات…";
   try {
     const result = await api("/api/scan",{method:"POST",body:"{}"});
     $("scan-result").textContent = result.message;
+    renderAnalysis(result);
     addScanLog("فحص يدوي",result.status || "مكتمل",result.message);
     await loadScanLog(); await loadPositions();
   } catch(error) {
     const message = error.data?.message || error.message;
+    renderAnalysis(error.data);
     $("scan-result").textContent = message;
     addScanLog("فحص يدوي","مرفوض بأمان",message);
     await loadScanLog();
@@ -244,4 +326,7 @@ document.querySelectorAll(".nav-link").forEach(link => link.addEventListener("cl
   document.querySelectorAll(".nav-link").forEach(item=>item.classList.remove("active")); link.classList.add("active");
 }));
 updateRiskMode();
-refreshHealth(); loadConfig(); loadTelegramChats(); loadScanLog(); loadPositions();
+refreshHealth(); loadConfig(); loadTelegramChats(); loadScanLog(); loadPositions(); loadLatestScan();
+setInterval(()=>{void refreshHealth();},10000);
+setInterval(updateCountdown,1000);
+setInterval(()=>{void loadLatestScan();void loadScanLog();void loadPositions();},15000);
