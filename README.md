@@ -74,4 +74,4 @@ python -m unittest discover -s tests_python -v
 - Ambiguous MT5 order results are not blindly retried.
 - Do not infer profitability from unit tests or architecture completeness.
 
-See `docs/PROJECT_SPEC.md`, `docs/ARCHITECTURE.md`, `docs/PHASE_1_ACCEPTANCE.md`, `docs/TEST_STRATEGY.md`, and `docs/PHASE_STATUS.md`.
+See `docs/DEMO_RUNBOOK.md`, `docs/PROJECT_SPEC.md`, `docs/ARCHITECTURE.md`, `docs/PHASE_1_ACCEPTANCE.md`, `docs/TEST_STRATEGY.md`, and `docs/PHASE_STATUS.md`.
