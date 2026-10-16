@@ -162,6 +162,7 @@ create table if not exists public.positions (
   volume numeric(24, 8) not null check (volume > 0),
   entry_price numeric(24, 8) not null check (entry_price > 0),
   stop_loss numeric(24, 8),
+  initial_stop_loss numeric(24, 8),
   take_profit numeric(24, 8),
   status text not null check (status in ('OPEN', 'CLOSED', 'UNKNOWN', 'RECONCILIATION_REQUIRED')),
   opened_at timestamptz,
