@@ -6,3 +6,6 @@ export * from "./security/secret-readiness.js";
 export * from "./persistence/contracts.js";
 export * from "./persistence/in-memory-idempotency-registry.js";
 export * from "./pipeline/contracts.js";
+export * from "./marketdata/normalize.js";
+export * from "./analysis/indicators.js";
+export * from "./analysis/technical-analysis.js";
