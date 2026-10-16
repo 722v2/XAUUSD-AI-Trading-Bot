@@ -202,7 +202,7 @@ class BridgeService:
             }
 
     def candles(self, timeframe: str, count: int) -> tuple[int, dict[str, Any]]:
-        if timeframe not in TIMEFRAME_MAP or isinstance(count, bool) or not isinstance(count, int) or count < 35 or count > 1000:
+        if timeframe not in TIMEFRAME_MAP or isinstance(count, bool) or not isinstance(count, int) or count < 35 or count > 5000:
             return 400, {"error": "INVALID_CANDLE_REQUEST"}
         with self._mt5_lock:
             connected, reason = self._connect_mt5()
@@ -216,7 +216,7 @@ class BridgeService:
                 return 503, {"error": "TIMEFRAME_UNAVAILABLE"}
             # Start at position 1: position 0 is the currently forming candle.
             rates = mt5.copy_rates_from_pos(self.symbol, constant, 1, count)
-            if rates is None or len(rates) < count:
+            if rates is None or len(rates) < 35:
                 return 503, {"error": "INSUFFICIENT_CLOSED_HISTORY", "available": 0 if rates is None else len(rates)}
             result = []
             for row in rates:
