@@ -617,7 +617,7 @@ export function createAppServer(env = process.env) {
         ai:{state:!aiConfigured?"NOT_CONFIGURED":aiProbePassed?"CONNECTED":"CONFIGURED_NOT_TESTED",label:!aiConfigured?"لم يتم الاتصال":aiProbePassed?"AI متصل":"إعدادات موجودة · الاتصال يحتاج اختبارًا"},
         database:{state:databaseState,label:databaseState==="CONNECTED"?"Supabase متصل":"Supabase غير متصل"},
         telegram:{state:telegram.configured?"CONFIGURED":"NOT_CONFIGURED",label:telegram.configured?"البوت مهيأ":"التنبيهات غير جاهزة"},
-        scanner:{state:scannerEnabled?"CONNECTED":"NOT_READY",label:scannerEnabled?"السكانر مفعّل":"السكانر غير جاهز",reason:scannerEnabled?"يفحص كل 60 ثانية؛ التنفيذ يعتمد على إعدادات Demo والمخاطر.":"يتطلب اتصال MT5 Demo وتهيئة AI."},
+        scanner:{state:scannerEnabled?"CONNECTED":"NOT_READY",label:scannerEnabled?"السكانر مفعّل":"السكانر غير جاهز",reason:scannerEnabled?"يفحص كل 60 ثانية؛ التنفيذ يعتمد على إعدادات Demo والمخاطر.":"يتطلب اتصال MT5 Demo وتهيئة AI.",nextScanAt:nextScheduledScanAt?new Date(nextScheduledScanAt).toISOString():null},
         execution:{state:autoTradingEnabled?"ARMED_DEMO":"DISABLED",liveTradingEnabled:false}
       });
     }
