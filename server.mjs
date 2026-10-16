@@ -308,6 +308,10 @@ export function createAppServer(env = process.env) {
           const entry=record("FAILED","BROKER_SPEC_UNAVAILABLE");
           return {status:503,body:{error:"RISK_NOT_READY",message:"تعذر جلب مواصفات XAUUSD من الوسيط؛ لم يتم إرسال الأمر.",run:entry}};
         }
+        if (Date.parse(evidence.expiresAt) <= Date.now()) {
+          const entry=record("EXPIRED","EVIDENCE_EXPIRED_BEFORE_RISK");
+          return {status:409,body:{error:"ASSESSMENT_EXPIRED",message:"انتهت صلاحية الفرصة قبل حساب المخاطرة؛ لم يتم إرسال الأمر.",run:entry}};
+        }
         const prepared = prepareExecutionIntent({
           id:randomUUID(),idempotencyKey:candidateKey+":DEMO",opportunityId:candidateId,decisionId,
           environment:"DEMO",settings:riskSettings,
@@ -326,6 +330,11 @@ export function createAppServer(env = process.env) {
         if (!storedIntent.value.created) {
           const entry=record("RECONCILIATION_REQUIRED","EXECUTION_INTENT_ALREADY_EXISTS");
           return {status:409,body:{status:"RECONCILIATION_REQUIRED",message:"نية تنفيذ موجودة مسبقًا؛ تم منع إعادة الإرسال الآلي.",execution:"NOT_SUBMITTED",run:entry}};
+        }
+        if (Date.parse(evidence.expiresAt) <= Date.now()) {
+          await supabase.updateExecutionIntentStatus(prepared.intent.id,"CANCELLED");
+          const entry=record("EXPIRED","EVIDENCE_EXPIRED_BEFORE_SUBMISSION");
+          return {status:409,body:{error:"ASSESSMENT_EXPIRED",message:"انتهت صلاحية الفرصة بعد حفظ نية التنفيذ؛ تم إلغاء الإرسال.",execution:"NOT_SUBMITTED",run:entry}};
         }
         const submitted = await bridge.submitDemoOrder({intent:storedIntent.value.intent});
         if (!submitted.ok) {
