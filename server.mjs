@@ -574,7 +574,23 @@ export function createAppServer(env = process.env) {
       if (!bridge || !Number.isInteger(body.ticket) || (body.stopLoss!==undefined && (!Number.isFinite(body.stopLoss)||body.stopLoss<0)) || (body.takeProfit!==undefined && (!Number.isFinite(body.takeProfit)||body.takeProfit<0))) return sendJson(res,400,{error:"INVALID_POSITION_UPDATE",message:"بيانات تعديل الوقف أو الهدف غير صالحة."});
       const result=await bridge.modifyPosition({ticket:body.ticket,...(body.stopLoss!==undefined?{stopLoss:body.stopLoss}:{}),...(body.takeProfit!==undefined?{takeProfit:body.takeProfit}:{})});
       if (!result.ok) return sendJson(res,result.status===202?202:503,{error:result.errorCode,message:result.message});
-      return sendJson(res,result.value.state==="CONFIRMED"?200:result.value.state==="RECONCILIATION_REQUIRED"?202:422,result.value);
+      let persisted=false;
+      if (result.value.state==="CONFIRMED" && supabase && bridge) {
+        try {
+          const health=await bridge.health();
+          if (health.ok && health.value.accountLogin) {
+            const open=await supabase.listOpenPositions(String(health.value.accountLogin));
+            const row=open.find(item=>item.broker_position_id===String(body.ticket));
+            if (row && typeof row.id==="string") {
+              const saved=await supabase.updateRecord("positions",row.id,{stop_loss:body.stopLoss??row.stop_loss,take_profit:body.takeProfit??row.take_profit,updated_at:new Date().toISOString()});
+              persisted=saved.ok && saved.value.updated;
+              if (persisted) await supabase.insertRecord("trade_events",{id:randomUUID(),position_id:row.id,execution_intent_id:null,event_type:"POSITION_PROTECTION_MODIFIED",payload:{ticket:body.ticket,stopLoss:body.stopLoss??row.stop_loss,takeProfit:body.takeProfit??row.take_profit},occurred_at:new Date().toISOString()});
+            }
+          }
+        } catch {}
+        await queueNotificationToEnabled("تم تأكيد تعديل حماية صفقة XAUUSD رقم "+body.ticket+".","POSITION_PROTECTION_MODIFIED","position-modified:"+body.ticket+":"+(body.stopLoss??"keep")+":"+(body.takeProfit??"keep"));
+      }
+      return sendJson(res,result.value.state==="CONFIRMED"?200:result.value.state==="RECONCILIATION_REQUIRED"?202:422,{...result.value,persisted});
     }
     if (method === "POST" && url.pathname === "/api/positions/close") {
       let body;
@@ -582,7 +598,23 @@ export function createAppServer(env = process.env) {
       if (!bridge || !Number.isInteger(body.ticket)) return sendJson(res,400,{error:"INVALID_TICKET",message:"رقم الصفقة غير صالح."});
       const result=await bridge.closePosition({ticket:body.ticket,idempotencyKey:"manual-close:"+body.ticket});
       if (!result.ok) return sendJson(res,result.status===202?202:503,{error:result.errorCode,message:result.message});
-      return sendJson(res,result.value.state==="CONFIRMED"?200:result.value.state==="RECONCILIATION_REQUIRED"?202:422,result.value);
+      let persisted=false;
+      if (result.value.state==="CONFIRMED" && supabase && bridge) {
+        try {
+          const health=await bridge.health();
+          if (health.ok && health.value.accountLogin) {
+            const open=await supabase.listOpenPositions(String(health.value.accountLogin));
+            const row=open.find(item=>item.broker_position_id===String(body.ticket));
+            if (row && typeof row.id==="string") {
+              const saved=await supabase.updateRecord("positions",row.id,{status:"CLOSED",closed_at:new Date().toISOString(),updated_at:new Date().toISOString()});
+              persisted=saved.ok && saved.value.updated;
+              if (persisted) await supabase.insertRecord("trade_events",{id:randomUUID(),position_id:row.id,execution_intent_id:null,event_type:"POSITION_CLOSED_MANUALLY",payload:{ticket:body.ticket,brokerOrderId:result.value.brokerOrderId},occurred_at:new Date().toISOString()});
+            }
+          }
+        } catch {}
+        await queueNotificationToEnabled("تم تأكيد إغلاق صفقة XAUUSD رقم "+body.ticket+" على حساب Demo.","POSITION_CLOSED","position-closed:"+body.ticket);
+      }
+      return sendJson(res,result.value.state==="CONFIRMED"?200:result.value.state==="RECONCILIATION_REQUIRED"?202:422,{...result.value,persisted});
     }
     if (method === "GET" && url.pathname === "/api/telegram/chats") {
       if (supabase) {
