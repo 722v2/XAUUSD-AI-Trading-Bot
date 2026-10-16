@@ -5,6 +5,8 @@ export interface ManagedPositionInput {
   readonly direction: Direction;
   readonly entryPrice: number;
   readonly stopLoss: number;
+  /** Original risk anchor retained after the live stop moves to breakeven/trailing. */
+  readonly initialStopLoss?: number;
   readonly takeProfit: number;
 }
 export interface TradeManagementPolicy {
@@ -29,7 +31,8 @@ export function managePositionStop(
   atrValue: number,
   policy: TradeManagementPolicy
 ): TradeManagementResult {
-  const numbers = [position.entryPrice, position.stopLoss, position.takeProfit, currentPrice, atrValue, policy.tickSize, policy.minimumStopDistance];
+  const initialStop = position.initialStopLoss ?? position.stopLoss;
+  const numbers = [position.entryPrice, position.stopLoss, initialStop, position.takeProfit, currentPrice, atrValue, policy.tickSize, policy.minimumStopDistance];
   if (!Number.isInteger(position.ticket) || numbers.some(value => !Number.isFinite(value)) ||
       position.entryPrice <= 0 || position.stopLoss <= 0 || position.takeProfit <= 0 ||
       currentPrice <= 0 || policy.tickSize <= 0 || policy.minimumStopDistance < 0 ||
@@ -38,7 +41,7 @@ export function managePositionStop(
     return { action: "NO_ACTION", reason: "INVALID_POSITION" };
   }
   if (!Number.isFinite(atrValue) || atrValue <= 0) return { action: "NO_ACTION", reason: "ATR_UNAVAILABLE" };
-  const risk = position.direction === "BUY" ? position.entryPrice - position.stopLoss : position.stopLoss - position.entryPrice;
+  const risk = position.direction === "BUY" ? position.entryPrice - initialStop : initialStop - position.entryPrice;
   if (risk <= 0) return { action: "NO_ACTION", reason: "INVALID_POSITION" };
   const favorable = position.direction === "BUY" ? currentPrice - position.entryPrice : position.entryPrice - currentPrice;
   const rMultiple = favorable / risk;
