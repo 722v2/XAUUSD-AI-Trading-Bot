@@ -22,7 +22,7 @@ test("historical backtest uses closed MT5 candles, AI agreement, costs, and neve
   const bridge = {
     health: async () => ({ ok: true, value: { state: "CONNECTED", environment: "DEMO" } }),
     candles: async (tf,count) => ({ ok:true,value:{symbol:"XAUUSD",timeframe:tf,candles:(tf==="M1"?bars:makeContext(tf)).slice(0,count)} }),
-    symbolSpec: async () => ({ok:true,value:{tickSize:0.01,tickValuePerLot:1,priceDigits:2}}),
+    symbolSpec: async () => ({ok:true,value:{tickSize:0.01,tickValuePerLot:1,volumeMin:0.01,volumeMax:100,volumeStep:0.01,priceDigits:2}}),
     quote: async () => ({ok:true,value:{bid:2000,ask:2000.2}})
   };
   let calls = 0;
