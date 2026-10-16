@@ -96,7 +96,7 @@ export class SupabaseRestRepository implements ExecutionIntentRepository, Runtim
     return { ok: false, errorCode: "UNKNOWN" };
   }
   async insertRecord(
-    table: "scanner_runs" | "strategy_candidates" | "ai_assessments" | "trade_decisions" | "broker_orders" | "trade_events" | "audit_events",
+    table: "scanner_runs" | "strategy_candidates" | "ai_assessments" | "trade_decisions" | "broker_orders" | "trade_events" | "audit_events" | "notification_outbox",
     payload: Readonly<Record<string, unknown>>
   ): Promise<PersistResult<Readonly<Record<string, unknown>>>> {
     const response = await this.#request("/" + table, {
@@ -117,7 +117,7 @@ export class SupabaseRestRepository implements ExecutionIntentRepository, Runtim
     return Object.freeze({ ...data[0] });
   }
   async updateRecord(
-    table: "scanner_runs" | "strategy_candidates" | "execution_intents",
+    table: "scanner_runs" | "strategy_candidates" | "execution_intents" | "notification_outbox",
     id: string,
     payload: Readonly<Record<string, unknown>>
   ): Promise<PersistResult<{ readonly updated: boolean }>> {
@@ -145,6 +145,50 @@ export class SupabaseRestRepository implements ExecutionIntentRepository, Runtim
     let data: unknown;
     try { data = await response.json(); } catch { return { ok: false, errorCode: "UNKNOWN" }; }
     return { ok: true, value: { updated: Array.isArray(data) && data.length > 0 } };
+  }
+  async listTelegramChats(): Promise<readonly Readonly<Record<string, unknown>>[]> {
+    const response = await this.#request("/telegram_chats?select=*&order=display_name.asc");
+    if (!response.ok) throw new Error("Supabase Telegram chat read failed");
+    const data: unknown = await response.json();
+    if (!Array.isArray(data)) throw new Error("Supabase Telegram chat response is invalid");
+    return data.filter(isRecord).map(row => Object.freeze({ ...row }));
+  }
+  async listEnabledTelegramChats(): Promise<readonly Readonly<Record<string, unknown>>[]> {
+    const response = await this.#request("/telegram_chats?enabled=eq.true&select=chat_id,display_name");
+    if (!response.ok) throw new Error("Supabase enabled chat read failed");
+    const data: unknown = await response.json();
+    if (!Array.isArray(data)) throw new Error("Supabase enabled chat response is invalid");
+    return data.filter(isRecord).map(row => Object.freeze({ ...row }));
+  }
+  async upsertTelegramChat(input: { readonly chatId: string; readonly displayName: string; readonly discoveredAt: string }): Promise<PersistResult<{ readonly saved: boolean }>> {
+    if (!input.chatId.trim() || !Number.isFinite(Date.parse(input.discoveredAt))) return { ok: false, errorCode: "UNKNOWN" };
+    const response = await this.#request("/telegram_chats?on_conflict=chat_id", {
+      method: "POST", headers: { Prefer: "resolution=merge-duplicates,return=representation" },
+      body: JSON.stringify({ chat_id: input.chatId, display_name: input.displayName.slice(0, 200), discovered_at: input.discoveredAt, updated_at: input.discoveredAt })
+    }).catch(() => null);
+    if (!response) return { ok: false, errorCode: "STORAGE_UNAVAILABLE" };
+    if (!response.ok) return { ok: false, errorCode: response.status >= 500 ? "STORAGE_UNAVAILABLE" : "UNKNOWN" };
+    return { ok: true, value: { saved: true } };
+  }
+  async setTelegramChatEnabled(chatId: string, enabled: boolean): Promise<PersistResult<{ readonly updated: boolean }>> {
+    if (!chatId.trim()) return { ok: false, errorCode: "UNKNOWN" };
+    const response = await this.#request(`/telegram_chats?chat_id=eq.${encodeURIComponent(chatId)}`, {
+      method: "PATCH", headers: { Prefer: "return=representation" },
+      body: JSON.stringify({ enabled, updated_at: new Date().toISOString() })
+    }).catch(() => null);
+    if (!response) return { ok: false, errorCode: "STORAGE_UNAVAILABLE" };
+    if (!response.ok) return { ok: false, errorCode: response.status >= 500 ? "STORAGE_UNAVAILABLE" : "UNKNOWN" };
+    let data: unknown;
+    try { data = await response.json(); } catch { return { ok: false, errorCode: "UNKNOWN" }; }
+    return { ok: true, value: { updated: Array.isArray(data) && data.length > 0 } };
+  }
+  async listPendingNotifications(limit = 10): Promise<readonly Readonly<Record<string, unknown>>[]> {
+    const now = encodeURIComponent(new Date().toISOString());
+    const response = await this.#request(`/notification_outbox?status=in.(PENDING,FAILED)&or=(next_attempt_at.is.null,next_attempt_at.lte.${now})&select=*&order=created_at.asc&limit=${Math.max(1,Math.min(50,Math.trunc(limit)))}`);
+    if (!response.ok) throw new Error("Supabase notification outbox read failed");
+    const data: unknown = await response.json();
+    if (!Array.isArray(data)) throw new Error("Supabase notification outbox response is invalid");
+    return data.filter(isRecord).map(row => Object.freeze({ ...row }));
   }
   async readCurrent(): Promise<Readonly<Record<string, unknown>>> {
     const response = await this.#request("/app_settings?setting_key=eq.runtime_config&select=setting_value,version");
