@@ -8,6 +8,7 @@ import {
   MT5BridgeClient, normalizeClosedCandles, analyzeClosedMarket,
   OpenAICompatibleAIProvider, coordinateTechnicalAndAI, prepareExecutionIntent, atr, managePositionStop
 } from "./dist/index.js";
+import { runHistoricalBacktest } from "./server/backtest-engine.mjs";
 
 const root = fileURLToPath(new URL("./web/", import.meta.url)).replace(/[\\/]+$/, "");
 const MIME = { ".html":"text/html; charset=utf-8", ".css":"text/css; charset=utf-8", ".js":"text/javascript; charset=utf-8", ".svg":"image/svg+xml" };
@@ -667,6 +668,43 @@ export function createAppServer(env = process.env) {
       aiProbePassed=false;
       autoTradingEnabled=false;
       return sendJson(res,200,{ok:true,providerId:config.aiProviderId,modelId:config.aiModelId,persisted,message:persisted?"تم حفظ اختيار AI دائمًا.":"تم تغيير AI لهذه الجلسة فقط؛ لا يوجد تخزين دائم."});
+    }
+    if (method === "POST" && url.pathname === "/api/backtest") {
+      let body;
+      try { body=await readJson(req,8192); } catch(error) { return sendJson(res,error.status??400,{error:"INVALID_BODY",message:error.message}); }
+      if (typeof body.providerId!=="string" || typeof body.modelId!=="string") {
+        return sendJson(res,400,{error:"AI_MODEL_REQUIRED",message:"اختر مزود AI والنموذج المراد اختباره."});
+      }
+      const provider=aiCatalog.find(item=>item.id===body.providerId);
+      if (!provider || !provider.models.some(model=>model.id===body.modelId)) {
+        return sendJson(res,400,{error:"AI_MODEL_NOT_ALLOWLISTED",message:"النموذج غير موجود في القائمة المسموحة على الخادم."});
+      }
+      const testProvider=configuredAI(env,aiCatalog,body.providerId,body.modelId);
+      if (!testProvider) return sendJson(res,409,{error:"AI_SECRET_MISSING",message:"مفتاح المزود غير مضبوط على الخادم؛ لم يبدأ الاختبار."});
+      const health=bridge ? await bridge.health() : null;
+      if (!health?.ok || health.value.state!=="CONNECTED" || health.value.environment!=="DEMO") {
+        return sendJson(res,409,{error:"MT5_DEMO_NOT_READY",message:"اتصل بجسر MT5 على حساب Demo قبل الاختبار التاريخي."});
+      }
+      let spreadPrice=body.spreadPrice;
+      let spreadSource="USER_INPUT";
+      if (spreadPrice===null || spreadPrice===undefined || spreadPrice==="") {
+        const quote=await bridge.quote();
+        if (!quote.ok || !Number.isFinite(quote.value.ask) || !Number.isFinite(quote.value.bid) || quote.value.ask<quote.value.bid) {
+          return sendJson(res,503,{error:"MT5_SPREAD_UNAVAILABLE",message:"تعذر قراءة السبريد الحالي من MT5. أدخل السبريد يدويًا وحاول مجددًا."});
+        }
+        spreadPrice=quote.value.ask-quote.value.bid;
+        spreadSource="CURRENT_MT5_QUOTE";
+      }
+      try {
+        const result=await runHistoricalBacktest({
+          bridge,aiProvider:testProvider,aiProviderId:provider.id,aiModelId:body.modelId,
+          request:{barsCount:body.barsCount,lots:body.lots,spreadPrice,spreadSource,commissionPerLot:body.commissionPerLot,maxAiCalls:body.maxAiCalls},
+          normalizeClosedCandles,analyzeClosedMarket,coordinateTechnicalAndAI
+        });
+        return sendJson(res,200,result);
+      } catch(error) {
+        return sendJson(res,error.status??503,{error:error.code??"BACKTEST_FAILED",message:error.message??"فشل الاختبار التاريخي."});
+      }
     }
     if (method === "POST" && url.pathname === "/api/config/risk") {
       let body;
