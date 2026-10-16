@@ -71,7 +71,7 @@ export function assessTradeRisk(settings: RiskSettings, trade: RiskTradeRequest,
 }
 
 export type ExecutionPreparation =
-  | { readonly accepted: true; readonly intent: { readonly id: ExecutionIntentId; readonly idempotencyKey: IdempotencyKey; readonly opportunityId: OpportunityId; readonly environment: "DEMO"; readonly symbol: "XAUUSD"; readonly direction: Direction; readonly volume: number; readonly stopLoss: number; readonly takeProfit: number; readonly createdAt: string } }
+  | { readonly accepted: true; readonly intent: { readonly id: ExecutionIntentId; readonly idempotencyKey: IdempotencyKey; readonly opportunityId: OpportunityId; readonly decisionId: import("../domain/types.js").DecisionId; readonly environment: "DEMO"; readonly symbol: "XAUUSD"; readonly direction: Direction; readonly volume: number; readonly stopLoss: number; readonly takeProfit: number; readonly createdAt: string } }
   | { readonly accepted: false; readonly reason: "LIVE_DISABLED" | "RISK_REJECTED"; readonly risk?: RiskAssessment };
 
 /** Phase 4 creates an execution intent only; broker submission is implemented and validated separately. */
@@ -79,6 +79,7 @@ export function prepareExecutionIntent(input: {
   readonly id: ExecutionIntentId;
   readonly idempotencyKey: IdempotencyKey;
   readonly opportunityId: OpportunityId;
+  readonly decisionId: import("../domain/types.js").DecisionId;
   readonly environment: "DEMO" | "LIVE";
   readonly settings: RiskSettings;
   readonly trade: RiskTradeRequest;
@@ -91,7 +92,7 @@ export function prepareExecutionIntent(input: {
   return {
     accepted: true,
     intent: {
-      id: input.id, idempotencyKey: input.idempotencyKey, opportunityId: input.opportunityId,
+      id: input.id, idempotencyKey: input.idempotencyKey, opportunityId: input.opportunityId, decisionId: input.decisionId,
       environment: "DEMO", symbol: "XAUUSD", direction: input.trade.direction, volume: risk.volume,
       stopLoss: input.trade.stopLoss, takeProfit: input.trade.takeProfit, createdAt: input.now
     }
