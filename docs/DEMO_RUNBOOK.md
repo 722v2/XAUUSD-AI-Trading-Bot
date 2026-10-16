@@ -54,7 +54,7 @@ Open http://127.0.0.1:3000. The dashboard refuses non-loopback binding by design
 
 ## 5. Safe activation sequence
 
-1. Confirm MT5 shows the intended Demo account and that its account mode is **hedging**. Netting accounts are intentionally blocked from automated execution because position ownership can be ambiguous.
+1. Confirm MT5 shows the intended Demo account and that its account mode is **hedging**. Netting accounts are intentionally blocked from automated execution because position ownership can be ambiguous. Any unowned XAUUSD position also blocks auto-execution until it is manually reviewed.
 2. Check the dashboard health panel. MT5 must be connected; AI must pass a real assessment; Supabase must be connected.
 3. Save risk settings and verify they are persisted.
 4. Discover Telegram chats if notifications are needed. Start the bot in Telegram first. Enable only intended recipients.
