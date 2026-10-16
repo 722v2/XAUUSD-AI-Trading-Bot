@@ -3,6 +3,7 @@ export type Brand<T, Name extends string> = T & { readonly __brand: Name };
 export type ISODateTime = Brand<string, "ISODateTime">;
 export type OpportunityId = Brand<string, "OpportunityId">;
 export type ExecutionIntentId = Brand<string, "ExecutionIntentId">;
+export type DecisionId = Brand<string, "DecisionId">;
 export type IdempotencyKey = Brand<string, "IdempotencyKey">;
 export const TIMEFRAMES = ["M1", "M5", "M15", "H1"] as const;
 export type Timeframe = (typeof TIMEFRAMES)[number];
@@ -72,6 +73,7 @@ export interface ExecutionIntent {
   readonly id: ExecutionIntentId;
   readonly idempotencyKey: IdempotencyKey;
   readonly opportunityId: OpportunityId;
+  readonly decisionId: DecisionId;
   readonly environment: EnvironmentMode;
   readonly symbol: "XAUUSD";
   readonly direction: Direction;
