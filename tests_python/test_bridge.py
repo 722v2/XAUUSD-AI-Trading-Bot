@@ -188,6 +188,23 @@ class BridgeUnitTests(unittest.TestCase):
         finally:
             bridge_module.mt5 = previous
 
+
+    def test_positions_report_unowned_gold_positions_without_claiming_them(self):
+        import mt5_bridge.bridge as bridge_module
+        previous = bridge_module.mt5
+        fake=FakeMT5(trade_mode=0,margin_mode=2)
+        fake.position.magic=0
+        fake.position.comment="manual-trade"
+        bridge_module.mt5=fake
+        try:
+            status,result=self.service.positions()
+            self.assertEqual(status,200)
+            self.assertEqual(len(result["positions"]),1)
+            self.assertFalse(result["positions"][0]["ownedByBot"])
+            self.assertEqual(result["positions"][0]["comment"],"")
+        finally:
+            bridge_module.mt5=previous
+
     def test_position_stop_modification_is_confirmed_only_after_broker_response(self):
         import mt5_bridge.bridge as bridge_module
         previous = bridge_module.mt5
