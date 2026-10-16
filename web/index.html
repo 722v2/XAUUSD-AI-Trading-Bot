@@ -66,11 +66,12 @@
         <form id="backtest-form" class="risk-form backtest-form">
           <label>مزود AI للاختبار<select id="backtest-provider" required><option value="">حمّل قائمة المزودين أولًا</option></select></label>
           <label>النموذج المراد اختباره<select id="backtest-model" required><option value="">اختر مزودًا أولًا</option></select></label>
-          <label>شموع M1 المغلقة<select id="backtest-bars"><option value="100">100 شمعة · نحو 1 ساعة و40 دقيقة</option><option value="250">250 شمعة · نحو 4 ساعات</option><option value="500">500 شمعة · نحو 8 ساعات</option><option value="1000" selected>1000 شمعة · نحو 16 ساعة و40 دقيقة</option></select></label>
+          <label>شموع M1 المغلقة<select id="backtest-bars"><option value="100">100 شمعة · نحو 1 ساعة و40 دقيقة</option><option value="500">500 شمعة · نحو 8 ساعات و20 دقيقة</option><option value="1000">1000 شمعة · نحو 16 ساعة و40 دقيقة</option><option value="2500">2500 شمعة · نحو 1 يوم و17 ساعة</option><option value="5000" selected>5000 شمعة · نحو 3 أيام و11 ساعة</option></select></label>
           <label>حجم الصفقة الافتراضي (Lots)<input id="backtest-lots" type="number" min="0.001" max="100" step="0.001" value="0.01" required></label>
           <label>السبريد بالسعر<input id="backtest-spread" type="number" min="0" max="100" step="any" placeholder="فارغ = السبريد الحالي من MT5"></label>
+          <label>الانزلاق السعري لكل تنفيذ<input id="backtest-slippage" type="number" min="0" max="100" step="any" value="0" required></label>
           <label>العمولة النقدية لكل Lot ذهابًا وإيابًا<input id="backtest-commission" type="number" min="0" max="10000" step="any" value="0" required></label>
-          <label>الحد الأقصى لطلبات AI<select id="backtest-max-ai"><option value="5">5 تقييمات</option><option value="10">10 تقييمات</option><option value="25" selected>25 تقييمًا</option><option value="50">50 تقييمًا</option><option value="100">100 تقييم</option></select></label>
+          <label>الحد الأقصى لطلبات AI<select id="backtest-max-ai"><option value="5">5 تقييمات</option><option value="10">10 تقييمات</option><option value="25" selected>25 تقييمًا</option><option value="50">50 تقييمًا</option></select></label>
           <div class="form-actions"><button id="backtest-run" class="primary-button" type="submit">▶ تشغيل الاختبار التاريخي</button><span class="muted">النموذج يُستدعى فقط عند ظهور مرشح فني؛ كل المفاتيح تبقى على الخادم.</span></div>
         </form>
         <p class="footnote">الدخول عند افتتاح الشمعة التالية للإشارة. إذا لمس SL وTP داخل الشمعة نفسها، يُحتسب وقف الخسارة أولًا بشكل محافظ. تُعرض نتائج الاختبار فقط؛ لا توجد أوامر MT5 أو تداول حقيقي.</p>
