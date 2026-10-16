@@ -329,20 +329,19 @@ class BridgeService:
             positions = mt5.positions_get(symbol=self.symbol)
             if positions is None:
                 return 503, {"error": "POSITIONS_UNAVAILABLE", "positions": []}
-            owned = []
+            visible_positions = []
             for position in positions:
-                if int(getattr(position, "magic", 0)) != 61016001 or not str(getattr(position, "comment", "")).startswith("XAUAI-"):
-                    continue
-                owned.append({
+                owned_by_bot = int(getattr(position, "magic", 0)) == 61016001 and str(getattr(position, "comment", "")).startswith("XAUAI-")
+                visible_positions.append({
                     "ticket": int(position.ticket), "symbol": "XAUUSD",
                     "direction": "BUY" if int(position.type) == getattr(mt5, "POSITION_TYPE_BUY", 0) else "SELL",
                     "volume": float(position.volume), "entryPrice": float(position.price_open),
                     "stopLoss": float(position.sl), "takeProfit": float(position.tp),
                     "profit": float(position.profit), "openedAt": utc_iso(position.time),
-                    "comment": str(position.comment)
+                    "ownedByBot": owned_by_bot, "comment": str(position.comment) if owned_by_bot else ""
                 })
             account = mt5.account_info()
-            return 200, {"positions": owned, "environment": "DEMO", "accountLogin": str(getattr(account, "login", "")) if account is not None else None}
+            return 200, {"positions": visible_positions, "environment": "DEMO", "accountLogin": str(getattr(account, "login", "")) if account is not None else None}
 
     def modify_position(self, payload: Any) -> tuple[int, dict[str, Any]]:
         if not isinstance(payload, dict) or isinstance(payload.get("ticket"), bool) or not isinstance(payload.get("ticket"), int):
