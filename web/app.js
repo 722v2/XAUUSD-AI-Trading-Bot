@@ -19,7 +19,7 @@ async function api(path, options = {}) {
 }
 function addScanLog(stage,status,details) {
   scanLog.unshift({time:timeNow(),stage,status,details}); scanLog.splice(12);
-  $("scan-log").innerHTML = scanLog.length ? scanLog.map(item => `<tr><td>${item.time}</td><td>${item.stage}</td><td>${item.status}</td><td>${item.details}</td></tr>`).join("") : '<tr><td colspan="4" class="empty">لا توجد دورات فحص مسجلة.</td></tr>';
+  $("scan-log").innerHTML = scanLog.length ? scanLog.map(item => `<tr><td>${escapeHtml(item.time)}</td><td>${escapeHtml(item.stage)}</td><td>${escapeHtml(item.status)}</td><td>${escapeHtml(item.details)}</td></tr>`).join("") : '<tr><td colspan="4" class="empty">لا توجد دورات فحص مسجلة.</td></tr>';
 }
 async function refreshHealth() {
   try {
