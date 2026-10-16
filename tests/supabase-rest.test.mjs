@@ -67,3 +67,23 @@ test('Supabase repository persists Telegram recipients and retrieves due outbox 
   assert.equal((await repository.listPendingNotifications()).length,1);
   assert.ok(calls.some(call=>call.headers.Prefer==='resolution=merge-duplicates,return=representation'));
 });
+
+test('Supabase position upsert preserves original risk anchor and supports restart reconciliation', async () => {
+  let payload;
+  const repository = new SupabaseRestRepository({projectUrl:'https://project.supabase.co',serviceRoleKey:'server-secret'},async (url,init) => {
+    if (String(url).includes('/positions?on_conflict=')) {
+      payload=JSON.parse(init.body);
+      return new Response(JSON.stringify([{id:'55555555-5555-4555-8555-555555555555'}]),{status:201});
+    }
+    if (String(url).includes('/positions?account_login=')) {
+      return new Response(JSON.stringify([{id:'55555555-5555-4555-8555-555555555555',broker_position_id:'77',initial_stop_loss:1990,status:'OPEN'}]),{status:200});
+    }
+    return new Response('[]',{status:200});
+  });
+  const saved=await repository.upsertPosition({accountLogin:'demo-account',ticket:77,direction:'BUY',volume:0.1,entryPrice:2000,stopLoss:2000,takeProfit:2030,initialStopLoss:1990,openedAt:'2026-10-16T12:00:00Z'});
+  assert.equal(saved.ok,true);
+  assert.equal(payload.initial_stop_loss,1990);
+  assert.equal(payload.stop_loss,2000);
+  const positions=await repository.listOpenPositions('demo-account');
+  assert.equal(positions[0].initial_stop_loss,1990);
+});
