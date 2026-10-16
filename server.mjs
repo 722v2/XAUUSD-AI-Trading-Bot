@@ -62,6 +62,87 @@ export function createAppServer(env = process.env) {
   let scannerTimer = null;
   let scanInFlight = false;
   const config = { aiProviderId:env.AI_PROVIDER_ID ?? null, aiModelId:env.AI_MODEL_ID ?? null };
+  let outboxInFlight = false;
+  async function sendWithOutbox(chatId, message, messageType, dedupeKey) {
+    const now = new Date().toISOString();
+    let notificationId = randomUUID();
+    if (supabase) {
+      const queued = await supabase.insertRecord("notification_outbox", {
+        id:notificationId,dedupe_key:dedupeKey,chat_id:chatId,message_type:messageType,
+        payload:{text:message},status:"PENDING",attempts:0,created_at:now
+      });
+      if (!queued.ok) return {ok:false,errorCode:queued.errorCode,persisted:false};
+      const claimed = await supabase.updateRecord("notification_outbox",notificationId,{status:"SENDING",attempts:1});
+      if (!claimed.ok || !claimed.value.updated) return {ok:false,errorCode:"OUTBOX_CLAIM_FAILED",persisted:false};
+    }
+    try {
+      const sent = await telegram.sendMessage(chatId,message);
+      if (supabase) {
+        const saved = await supabase.updateRecord("notification_outbox",notificationId,{
+          status:"SENT",attempts:1,delivered_at:new Date().toISOString(),next_attempt_at:null,last_error_code:null
+        });
+        return {ok:true,messageId:sent.messageId,persisted:saved.ok && saved.value.updated};
+      }
+      return {ok:true,messageId:sent.messageId,persisted:false};
+    } catch (error) {
+      if (supabase) {
+        const retrySeconds = error instanceof TelegramClientError ? error.retryAfterSeconds ?? 60 : 60;
+        await supabase.updateRecord("notification_outbox",notificationId,{
+          status:"FAILED",attempts:1,next_attempt_at:new Date(Date.now()+Math.max(15,retrySeconds)*1000).toISOString(),
+          last_error_code:error instanceof TelegramClientError?error.code:"HTTP_ERROR"
+        });
+      }
+      return {ok:false,errorCode:error instanceof TelegramClientError?error.code:"HTTP_ERROR",persisted:Boolean(supabase)};
+    }
+  }
+  async function drainOutbox() {
+    if (!supabase || !telegram.configured || outboxInFlight) return;
+    outboxInFlight = true;
+    try {
+      const pending = await supabase.listPendingNotifications(10);
+      for (const item of pending) {
+        if (typeof item.id!=="string" || typeof item.chat_id!=="string" || !item.payload || typeof item.payload!=="object" || typeof item.payload.text!=="string") continue;
+        const attempts = typeof item.attempts==="number" ? item.attempts+1 : 1;
+        const claim = await supabase.updateRecord("notification_outbox",item.id,{status:"SENDING",attempts});
+        if (!claim.ok || !claim.value.updated) continue;
+        try {
+          await telegram.sendMessage(item.chat_id,item.payload.text);
+          await supabase.updateRecord("notification_outbox",item.id,{status:"SENT",attempts,delivered_at:new Date().toISOString(),next_attempt_at:null,last_error_code:null});
+        } catch (error) {
+          const retrySeconds = error instanceof TelegramClientError ? error.retryAfterSeconds ?? 60 : 60;
+          await supabase.updateRecord("notification_outbox",item.id,{
+            status:"FAILED",attempts,next_attempt_at:new Date(Date.now()+Math.max(15,retrySeconds)*1000).toISOString(),
+            last_error_code:error instanceof TelegramClientError?error.code:"HTTP_ERROR"
+          });
+          if (error instanceof TelegramClientError && error.code==="RATE_LIMITED") break;
+        }
+      }
+    } catch {}
+    finally { outboxInFlight = false; }
+  }
+  async function queueNotificationToEnabled(message, messageType, dedupeKey) {
+    if (!telegram.configured) return {sent:0,failed:0,reason:"TELEGRAM_NOT_CONFIGURED"};
+    if (supabase) {
+      let chats;
+      try { chats=await supabase.listEnabledTelegramChats(); }
+      catch { return {sent:0,failed:0,reason:"OUTBOX_UNAVAILABLE"}; }
+      let queued=0, failed=0;
+      for (const chat of chats) {
+        if (typeof chat.chat_id!=="string") continue;
+        const result=await supabase.insertRecord("notification_outbox",{
+          id:randomUUID(),dedupe_key:dedupeKey+":"+chat.chat_id,chat_id:chat.chat_id,message_type:messageType,
+          payload:{text:message},status:"PENDING",attempts:0,created_at:new Date().toISOString()
+        });
+        if (result.ok) queued++; else if (result.errorCode!=="ALREADY_EXISTS") failed++;
+      }
+      await drainOutbox();
+      return {sent:queued,failed,reason:failed?"OUTBOX_PARTIAL_FAILURE":"QUEUED"};
+    }
+    const recipients=[...enabledChats];
+    const results=await telegram.sendToDiscoveredChats(message,recipients);
+    return {sent:results.filter(item=>item.ok).length,failed:results.filter(item=>!item.ok).length,reason:"PROCESS_LOCAL"};
+  }
+
 
   async function hydrateSettings() {
     if (!supabase || riskSettings) return;
