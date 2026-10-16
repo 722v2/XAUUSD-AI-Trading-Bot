@@ -11,6 +11,7 @@ Phase 1 is complete only when every required criterion is demonstrated by CI evi
 - [ ] Risk settings validate percentage and fixed-cash modes without application-defined risk caps/floors.
 - [ ] Missing security-critical secrets fail closed.
 - [ ] Persistence contracts represent failures explicitly.
+- [ ] Foundational Supabase migration defines core tables, idempotency constraints, risk-mode constraints and RLS without public policies.
 - [ ] Pipeline skeleton returns explicit NOT_READY until later phases implement it.
 - [ ] CI runs on feature branch pushes and pull requests to main.
 - [ ] No live trading, fake market signals, hard-coded credentials or production integrations are present.
