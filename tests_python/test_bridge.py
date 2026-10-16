@@ -36,7 +36,7 @@ class FakeMT5:
     def account_info(self): return SimpleNamespace(trade_mode=self.trade_mode, margin_mode=self.margin_mode, login=12345, server="Demo", currency="USD")
     def symbol_select(self, symbol, enabled): return True
     def symbol_info_tick(self, symbol): return SimpleNamespace(bid=2000.0, ask=2000.2, time=1792152000)
-    def symbol_info(self, symbol): return SimpleNamespace(volume_min=0.01, volume_max=100.0, volume_step=0.01, digits=2, trade_tick_size=0.1, trade_tick_value=1.0)
+    def symbol_info(self, symbol): return SimpleNamespace(volume_min=0.01, volume_max=100.0, volume_step=0.01, digits=2, trade_tick_size=0.1, trade_tick_value=1.0, point=0.01, trade_stops_level=10)
     def order_check(self, request): return SimpleNamespace(retcode=0)
     def order_send(self, request):
         self.order_send_calls += 1
