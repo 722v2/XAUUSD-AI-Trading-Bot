@@ -56,6 +56,9 @@ export class MT5BridgeClient {
   quote(): Promise<BridgeResult<{ readonly symbol: "XAUUSD"; readonly bid: number; readonly ask: number; readonly tickTime: string; readonly receivedAt: string }>> {
     return this.#request("/market/quote");
   }
+  symbolSpec(): Promise<BridgeResult<{ readonly symbol: "XAUUSD"; readonly tickSize: number; readonly tickValuePerLot: number; readonly volumeMin: number; readonly volumeMax: number; readonly volumeStep: number; readonly priceDigits: number }>> {
+    return this.#request("/market/spec");
+  }
   candles(timeframe: Timeframe, count = 100): Promise<BridgeResult<{ readonly symbol: "XAUUSD"; readonly timeframe: Timeframe; readonly candles: readonly RawCandle[] }>> {
     return this.#request(`/market/candles?timeframe=${encodeURIComponent(timeframe)}&count=${count}`);
   }
