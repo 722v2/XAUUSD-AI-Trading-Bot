@@ -14,7 +14,7 @@ Phase 1 is complete only when every required criterion is demonstrated by CI evi
 - [x] Foundational Supabase migration defines core tables, idempotency constraints, risk-mode constraints and RLS without public policies.
 - [x] Pipeline skeleton returns explicit NOT_READY until later phases implement it.
 - [x] CI runs on feature branch pushes and pull requests to main.
-- [x] No live trading, fake market signals, hard-coded credentials or production integrations are present.
+- [x] No live trading or hard-coded credentials are enabled; unimplemented components fail closed and the pipeline never fabricates market signals.
 
 Initial test inventory: state transitions; percentage and fixed-cash risk; invalid capital/risk/RR and risk modes; fail-closed secret readiness; explicit not-ready pipeline; in-process duplicate idempotency helper; versioned runtime configuration; SQL schema/RLS contracts. Current integrated CI additionally covers market analysis, AI adapter contracts, Supabase REST operations, dashboard safety APIs, Telegram rate limiting/outbox contracts, and the local MT5 bridge's Demo-only/idempotency rules.
 
