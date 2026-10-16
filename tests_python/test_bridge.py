@@ -79,6 +79,31 @@ class BridgeUnitTests(unittest.TestCase):
         self.assertEqual(existing["status"],"UNKNOWN")
         self.assertEqual(json.loads(existing["result_json"])["state"],"UNKNOWN")
 
+    def test_historical_candle_request_limit_and_partial_available_history(self):
+        import mt5_bridge.bridge as bridge_module
+        previous = bridge_module.mt5
+        class CandleMT5(FakeMT5):
+            TIMEFRAME_M1 = 1
+            def copy_rates_from_pos(self, symbol, timeframe, start_pos, count):
+                self.requested_count = count
+                base_time = 1792152000 - 60 * 39
+                return [
+                    {"time": base_time + i * 60, "open": 2000.0+i, "high": 2001.0+i,
+                     "low": 1999.0+i, "close": 2000.5+i, "tick_volume": 10}
+                    for i in range(40)
+                ]
+        fake = CandleMT5()
+        bridge_module.mt5 = fake
+        try:
+            rejected = self.service.candles("M1", 5001)
+            self.assertEqual(rejected[0], 400)
+            status, result = self.service.candles("M1", 100)
+            self.assertEqual(status, 200)
+            self.assertEqual(len(result["candles"]), 40)
+            self.assertTrue(all(item["isClosed"] for item in result["candles"]))
+        finally:
+            bridge_module.mt5 = previous
+
     def test_health_is_not_claimed_connected_without_terminal_module(self):
         import mt5_bridge.bridge as bridge_module
         previous = bridge_module.mt5
