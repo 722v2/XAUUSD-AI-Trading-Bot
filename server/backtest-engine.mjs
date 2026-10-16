@@ -76,12 +76,12 @@ export async function runHistoricalBacktest(input) {
     M15: Math.min(1000, Math.max(35, Math.ceil(barsCount / 15) + 50)),
     H1: Math.min(1000, Math.max(35, Math.ceil(barsCount / 60) + 50))
   };
-  const [m1Result, m5Result, m15Result, h1Result, specResult, quoteResult] = await Promise.all([
+  const [m1Result, m5Result, m15Result, h1Result, specResult] = await Promise.all([
     bridge.candles("M1", barsCount), bridge.candles("M5", contextCounts.M5),
     bridge.candles("M15", contextCounts.M15), bridge.candles("H1", contextCounts.H1),
-    bridge.symbolSpec(), bridge.quote()
+    bridge.symbolSpec()
   ]);
-  for (const [name, result] of [["M1",m1Result],["M5",m5Result],["M15",m15Result],["H1",h1Result],["مواصفات الرمز",specResult],["السعر الحالي",quoteResult]]) {
+  for (const [name, result] of [["M1",m1Result],["M5",m5Result],["M15",m15Result],["H1",h1Result],["مواصفات الرمز",specResult]]) {
     if (!result.ok) throw Object.assign(new Error("فشل جلب " + name + " من جسر MT5: " + result.message), { status: 503, code: "HISTORICAL_DATA_UNAVAILABLE" });
   }
   const normalized = {};
