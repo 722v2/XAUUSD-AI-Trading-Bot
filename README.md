@@ -9,7 +9,7 @@ Independent XAUUSD trading system, built from scratch. It does not import or mod
 - Authenticated local MT5 bridge in Python, with Demo-account enforcement and SQLite idempotency ledger.
 - Configurable OpenAI-compatible AI assessment adapter; AI responses are analysis only and cannot directly place orders.
 - Supabase REST persistence adapters and initial schema migration with RLS and atomic versioned settings RPC.
-- Arabic RTL dashboard, manual/scheduled scanner, risk settings, Demo position monitoring/modification/closure, and Telegram multi-chat discovery with a persistent notification outbox when Supabase is configured.
+- Arabic RTL dashboard with scanner countdown, M1 candlestick chart, technical metrics/evidence, risk settings, Demo position monitoring/modification/closure, and Telegram multi-chat discovery with a persistent notification outbox when Supabase is configured.
 - GitHub Actions runs TypeScript tests and Python bridge safety tests.
 
 ## Run the dashboard locally
