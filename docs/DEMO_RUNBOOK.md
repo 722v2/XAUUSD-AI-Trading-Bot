@@ -59,7 +59,16 @@ npm start
 
 Open http://127.0.0.1:3000. The dashboard refuses non-loopback binding by design. A real provider/API credential and a real Supabase project are required for a live integration check; CI fixtures do not verify those external services.
 
-## 5. Safe activation sequence
+## 5. Historical AI backtesting (no orders)
+
+1. Start the MT5 bridge and dashboard as above, with the terminal logged into a Demo account and the desired AI provider key configured on the server.
+2. Open **الاختبار التاريخي** in the dashboard. Choose a configured provider/model, then choose 100–5,000 closed M1 bars. The engine also fetches closed M5/M15/H1 candles for context.
+3. Leave the spread field blank to use the current MT5 bid/ask spread as the estimate, or enter a price-unit spread. Enter the broker's round-turn commission per lot and an adverse slippage estimate per execution; the defaults of zero commission/slippage are not realistic unless they match your account.
+4. Run the test. It only calls the selected AI model for technical candidate signals, and the AI request limit controls cost/time. A candidate is traded in the simulation only when AI agrees with the technical direction. The UI reports how many candidates were skipped by the limit or rejected by AI.
+5. Entry is simulated at the next M1 candle open. If stop loss and take profit are both touched in one candle, stop loss is assumed first. Results use MT5 tick size/value and configured lot size; positions remaining at the data boundary are marked to the final close.
+6. Compare models using the same data window, spread, slippage, commission and lot size. The bridge returns the most recent available closed candles; this is a rolling-window comparison, not a date-range selector. Up to 5,000 M1 bars is only several days of data and is not enough by itself to establish durable profitability. No backtest sends broker orders or arms auto-trading.
+
+## 6. Safe activation sequence
 
 1. Confirm MT5 shows the intended Demo account and that its account mode is **hedging**. Netting accounts are intentionally blocked from automated execution because position ownership can be ambiguous. Any unowned XAUUSD position also blocks auto-execution until it is manually reviewed.
 2. Check the dashboard health panel. MT5 must be connected; AI must pass a real assessment; Supabase must be connected.
@@ -70,7 +79,7 @@ Open http://127.0.0.1:3000. The dashboard refuses non-loopback binding by design
 7. Enable **تفعيل التنفيذ الآلي (Demo)** only when you intend to allow orders on that Demo account. The system checks AI, persisted risk settings, fresh quote, broker specifications and durable intent before sending. It permits at most one bot-owned XAUUSD position at a time; a second entry is blocked until the existing position closes.
 8. Verify every submitted order and position directly in MetaTrader 5, not only in the dashboard.
 
-## 6. Stop and recovery
+## 7. Stop and recovery
 
 - Press **إيقاف السكانر** to stop new scans and disarm auto-execution. The bridge will not send Live orders.
 - Auto-execution is not persisted as enabled and resets to off after a server restart.
@@ -79,7 +88,7 @@ Open http://127.0.0.1:3000. The dashboard refuses non-loopback binding by design
 - Position management only touches bot-owned positions in the Demo hedging account. It never loosens SL or changes TP. Baseline policy: breakeven at 1R and ATR trailing after 1.5R; these parameters are not performance-validated.
 - If Telegram is rate-limited, the durable outbox schedules retries when Supabase is configured.
 
-## 7. Verification commands
+## 8. Verification commands
 
 ```powershell
 npm ci
