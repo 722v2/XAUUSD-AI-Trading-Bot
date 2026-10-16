@@ -351,6 +351,8 @@ class BridgeService:
                 return 400, {"state": "REJECTED", "error": "INVALID_PROTECTIVE_PRICE"}
             if not math.isfinite(stop) or not math.isfinite(target) or stop < 0 or target < 0:
                 return 400, {"state": "REJECTED", "error": "INVALID_PROTECTIVE_PRICE"}
+            if (float(position.sl) > 0 and stop <= 0) or (float(position.tp) > 0 and target <= 0):
+                return 400, {"state": "REJECTED", "error": "CANNOT_REMOVE_EXISTING_PROTECTION"}
             tick = mt5.symbol_info_tick(self.symbol)
             if tick is None:
                 return 503, {"state": "REJECTED", "error": "TICK_UNAVAILABLE"}
