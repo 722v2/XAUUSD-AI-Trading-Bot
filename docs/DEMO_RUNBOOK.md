@@ -45,6 +45,10 @@ $env:AI_PROVIDER_ID = "your-provider"
 $env:AI_MODEL_ID = "your-model"
 $env:AI_BASE_URL = "https://your-openai-compatible-provider/v1"
 $env:AI_API_KEY = "your-provider-secret"
+# Optional: expose more approved model IDs in the dashboard for this endpoint.
+# $env:AI_ALLOWED_MODELS = "model-a,model-b,provider/model-c"
+# For multiple providers, set AI_PROVIDER_CATALOG_JSON to an allowlist whose apiKeyEnv
+# values name separate environment variables. The UI cannot submit arbitrary provider URLs.
 $env:SUPABASE_URL = "https://your-project.supabase.co"
 $env:SUPABASE_SERVICE_ROLE_KEY = "your-server-only-service-role-key"
 npm start
