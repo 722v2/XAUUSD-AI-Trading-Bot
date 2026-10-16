@@ -182,13 +182,16 @@ export function createAppServer(env = process.env) {
       }
       let changed=0;
       for (const position of livePositions.value.positions) {
+        const existing=databasePositions.find(item=>item.broker_position_id===String(position.ticket));
+        const storedInitial=Number(existing?.initial_stop_loss ?? existing?.stop_loss);
+        const initialStopLoss=Number.isFinite(storedInitial) && storedInitial>0 ? storedInitial : position.stopLoss;
         const saved=await supabase.upsertPosition({
           accountLogin,ticket:position.ticket,direction:position.direction,volume:position.volume,
-          entryPrice:position.entryPrice,stopLoss:position.stopLoss,takeProfit:position.takeProfit,openedAt:position.openedAt
+          entryPrice:position.entryPrice,stopLoss:position.stopLoss,takeProfit:position.takeProfit,initialStopLoss,openedAt:position.openedAt
         });
         if (!saved.ok) return {ok:false,reason:"OPEN_POSITION_PERSIST_FAILED"};
         const currentPrice=position.direction==="BUY"?quote.value.bid:quote.value.ask;
-        const management=managePositionStop(position,currentPrice,atrValue,{
+        const management=managePositionStop({...position,initialStopLoss},currentPrice,atrValue,{
           breakEvenAtR:1,trailingStartsAtR:1.5,trailingAtrMultiplier:1.2,
           priceDigits:spec.value.priceDigits,tickSize:spec.value.tickSize,
           minimumStopDistance:spec.value.point*spec.value.stopsLevelPoints
@@ -198,7 +201,7 @@ export function createAppServer(env = process.env) {
         if (!modified.ok || modified.value.state!=="CONFIRMED") return {ok:false,reason:"POSITION_MODIFICATION_UNCONFIRMED"};
         const savedUpdate=await supabase.upsertPosition({
           accountLogin,ticket:position.ticket,direction:position.direction,volume:position.volume,
-          entryPrice:position.entryPrice,stopLoss:management.stopLoss,takeProfit:position.takeProfit,openedAt:position.openedAt
+          entryPrice:position.entryPrice,stopLoss:management.stopLoss,takeProfit:position.takeProfit,initialStopLoss,openedAt:position.openedAt
         });
         if (!savedUpdate.ok) return {ok:false,reason:"POSITION_UPDATE_PERSIST_FAILED"};
         const event=await supabase.insertRecord("trade_events",{
