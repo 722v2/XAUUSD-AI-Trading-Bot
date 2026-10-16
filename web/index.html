@@ -63,10 +63,21 @@
       <section id="scanner" class="section panel">
         <div class="section-heading"><div><h2>السكانر والتحليل</h2><p>دورة فحص كل 60 ثانية — لن تعمل قبل جاهزية بيانات السوق</p></div><span class="status-tag muted-tag" id="scanner-status">متوقف بأمان</span></div>
         <div class="scanner-layout">
-          <div class="scanner-main"><div class="scanner-orbit"><div class="orbit-core">XAU<span>/</span>USD</div></div><div><h3 id="scanner-title">السكانر غير جاهز</h3><p id="scanner-detail">لم يتم تأكيد اتصال MT5 وبيانات الشموع المغلقة.</p><div class="scanner-meta"><span>الإطار الأساسي <b>M1</b></span><span>السياق <b>M5 · M15 · H1</b></span><span>الفاصل <b>60 ثانية</b></span></div></div></div>
+          <div class="scanner-main"><div class="scanner-orbit"><div class="orbit-core">XAU<span>/</span>USD</div></div><div><h3 id="scanner-title">السكانر غير جاهز</h3><p id="scanner-detail">لم يتم تأكيد اتصال MT5 وبيانات الشموع المغلقة.</p><div class="scanner-meta"><span>الإطار الأساسي <b>M1</b></span><span>السياق <b>M5 · M15 · H1</b></span><span>الفاصل <b>60 ثانية</b></span><span>الفحص التالي <b id="scanner-countdown">—</b></span></div></div></div>
           <div class="scanner-actions"><button id="scanner-toggle" class="secondary-button" type="button">تشغيل السكانر</button><button id="scan-now" class="primary-button">↻ فحص الآن</button></div>
         </div>
         <div id="scan-result" class="inline-result" role="status">لم يبدأ أي فحص بعد.</div>
+        <div class="analysis-results">
+          <div class="chart-panel">
+            <div class="chart-heading"><div><h3>حركة السعر · M1</h3><p id="chart-caption">يعرض آخر الشموع المغلقة عند توفر بيانات السوق</p></div><span id="selected-strategy" class="status-tag muted-tag">لا توجد فرصة</span></div>
+            <svg id="price-chart" viewBox="0 0 900 280" role="img" aria-label="مخطط شموع الذهب"></svg>
+          </div>
+          <div class="evidence-panel">
+            <h3>مقاييس التحليل والأدلة</h3>
+            <dl id="analysis-metrics" class="analysis-metrics"><div><dt>الحالة</dt><dd>بانتظار التحليل</dd></div></dl>
+            <ul id="analysis-evidence" class="evidence-list"><li>لا توجد أدلة مسجلة بعد.</li></ul>
+          </div>
+        </div>
         <div class="table-wrap"><table><thead><tr><th>وقت الحدث</th><th>المرحلة</th><th>الحالة</th><th>التفاصيل</th></tr></thead><tbody id="scan-log"><tr><td colspan="4" class="empty">لا توجد دورات فحص مسجلة.</td></tr></tbody></table></div>
       </section>
 
@@ -84,14 +95,14 @@
       </section>
 
       <section id="mt5" class="section panel">
-        <div class="section-heading"><div><h2>اتصال MT5</h2><p>لن يتم إرسال أي أمر تداول من هذه الواجهة في المرحلة الحالية.</p></div><span id="execution-status" class="status-tag muted-tag">معطّل</span></div>
+        <div class="section-heading"><div><h2>اتصال MT5</h2><p>إرسال الأوامر محصور بحساب Demo من نوع Hedging؛ التداول الحقيقي معطّل.</p></div><span id="execution-status" class="status-tag muted-tag">معطّل</span></div>
         <div class="connection-row"><div class="connection-symbol">MT5</div><div class="connection-copy"><b id="mt5-title">جسر MT5 غير متصل</b><p id="mt5-detail">لم يتم تأكيد حساب تجريبي أو مواصفات الرمز XAUUSD.</p></div><span class="status-tag muted-tag">Demo فقط</span></div>
         <div class="safety-strip"><span>⛨</span><p><b>حماية التنفيذ مفعّلة</b><br>التداول الحقيقي غير متاح. أي نتيجة تنفيذ غامضة يجب أن تدخل المصالحة بدل إعادة الإرسال التلقائي.</p></div>
         <div class="auto-trading-row"><div><b>التنفيذ الآلي على Demo</b><p>لا يتفعّل إلا بعد اتصال MT5 وAI وSupabase وحفظ إعدادات المخاطرة. يبقى متوقفًا بعد إعادة تشغيل الخادم.</p></div><button id="auto-trading-toggle" class="secondary-button" type="button">تفعيل التنفيذ الآلي (Demo)</button></div>
       </section>
 
       <section id="trades" class="section panel">
-        <div class="section-heading"><div><h2>الصفقات والسجل</h2><p>لا توجد بيانات تداول حقيقية موصولة بعد</p></div><span class="status-tag muted-tag">بانتظار MT5</span></div>
+        <div class="section-heading"><div><h2>الصفقات والسجل</h2><p>تعرض الصفقات المفتوحة التي أكدها جسر MT5 عند الاتصال</p></div><span class="status-tag muted-tag">بانتظار MT5</span></div>
         <p id="positions-warning" class="positions-warning" hidden></p>
         <div class="table-wrap"><table class="positions-table"><thead><tr><th>Ticket</th><th>الاتجاه</th><th>الحجم</th><th>سعر الدخول</th><th>وقف الخسارة</th><th>جني الربح</th><th>الربح العائم</th><th>الإجراءات</th></tr></thead><tbody id="positions-table"><tr><td colspan="8" class="empty">لا توجد صفقات بوت مفتوحة أو أن MT5 غير متصل.</td></tr></tbody></table></div>
         <p class="footnote">تعرض هذه القائمة صفقات البوت فقط، ولا تسمح بتعديل صفقات يدوية أو صفقات لا تحمل علامة البوت.</p>
@@ -106,7 +117,7 @@
       <section id="settings" class="section panel">
         <div class="section-heading"><div><h2>الإعدادات</h2><p>الإعدادات الأساسية للمشروع</p></div></div>
         <div class="settings-grid">
-          <div><span>رمز التداول</span><b>XAUUSD</b></div><div><span>الإطار الأساسي</span><b>M1</b></div><div><span>فاصل السكانر</span><b>60 ثانية</b></div><div><span>اللغة</span><b>العربية · RTL</b></div><div><span>بيئة التنفيذ</span><b>Demo</b></div><div><span>التداول الحقيقي</span><b class="danger-text">معطّل</b></div>
+          <div><span>رمز التداول</span><b>XAUUSD</b></div><div><span>الإطار الأساسي</span><b>M1</b></div><div><span>فاصل السكانر</span><b>60 ثانية</b></div><div><span>اللغة</span><b>العربية · RTL</b></div><div><span>بيئة التنفيذ</span><select id="execution-environment" aria-label="بيئة التنفيذ"><option value="DEMO" selected>Demo</option><option value="LIVE" disabled>Live · يتطلب موافقة صريحة</option></select></div><div><span>التداول الحقيقي</span><b class="danger-text">معطّل</b></div>
         </div>
         <p class="footnote">مفاتيح API وبيانات الاعتماد يجب ضبطها كمتغيرات بيئة على الخادم، لا في HTML أو إعدادات المتصفح.</p>
       </section>
