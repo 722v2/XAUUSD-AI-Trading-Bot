@@ -15,8 +15,8 @@ test('foundation migration creates core tables with RLS and no public policies',
     assert.match(sql, new RegExp('alter table public\\.' + table + ' enable row level security', 'i'), table + ' RLS missing');
   }
   assert.match(sql, /idempotency_key text not null unique/i);
-  assert.match(sql, /create or replace function public\\.write_runtime_settings/i);
-  assert.match(sql, /grant execute on function public\\.write_runtime_settings\\(jsonb, integer\\) to service_role/i);
+  assert.ok(sql.includes('create or replace function public.write_runtime_settings'));
+  assert.ok(sql.includes('grant execute on function public.write_runtime_settings(jsonb, integer) to service_role'));
   assert.match(sql, /secret_reference text/i);
   assert.doesNotMatch(sql, /create policy .* to anon/i);
   assert.doesNotMatch(sql, /service_role_key\s*=/i);
