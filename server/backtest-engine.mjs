@@ -93,9 +93,15 @@ export async function runHistoricalBacktest(input) {
   }
   const bars = normalized.M1;
   if (bars.length < 100) throw Object.assign(new Error("الجسر لم يرجع 100 شمعة M1 مغلقة على الأقل."), { status: 503, code: "INSUFFICIENT_HISTORY" });
-  const { tickSize, tickValuePerLot } = specResult.value;
-  if (!finite(tickSize) || tickSize <= 0 || !finite(tickValuePerLot) || tickValuePerLot <= 0) {
-    throw Object.assign(new Error("مواصفات tickSize/tickValue من MT5 غير صالحة؛ لا يمكن حساب الربح النقدي بدقة."), { status: 503, code: "INVALID_SYMBOL_SPEC" });
+  const { tickSize, tickValuePerLot, volumeMin, volumeMax, volumeStep } = specResult.value;
+  if (!finite(tickSize) || tickSize <= 0 || !finite(tickValuePerLot) || tickValuePerLot <= 0 ||
+      !finite(volumeMin) || volumeMin <= 0 || !finite(volumeMax) || volumeMax < volumeMin ||
+      !finite(volumeStep) || volumeStep <= 0) {
+    throw Object.assign(new Error("مواصفات tick/حجم العقد من MT5 غير صالحة؛ لا يمكن حساب النتيجة النقدية بدقة."), { status: 503, code: "INVALID_SYMBOL_SPEC" });
+  }
+  const volumeSteps = lots / volumeStep;
+  if (lots < volumeMin || lots > volumeMax || Math.abs(volumeSteps - Math.round(volumeSteps)) > 1e-7) {
+    throw Object.assign(new Error("حجم Lot لا يطابق الحد الأدنى أو الأقصى أو خطوة الحجم لدى وسيط MT5."), { status: 400, code: "INVALID_BACKTEST_VOLUME" });
   }
   const candidates = [];
   const warmup = Math.max(35, 21);
