@@ -215,7 +215,7 @@ export function createAppServer(env = process.env) {
         await queueNotificationToEnabled("تم تحسين وقف الخسارة لصفقة XAUUSD رقم "+position.ticket+" إلى "+management.stopLoss+". لم يتغير هدف الربح.","POSITION_STOP_TIGHTENED","position-stop:"+position.ticket+":"+management.stopLoss);
         changed++;
       }
-      return {ok:true,changed};
+      return {ok:true,changed,openPositionCount:botPositions.length};
     } catch {
       return {ok:false,reason:"POSITION_MANAGER_FAILURE"};
     }
@@ -320,12 +320,14 @@ export function createAppServer(env = process.env) {
         }
         normalized[timeframe]=bars.value;
       }
+      let managedOpenPositionCount=0;
       if (autoTradingEnabled) {
         const management = await manageOpenPositions(normalized,health.value);
         if (!management.ok) {
           const entry=record("RECONCILIATION_REQUIRED",management.reason);
           return {status:503,body:{error:"POSITION_MANAGER_NOT_READY",message:"تعذرت مصالحة أو حماية الصفقات المفتوحة؛ تم منع أي دخول جديد.",run:entry}};
         }
+        managedOpenPositionCount=management.openPositionCount;
       }
       const now = new Date().toISOString();
       const analysis = analyzeClosedMarket({symbol:"XAUUSD",candles:normalized,now,maxM1AgeMs:120000,minimumM1Bars:35});
@@ -422,6 +424,10 @@ export function createAppServer(env = process.env) {
       let execution = "NOT_SUBMITTED";
       let executionDetail = "التنفيذ الآلي غير مفعّل.";
       if ((decision.outcome === "BUY" || decision.outcome === "SELL") && autoTradingEnabled) {
+        if (managedOpenPositionCount >= 1) {
+          const entry=record("SKIPPED_OPEN_POSITION_EXISTS","MAX_ONE_BOT_POSITION");
+          return {status:200,body:{status:"OPEN_POSITION_EXISTS",message:"يوجد مركز XAUUSD مفتوح للبوت؛ تمت إدارته ومنع فتح مركز ثانٍ.",decision,execution:"NOT_SUBMITTED",run:entry}};
+        }
         await hydrateSettings();
         if (!supabase || !dbRunCreated || !riskSettings) {
           const entry=record("FAILED","EXECUTION_PREREQUISITES_MISSING");
