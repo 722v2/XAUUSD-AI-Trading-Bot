@@ -121,7 +121,7 @@ $("scan-now").addEventListener("click",async () => {
     const result = await api("/api/scan",{method:"POST",body:"{}"});
     $("scan-result").textContent = result.message;
     addScanLog("فحص يدوي",result.status || "مكتمل",result.message);
-    await loadScanLog();
+    await loadScanLog(); await loadPositions();
   } catch(error) {
     const message = error.data?.message || error.message;
     $("scan-result").textContent = message;
@@ -145,6 +145,40 @@ $("discover-chats").addEventListener("click",async () => {
     await loadTelegramChats(); await refreshHealth();
   } catch(error) { $("telegram-feedback").textContent = error.message; }
 });
+async function loadPositions() {
+  const body = $("positions-table");
+  try {
+    const data = await api("/api/positions");
+    const positions = data.positions || [];
+    body.innerHTML = positions.length ? positions.map(position => `<tr data-position-row="${position.ticket}"><td>${escapeHtml(position.ticket)}</td><td>${position.direction==="BUY"?"شراء":"بيع"}</td><td>${escapeHtml(position.volume)}</td><td>${escapeHtml(position.entryPrice)}</td><td><input class="position-sl" type="number" step="any" min="0.000001" value="${escapeHtml(position.stopLoss)}" aria-label="وقف الخسارة"></td><td><input class="position-tp" type="number" step="any" min="0.000001" value="${escapeHtml(position.takeProfit)}" aria-label="جني الربح"></td><td class="${position.profit>=0?"profit-text":"loss-text"}">${escapeHtml(position.profit)}</td><td><div class="position-actions"><button class="secondary-button" data-modify-position="${escapeHtml(position.ticket)}">حفظ SL/TP</button><button class="danger-button" data-close-position="${escapeHtml(position.ticket)}">إغلاق</button></div></td></tr>`).join("") : '<tr><td colspan="8" class="empty">لا توجد صفقات بوت مفتوحة.</td></tr>';
+  } catch(error) {
+    body.innerHTML = `<tr><td colspan="8" class="empty">${escapeHtml(error.message || "MT5 غير متصل")}</td></tr>`;
+  }
+}
+$("positions-table").addEventListener("click",async event => {
+  const modify = event.target.closest("button[data-modify-position]");
+  const close = event.target.closest("button[data-close-position]");
+  if (modify) {
+    const row = modify.closest("tr"); modify.disabled = true;
+    try {
+      const result = await api("/api/positions/modify",{method:"POST",body:JSON.stringify({ticket:Number(modify.dataset.modifyPosition),stopLoss:Number(row.querySelector(".position-sl").value),takeProfit:Number(row.querySelector(".position-tp").value)})});
+      $("scan-result").textContent = result.state === "CONFIRMED" ? "تم تأكيد تعديل SL/TP." : "نتيجة التعديل تحتاج مصالحة.";
+      await loadPositions();
+    } catch(error) { $("scan-result").textContent = error.data?.message || error.message; }
+    finally { modify.disabled = false; }
+  }
+  if (close) {
+    const ticket = Number(close.dataset.closePosition);
+    if (!window.confirm("تأكيد إغلاق صفقة البوت رقم " + ticket + " على حساب Demo؟")) return;
+    close.disabled = true;
+    try {
+      const result = await api("/api/positions/close",{method:"POST",body:JSON.stringify({ticket})});
+      $("scan-result").textContent = result.state === "CONFIRMED" ? "تم تأكيد طلب الإغلاق من الوسيط." : "نتيجة الإغلاق تحتاج مصالحة؛ لن يعاد إرسال الطلب تلقائيًا.";
+      await loadPositions();
+    } catch(error) { $("scan-result").textContent = error.data?.message || error.message; }
+    finally { close.disabled = false; }
+  }
+});
 $("telegram-chats").addEventListener("change",async event => {
   const input = event.target.closest("input[data-chat-id]"); if (!input) return;
   try { await api("/api/telegram/enable",{method:"POST",body:JSON.stringify({chatId:input.dataset.chatId,enabled:input.checked})}); }
@@ -157,9 +191,9 @@ $("telegram-chats").addEventListener("click",async event => {
   catch(error) { $("telegram-feedback").textContent = error.message; }
   finally { button.disabled = false; }
 });
-$("refresh").addEventListener("click",async () => { await refreshHealth(); await loadTelegramChats(); });
+$("refresh").addEventListener("click",async () => { await refreshHealth(); await loadTelegramChats(); await loadPositions(); });
 document.querySelectorAll(".nav-link").forEach(link => link.addEventListener("click",() => {
   document.querySelectorAll(".nav-link").forEach(item=>item.classList.remove("active")); link.classList.add("active");
 }));
 updateRiskMode();
-refreshHealth(); loadConfig(); loadTelegramChats(); loadScanLog();
+refreshHealth(); loadConfig(); loadTelegramChats(); loadScanLog(); loadPositions();
