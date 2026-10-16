@@ -40,7 +40,8 @@ function configuredBridge(env) {
 function allowedAIBaseUrl(value) {
   try {
     const endpoint=new URL(value);
-    return endpoint.protocol==="https:" || endpoint.hostname==="localhost" || endpoint.hostname==="127.0.0.1";
+    const allowedProtocol=endpoint.protocol==="https:" || endpoint.hostname==="localhost" || endpoint.hostname==="127.0.0.1";
+    return allowedProtocol && !endpoint.username && !endpoint.password && !endpoint.search && !endpoint.hash;
   } catch { return false; }
 }
 function aiProviderCatalogFromEnv(env) {
@@ -50,7 +51,7 @@ function aiProviderCatalogFromEnv(env) {
       const raw=JSON.parse(env.AI_PROVIDER_CATALOG_JSON);
       if (Array.isArray(raw)) for (const item of raw) {
         if (!item || typeof item!=="object" || typeof item.id!=="string" || !/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/.test(item.id) ||
-            typeof item.label!=="string" || typeof item.baseUrl!=="string" || !allowedAIBaseUrl(item.baseUrl) ||
+            typeof item.label!=="string" || !item.label.trim() || typeof item.baseUrl!=="string" || !allowedAIBaseUrl(item.baseUrl) ||
             typeof item.apiKeyEnv!=="string" || !/^[A-Z][A-Z0-9_]{1,79}$/.test(item.apiKeyEnv) || !Array.isArray(item.models)) continue;
         const models=[];
         for (const model of item.models) {
