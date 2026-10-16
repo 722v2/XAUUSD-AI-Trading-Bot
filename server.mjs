@@ -38,8 +38,10 @@ function configuredBridge(env) {
   catch { return null; }
 }
 function configuredAI(env) {
-  if (!env.AI_API_KEY || !env.AI_BASE_URL || !env.AI_MODEL_ID) return null;
+  if (!env.AI_API_KEY?.trim() || !env.AI_BASE_URL || !env.AI_MODEL_ID?.trim()) return null;
   try {
+    const endpoint = new URL(env.AI_BASE_URL);
+    if (endpoint.protocol !== "https:" && endpoint.hostname !== "localhost" && endpoint.hostname !== "127.0.0.1") return null;
     return new OpenAICompatibleAIProvider({
       providerId:env.AI_PROVIDER_ID || "openai-compatible", modelId:env.AI_MODEL_ID,
       baseUrl:env.AI_BASE_URL, apiKey:env.AI_API_KEY, timeoutMs:15000, assessmentTtlMs:60000
@@ -64,6 +66,7 @@ export function createAppServer(env = process.env) {
   const config = { aiProviderId:env.AI_PROVIDER_ID ?? null, aiModelId:env.AI_MODEL_ID ?? null };
   let outboxInFlight = false;
   async function sendWithOutbox(chatId, message, messageType, dedupeKey) {
+    if (!telegram.configured) return {ok:false,errorCode:"NOT_CONFIGURED",persisted:Boolean(supabase)};
     const now = new Date().toISOString();
     let notificationId = randomUUID();
     if (supabase) {
@@ -273,7 +276,7 @@ export function createAppServer(env = process.env) {
       let notification = {sent:0,failed:0,reason:"NO_DIRECTIONAL_DECISION"};
       if (decision.outcome === "BUY" || decision.outcome === "SELL") {
         notification = await queueNotificationToEnabled(
-          "XAUUSD "+decision.outcome+" — قرار تحليلي بعد توافق التحليل الفني وAI. التنفيذ: "+(autoTradingEnabled?"Demo فقط":"غير مفعّل")+".",
+          "XAUUSD "+decision.outcome+" — قرار تحليلي بعد توافق التحليل الفني وAI. هذه ليست رسالة تأكيد تنفيذ؛ راجع حالة الوسيط في لوحة التحكم.",
           "TRADE_DECISION","decision:"+candidateId+":"+decision.outcome
         );
       }
@@ -343,12 +346,14 @@ export function createAppServer(env = process.env) {
           }
           const auditEvent = await supabase.insertRecord("trade_events",{id:randomUUID(),execution_intent_id:prepared.intent.id,event_type:"DEMO_ORDER_CONFIRMED",payload:{brokerOrderId:submitted.value.brokerOrderId,orderPersisted},occurred_at:new Date().toISOString()});
           execution = "CONFIRMED";
+          const executionAlert = await queueNotificationToEnabled("تم تأكيد أمر XAUUSD على حساب MT5 Demo. الاتجاه: "+decision.direction+"، الحجم: "+prepared.intent.volume+"، رقم الوسيط: "+submitted.value.brokerOrderId+".","EXECUTION_CONFIRMED","execution-confirmed:"+prepared.intent.id);
           executionDetail = savedStatus.ok && orderPersisted && auditEvent.ok
-            ? "تم تأكيد أمر Demo وحفظ سجل التنفيذ."
+            ? "تم تأكيد أمر Demo وحفظ سجل التنفيذ."+(executionAlert.failed?" تعذر تسليم بعض التنبيهات.":"")
             : "تم تأكيد أمر Demo، لكن بعض سجلات التخزين أو التدقيق لم تُحفظ. يلزم فحص السجل؛ لا تعِد الإرسال.";
         } else if (submitted.value.state === "REJECTED") {
           await supabase.updateExecutionIntentStatus(prepared.intent.id,"REJECTED");
           execution = "REJECTED"; executionDetail = submitted.value.error ?? "رفض الوسيط الأمر.";
+          await queueNotificationToEnabled("رفض وسيط MT5 أمر XAUUSD على Demo. راجع سجل التنفيذ؛ لم تتم إعادة المحاولة تلقائيًا.","EXECUTION_REJECTED","execution-rejected:"+prepared.intent.id);
         } else {
           await supabase.updateExecutionIntentStatus(prepared.intent.id,"RECONCILIATION_REQUIRED");
           execution = "RECONCILIATION_REQUIRED"; executionDetail = "النتيجة غامضة؛ إعادة الإرسال محظورة.";
@@ -458,6 +463,10 @@ export function createAppServer(env = process.env) {
       const health=await bridge.health();
       if (!health.ok || health.value.state!=="CONNECTED" || health.value.environment!=="DEMO" || !health.value.accountLogin) return sendJson(res,409,{error:"MT5_DEMO_NOT_CONFIRMED",message:"لم يتم تأكيد حساب Demo؛ التنفيذ الآلي ما زال متوقفًا."});
       try { await supabase.readCurrent(); } catch { return sendJson(res,503,{error:"PERSISTENCE_UNAVAILABLE",message:"قاعدة البيانات غير متاحة؛ التنفيذ الآلي مرفوض."}); }
+      try {
+        const probe=await aiProvider.assess({symbol:"XAUUSD",evidence:[],now:new Date().toISOString()});
+        if (probe.outcome==="BUY" || probe.outcome==="SELL") return sendJson(res,409,{error:"AI_PROBE_UNSAFE",message:"مزود AI أعاد اتجاه تداول دون أدلة؛ التنفيذ الآلي مرفوض."});
+      } catch { return sendJson(res,503,{error:"AI_PROVIDER_UNAVAILABLE",message:"اختبار اتصال AI فشل؛ التنفيذ الآلي مرفوض."}); }
       autoTradingEnabled=true;
       return sendJson(res,200,{ok:true,enabled:true,environment:"DEMO",liveTradingEnabled:false});
     }
