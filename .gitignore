@@ -8,3 +8,10 @@ coverage/
 .DS_Store
 .vscode/
 .idea/
+*.sqlite
+*.sqlite3
+*.db
+*.pem
+*.key
+logs/
+data/
