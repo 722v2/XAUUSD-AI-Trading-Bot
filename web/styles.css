@@ -8,3 +8,5 @@
 .auto-trading-row{display:flex;justify-content:space-between;align-items:center;gap:14px;margin-top:16px;padding:14px;background:#17191b;border:1px solid #55452a;border-radius:10px}.auto-trading-row b{font-size:12px;color:#e7d1a6}.auto-trading-row p{font-size:10px;color:#a7a08f;line-height:1.8;margin:5px 0 0;max-width:520px}@media(max-width:720px){.auto-trading-row{align-items:flex-start;flex-direction:column}.auto-trading-row button{width:100%}}
 
 .positions-table input{max-width:110px;width:100%;background:#0c1118;border:1px solid #303949;border-radius:6px;padding:7px;color:#e8edf4}.position-actions{display:grid;gap:6px}.position-actions button{padding:7px 9px;font-size:10px}.danger-button{background:#3a2225;color:#f0a0a0;border:1px solid #63363a;border-radius:8px;padding:8px 12px;font-size:11px}.danger-button:hover{background:#4a282d}.profit-text{color:#71d4b1}.loss-text{color:#e68a8a}
+
+.positions-warning{padding:10px 12px;border:1px solid #7a4b37;background:#2d211a;border-radius:8px;color:#f0b08a;font-size:11px;line-height:1.7}[hidden]{display:none!important}
