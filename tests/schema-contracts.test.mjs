@@ -27,3 +27,8 @@ test('risk-mode database constraint requires exactly the selected risk value', a
   assert.match(sql, /risk_percent is not null and risk_percent > 0 and risk_cash is null/i);
   assert.match(sql, /risk_cash is not null and risk_cash > 0 and risk_percent is null/i);
 });
+
+test('additive position migration preserves original stop for trailing recovery', async () => {
+  const sql = await readFile(new URL('../supabase/migrations/202610160002_position_initial_stop.sql', import.meta.url), 'utf8');
+  assert.match(sql, /alter table public\.positions add column if not exists initial_stop_loss/i);
+});
