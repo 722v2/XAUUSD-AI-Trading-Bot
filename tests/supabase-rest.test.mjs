@@ -50,3 +50,20 @@ test('Supabase repository rejects insecure remote URL and missing server key', (
   assert.throws(()=>new SupabaseRestRepository({projectUrl:'http://remote.example',serviceRoleKey:'secret'}),/HTTPS/);
   assert.throws(()=>new SupabaseRestRepository({projectUrl:'https://project.supabase.co',serviceRoleKey:'  '}),/not configured/);
 });
+
+test('Supabase repository persists Telegram recipients and retrieves due outbox rows', async () => {
+  const calls=[];
+  const repository = new SupabaseRestRepository({projectUrl:'https://project.supabase.co',serviceRoleKey:'server-secret'},async (url,init) => {
+    calls.push({url:String(url),method:init.method,body:init.body ? JSON.parse(init.body) : null,headers:init.headers});
+    if (String(url).includes('/telegram_chats?on_conflict=chat_id')) return new Response('[]',{status:201});
+    if (String(url).includes('/telegram_chats?chat_id=eq.')) return new Response(JSON.stringify([{chat_id:'123',enabled:true}]),{status:200});
+    if (String(url).includes('/telegram_chats?enabled=eq.true')) return new Response(JSON.stringify([{chat_id:'123',display_name:'Trading'}]),{status:200});
+    if (String(url).includes('/notification_outbox?')) return new Response(JSON.stringify([{id:'44444444-4444-4444-8444-444444444444',chat_id:'123',status:'PENDING'}]),{status:200});
+    return new Response('[]',{status:200});
+  });
+  assert.equal((await repository.upsertTelegramChat({chatId:'123',displayName:'Trading',discoveredAt:'2026-10-16T12:00:00Z'})).ok,true);
+  assert.deepEqual(await repository.setTelegramChatEnabled('123',true),{ok:true,value:{updated:true}});
+  assert.equal((await repository.listEnabledTelegramChats()).length,1);
+  assert.equal((await repository.listPendingNotifications()).length,1);
+  assert.ok(calls.some(call=>call.headers.Prefer==='resolution=merge-duplicates,return=representation'));
+});
