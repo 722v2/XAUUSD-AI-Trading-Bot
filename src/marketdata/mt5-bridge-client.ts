@@ -79,7 +79,7 @@ export class MT5BridgeClient {
       })
     });
   }
-  positions(): Promise<BridgeResult<{ readonly environment: "DEMO"; readonly accountLogin?: string; readonly positions: readonly { readonly ticket: number; readonly symbol: "XAUUSD"; readonly direction: "BUY" | "SELL"; readonly volume: number; readonly entryPrice: number; readonly stopLoss: number; readonly takeProfit: number; readonly profit: number; readonly openedAt: string; readonly comment: string }[] }>> {
+  positions(): Promise<BridgeResult<{ readonly environment: "DEMO"; readonly accountLogin?: string; readonly positions: readonly { readonly ticket: number; readonly symbol: "XAUUSD"; readonly direction: "BUY" | "SELL"; readonly volume: number; readonly entryPrice: number; readonly stopLoss: number; readonly takeProfit: number; readonly profit: number; readonly openedAt: string; readonly ownedByBot: boolean; readonly comment: string }[] }>> {
     return this.#request("/positions");
   }
   modifyPosition(input: { readonly ticket: number; readonly stopLoss?: number; readonly takeProfit?: number }): Promise<BridgeResult<{ readonly state: "CONFIRMED" | "REJECTED" | "RECONCILIATION_REQUIRED"; readonly ticket?: number }>> {
