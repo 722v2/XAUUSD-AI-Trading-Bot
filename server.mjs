@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 import {
   validateRiskSettings, TelegramBotClient, TelegramClientError, SupabaseRestRepository,
   MT5BridgeClient, normalizeClosedCandles, analyzeClosedMarket,
-  OpenAICompatibleAIProvider, coordinateTechnicalAndAI, prepareExecutionIntent
+  OpenAICompatibleAIProvider, coordinateTechnicalAndAI, prepareExecutionIntent, atr, managePositionStop
 } from "./dist/index.js";
 
 const root = fileURLToPath(new URL("./web/", import.meta.url)).replace(/[\\/]+$/, "");
@@ -156,6 +156,65 @@ export function createAppServer(env = process.env) {
     } catch {}
   }
 
+
+  async function manageOpenPositions(normalized, health) {
+    if (!autoTradingEnabled) return {ok:true,changed:0};
+    if (!supabase || !bridge || !health.accountLogin) return {ok:false,reason:"POSITION_MANAGER_PREREQUISITES_MISSING"};
+    try {
+      const [livePositions,quote,spec] = await Promise.all([bridge.positions(),bridge.quote(),bridge.symbolSpec()]);
+      if (!livePositions.ok || !quote.ok || !spec.ok || livePositions.value.environment!=="DEMO" || livePositions.value.accountLogin!==health.accountLogin) {
+        return {ok:false,reason:"POSITION_RECONCILIATION_UNAVAILABLE"};
+      }
+      const m1=normalized.M1;
+      const atrValues=atr(m1.map(bar=>bar.high),m1.map(bar=>bar.low),m1.map(bar=>bar.close),14);
+      const atrValue=atrValues[atrValues.length-1];
+      if (atrValue===undefined || !Number.isFinite(atrValue) || atrValue<=0) return {ok:false,reason:"POSITION_ATR_UNAVAILABLE"};
+      const accountLogin=String(health.accountLogin);
+      const liveTickets=new Set(livePositions.value.positions.map(position=>String(position.ticket)));
+      const databasePositions=await supabase.listOpenPositions(accountLogin);
+      for (const stored of databasePositions) {
+        if (typeof stored.id!=="string" || typeof stored.broker_position_id!=="string") continue;
+        if (!liveTickets.has(stored.broker_position_id)) {
+          const closed=await supabase.updateRecord("positions",stored.id,{status:"CLOSED",closed_at:new Date().toISOString(),updated_at:new Date().toISOString()});
+          if (!closed.ok || !closed.value.updated) return {ok:false,reason:"CLOSED_POSITION_PERSIST_FAILED"};
+          await supabase.insertRecord("trade_events",{id:randomUUID(),position_id:stored.id,execution_intent_id:null,event_type:"POSITION_CLOSED_RECONCILED",payload:{brokerPositionId:stored.broker_position_id},occurred_at:new Date().toISOString()});
+        }
+      }
+      let changed=0;
+      for (const position of livePositions.value.positions) {
+        const saved=await supabase.upsertPosition({
+          accountLogin,ticket:position.ticket,direction:position.direction,volume:position.volume,
+          entryPrice:position.entryPrice,stopLoss:position.stopLoss,takeProfit:position.takeProfit,openedAt:position.openedAt
+        });
+        if (!saved.ok) return {ok:false,reason:"OPEN_POSITION_PERSIST_FAILED"};
+        const currentPrice=position.direction==="BUY"?quote.value.bid:quote.value.ask;
+        const management=managePositionStop(position,currentPrice,atrValue,{
+          breakEvenAtR:1,trailingStartsAtR:1.5,trailingAtrMultiplier:1.2,
+          priceDigits:spec.value.priceDigits,tickSize:spec.value.tickSize,
+          minimumStopDistance:spec.value.point*spec.value.stopsLevelPoints
+        });
+        if (management.action!=="MODIFY_STOP") continue;
+        const modified=await bridge.modifyPosition({ticket:position.ticket,stopLoss:management.stopLoss,takeProfit:position.takeProfit});
+        if (!modified.ok || modified.value.state!=="CONFIRMED") return {ok:false,reason:"POSITION_MODIFICATION_UNCONFIRMED"};
+        const savedUpdate=await supabase.upsertPosition({
+          accountLogin,ticket:position.ticket,direction:position.direction,volume:position.volume,
+          entryPrice:position.entryPrice,stopLoss:management.stopLoss,takeProfit:position.takeProfit,openedAt:position.openedAt
+        });
+        if (!savedUpdate.ok) return {ok:false,reason:"POSITION_UPDATE_PERSIST_FAILED"};
+        const event=await supabase.insertRecord("trade_events",{
+          id:randomUUID(),position_id:savedUpdate.value.id,execution_intent_id:null,event_type:"STOP_LOSS_TIGHTENED",
+          payload:{ticket:position.ticket,reason:management.reason,previousStopLoss:position.stopLoss,newStopLoss:management.stopLoss,takeProfitUnchanged:true},
+          occurred_at:new Date().toISOString()
+        });
+        if (!event.ok) return {ok:false,reason:"POSITION_AUDIT_PERSIST_FAILED"};
+        await queueNotificationToEnabled("تم تحسين وقف الخسارة لصفقة XAUUSD رقم "+position.ticket+" إلى "+management.stopLoss+". لم يتغير هدف الربح.","POSITION_STOP_TIGHTENED","position-stop:"+position.ticket+":"+management.stopLoss);
+        changed++;
+      }
+      return {ok:true,changed};
+    } catch {
+      return {ok:false,reason:"POSITION_MANAGER_FAILURE"};
+    }
+  }
   async function performScan(triggerType = "MANUAL") {
     if (scanInFlight) return { status:409, body:{error:"SCAN_ALREADY_RUNNING",message:"هناك دورة فحص قيد التنفيذ."} };
     scanInFlight = true;
@@ -200,6 +259,13 @@ export function createAppServer(env = process.env) {
           return {status:409,body:{error:bars.error,message:"بيانات السوق غير صالحة للتحليل.",run:entry}};
         }
         normalized[timeframe]=bars.value;
+      }
+      if (autoTradingEnabled) {
+        const management = await manageOpenPositions(normalized,health.value);
+        if (!management.ok) {
+          const entry=record("RECONCILIATION_REQUIRED",management.reason);
+          return {status:503,body:{error:"POSITION_MANAGER_NOT_READY",message:"تعذرت مصالحة أو حماية الصفقات المفتوحة؛ تم منع أي دخول جديد.",run:entry}};
+        }
       }
       const now = new Date().toISOString();
       const analysis = analyzeClosedMarket({symbol:"XAUUSD",candles:normalized,now,maxM1AgeMs:120000,minimumM1Bars:35});
