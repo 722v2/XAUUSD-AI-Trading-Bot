@@ -69,6 +69,27 @@ function renderAIModels(preferredModelId) {
   const wanted=preferredModelId&&models.some(model=>model.id===preferredModelId)?preferredModelId:models[0]?.id;
   if(wanted) select.value=wanted;
 }
+function renderBacktestModels(preferredModelId) {
+  const provider=aiProviders.find(item=>item.id===$("backtest-provider").value&&item.configured);
+  const select=$("backtest-model");
+  const models=provider?.models||[];
+  select.innerHTML=models.map(model=>`<option value="${escapeHtml(model.id)}">${escapeHtml(model.label||model.id)}</option>`).join("");
+  select.disabled=models.length===0;
+  const wanted=preferredModelId&&models.some(model=>model.id===preferredModelId)?preferredModelId:models[0]?.id;
+  if(wanted) select.value=wanted;
+}
+function initializeBacktestProviders(preferredProviderId, preferredModelId) {
+  const configured=aiProviders.filter(provider=>provider.configured);
+  const select=$("backtest-provider");
+  select.innerHTML=configured.map(provider=>`<option value="${escapeHtml(provider.id)}">${escapeHtml(provider.label)}</option>`).join("");
+  select.disabled=configured.length===0;
+  const selected=configured.find(provider=>provider.id===preferredProviderId)||configured[0];
+  if(selected) select.value=selected.id;
+  renderBacktestModels(selected?.id===preferredProviderId?preferredModelId:null);
+  $("backtest-status").textContent=configured.length?"اختر النموذج والإعدادات":"لا يوجد مزود AI مهيأ";
+  $("backtest-status").className="status-tag "+(configured.length?"ok-tag":"warn-tag");
+}
+$("backtest-provider").addEventListener("change",()=>renderBacktestModels(null));
 async function loadAIProviders() {
   try {
     const data=await api("/api/ai/providers");
@@ -80,6 +101,7 @@ async function loadAIProviders() {
     if(selected) select.value=selected.id;
     selectedAiModelId=data.selectedModelId||null;
     renderAIModels(selected?.id===data.selectedProviderId?selectedAiModelId:null);
+    initializeBacktestProviders(data.selectedProviderId,selectedAiModelId);
     $("ai-config-status").textContent=data.persisted?"الإعدادات الدائمة متاحة":"حفظ مؤقت";
     $("ai-config-status").className="status-tag "+(data.persisted?"ok-tag":"warn-tag");
     $("ai-config-feedback").textContent=aiProviders.length?"المفاتيح تبقى في بيئة الخادم؛ القائمة لا تسمح بعنوان مزود عشوائي.":"أضف AI_BASE_URL وAI_MODEL_ID أو AI_PROVIDER_CATALOG_JSON إلى بيئة الخادم.";
@@ -255,6 +277,56 @@ $("scan-now").addEventListener("click",async () => {
     addScanLog("فحص يدوي","مرفوض بأمان",message);
     await loadScanLog();
   } finally { $("scan-now").disabled = false; }
+});
+function renderBacktestResult(result) {
+  const metrics=result.metrics||{}, data=result.data||{}, ai=result.ai||{};
+  const money=value=>Number.isFinite(value)?value.toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2}):"—";
+  const stats=[
+    ["النموذج",ai.modelId||"—"],["الشموع المستلمة",String(data.receivedBars??0)],
+    ["الإشارات الفنية",String(metrics.candidateSignals??0)],["طلبات AI",String(metrics.aiCalls??0)],
+    ["الصفقات",String(metrics.trades??0)],["نسبة النجاح",String(metrics.winRatePercent??0)+"%"],
+    ["صافي الربح / الخسارة",money(metrics.netPnl)],["أقصى تراجع",money(metrics.maxDrawdown)],
+    ["Profit Factor",metrics.profitFactor==null?"—":String(metrics.profitFactor)],
+    ["متوسط الصفقة",money(metrics.expectancyPerTrade)],["رفض AI",String(metrics.aiRejected??0)],
+    ["أخطاء AI",String(metrics.aiErrors??0)],["تقييمات لم تُنفذ بسبب الحد",String(metrics.aiCallsSkippedByLimit??0)]
+  ];
+  $("backtest-summary").innerHTML=stats.map(([label,value])=>`<div class="backtest-stat"><span>${escapeHtml(label)}</span><b class="${label==="صافي الربح / الخسارة"?(Number(metrics.netPnl)>=0?"profit-text":"loss-text"):""}">${escapeHtml(value)}</b></div>`).join("");
+  const start=data.startTime?new Date(data.startTime).toLocaleString():"—";
+  const end=data.endTime?new Date(data.endTime).toLocaleString():"—";
+  const assumptions=result.assumptions||{};
+  $("backtest-data-note").textContent=`مصدر البيانات: MT5 Bridge · ${start} — ${end} · السبريد ${assumptions.spreadPrice??"—"} · العمولة لكل Lot ${assumptions.commissionPerLotRoundTurn??"—"} · لا توجد أوامر تداول.`;
+  const trades=Array.isArray(result.trades)?result.trades:[];
+  $("backtest-trades").innerHTML=trades.length?trades.slice().reverse().map(trade=>`<tr><td>${escapeHtml(new Date(trade.signalTime).toLocaleString())}</td><td>${trade.direction==="BUY"?"شراء":"بيع"}</td><td>${escapeHtml(trade.strategyId)}</td><td>${escapeHtml(trade.entryPrice)}</td><td>${escapeHtml(trade.exitPrice)}</td><td>${escapeHtml(trade.exitReason)}</td><td class="${trade.netPnl>=0?"profit-text":"loss-text"}">${escapeHtml(money(trade.netPnl))}</td><td>${escapeHtml(trade.rMultiple)}</td></tr>`).join(""):'<tr><td colspan="8" class="empty">لم ينتج الاختبار صفقات متوافقة مع قرار AI ضمن الإعدادات الحالية.</td></tr>';
+  $("backtest-results").hidden=false;
+}
+$("backtest-form").addEventListener("submit",async event=>{
+  event.preventDefault();
+  const button=$("backtest-run"),feedback=$("backtest-feedback");
+  const providerId=$("backtest-provider").value,modelId=$("backtest-model").value;
+  if(!providerId||!modelId){feedback.textContent="اختر مزود AI ونموذجًا مضبوطًا على الخادم.";return;}
+  const spreadText=$("backtest-spread").value.trim();
+  const request={
+    providerId,modelId,barsCount:Number($("backtest-bars").value),lots:Number($("backtest-lots").value),
+    spreadPrice:spreadText===""?null:Number(spreadText),
+    commissionPerLot:Number($("backtest-commission").value),maxAiCalls:Number($("backtest-max-ai").value)
+  };
+  button.disabled=true;
+  $("backtest-results").hidden=true;
+  $("backtest-status").textContent="جارٍ الاختبار";
+  $("backtest-status").className="status-tag warn-tag";
+  feedback.textContent="جارٍ سحب الشموع المغلقة من MT5 ثم اختبار المرشحين على النموذج المختار. قد يستغرق ذلك وقتًا بحسب عدد طلبات AI.";
+  try{
+    const result=await api("/api/backtest",{method:"POST",body:JSON.stringify(request)});
+    renderBacktestResult(result);
+    const m=result.metrics||{};
+    feedback.textContent=`اكتمل الاختبار. ${m.trades??0} صفقة، ${m.aiCalls??0} تقييم AI، وصافي النتيجة ${m.netPnl??0}.`;
+    $("backtest-status").textContent="اكتمل الاختبار";
+    $("backtest-status").className="status-tag ok-tag";
+  }catch(error){
+    feedback.textContent=error.data?.message||error.message||"فشل الاختبار التاريخي.";
+    $("backtest-status").textContent="فشل / غير جاهز";
+    $("backtest-status").className="status-tag error-tag";
+  }finally{button.disabled=false;}
 });
 async function loadTelegramChats() {
   try {
