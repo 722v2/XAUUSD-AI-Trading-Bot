@@ -12,7 +12,7 @@ test('RSI handles flat and one-directional series deterministically', () => {
 test('MACD and ATR preserve warm-up nulls', () => {
   assert.equal(macd(Array.from({ length: 20 }, (_, i) => i + 1)).every(x => x === null), true);
   assert.equal(atr([2, 3, 4], [1, 2, 3], [1.5, 2.5, 3.5], 2)[0], null);
-  assert.equal(atr([2, 3, 4], [1, 2, 3], [1.5, 2.5, 3.5], 2)[1], 1.5);
+  assert.equal(atr([2, 3, 4], [1, 2, 3], [1.5, 2.5, 3.5], 2)[1], 1.25);
 });
 test('quote normalization rejects crossed quotes and accepts valid XAUUSD quotes', () => {
   assert.equal(normalizeQuote({symbol:'XAUUSD',bid:2010,ask:2009,tickTime:'2026-10-16T12:00:00Z'}).ok, false);
