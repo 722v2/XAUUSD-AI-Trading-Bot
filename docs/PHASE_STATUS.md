@@ -5,7 +5,7 @@ Updated: 2026-10-16
 ## Phase 1 — Foundation
 - Implemented strict domain contracts, versioned in-memory runtime config, persistence interfaces, secret readiness and opportunity state transitions.
 - Supabase initial schema migration is present; it has not been applied to a real project in this repository workflow.
-- CI previously passed the Phase 1-only baseline. Later phases are still undergoing integrated CI.
+- Integrated GitHub Actions passed on the current implementation: 51 Node.js tests and 14 Python bridge tests, with 0 failures.
 
 ## Phase 2 — Market Data & Analysis
 - Implemented quote/candle normalization, closed-bar validation, EMA, RSI, MACD and ATR, and an M1 deterministic candidate analyzer.
@@ -13,8 +13,8 @@ Updated: 2026-10-16
 - Stale data, invalid OHLC, open bars, duplicates, out-of-order bars and insufficient history fail closed.
 
 ## Phase 3 — Opportunity Lifecycle
-- Implemented in-memory opportunity deduplication, versioned state transitions, event history and expiry.
-- Durable lifecycle event persistence is still required for restart-safe operation.
+- Implemented candidate deduplication, explicit state-transition rules, expiry, and persisted candidate/assessment/decision/trade-event records when Supabase is configured.
+- The pure opportunity state machine remains separately tested; the broker/database recovery path is covered by contract tests and still requires real terminal restart verification.
 
 ## Phase 4 — Risk & Execution Contracts
 - Implemented broker-spec-based position sizing and RR/geometry checks.
@@ -24,15 +24,16 @@ Updated: 2026-10-16
 
 ## Phase 5 — AI Decision Engine
 - Implemented OpenAI-compatible structured assessment adapter and a conflict policy that blocks disagreement.
+- Dashboard provider/model selection is restricted to a server-side allowlist; API keys remain server environment secrets and selections can be persisted through Supabase.
 - API connectivity has not been verified against an actual provider credential in this repository workflow.
 
 ## Phase 6 — Persistence & Recovery
-- Implemented a server-side Supabase REST repository for execution-intent idempotency and optimistic runtime settings.
-- Added a SQL RPC for atomic versioned runtime settings.
-- A real Supabase project must be configured and the migration applied before durable persistence is operational.
+- Implemented a server-side Supabase REST repository for execution-intent idempotency, unresolved-intent recovery, position persistence, optimistic runtime settings, Telegram chat persistence and notification outbox retries.
+- Added SQL migrations for the core schema, RLS and atomic versioned runtime settings.
+- A real Supabase project must be configured and all migrations applied before durable persistence is operational.
 
 ## Phase 7 — Dashboard & Telegram
-- Implemented an Arabic RTL responsive dashboard, readiness API, risk form, manual scan, 60-second scanner toggle, scan log and Telegram discovery/test-message controls.
+- Implemented an Arabic RTL responsive dashboard, readiness API, risk form, allowlisted AI provider/model selector, manual scan, 60-second scanner toggle, scan log, live bot-position table with SL/TP/close controls, and Telegram discovery/test-message controls.
 - Telegram recipients and notifications use the Supabase chat table and outbox when Supabase is configured. Failed deliveries are retried according to stored retry time; without Supabase, chat selection remains process-local.
 - Dashboard reports missing dependencies rather than fabricating connected status or signals.
 
