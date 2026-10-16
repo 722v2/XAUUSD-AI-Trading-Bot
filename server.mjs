@@ -193,10 +193,22 @@ export function createAppServer(env = process.env) {
 
 
   async function hydrateSettings() {
-    if (!supabase || riskSettings) return;
+    if (settingsHydrated) return;
+    if (!supabase) { settingsHydrated=true; return; }
     try {
       const current = await supabase.readCurrent();
       if (validRiskSettings(current.riskSettings)) riskSettings = Object.freeze({...current.riskSettings});
+      const storedProvider=typeof current.aiProviderId==="string"?current.aiProviderId:null;
+      const storedModel=typeof current.aiModelId==="string"?current.aiModelId:null;
+      const provider=aiCatalog.find(item=>item.id===storedProvider);
+      if (provider && storedModel && provider.models.some(model=>model.id===storedModel)) {
+        config.aiProviderId=storedProvider;
+        config.aiModelId=storedModel;
+        aiProvider=configuredAI(env,aiCatalog,storedProvider,storedModel);
+        aiConfigured=Boolean(aiProvider);
+        aiProbePassed=false;
+      }
+      settingsHydrated=true;
     } catch {}
   }
 
@@ -592,6 +604,7 @@ export function createAppServer(env = process.env) {
     const url = new URL(req.url ?? "/", "http://localhost");
     const method = req.method ?? "GET";
     if (method === "GET" && url.pathname === "/api/health") {
+      await hydrateSettings();
       let databaseState = "NOT_CONFIGURED";
       if (supabase) { try { await supabase.readCurrent(); databaseState = "CONNECTED"; } catch { databaseState = "DISCONNECTED"; } }
       let bridgeHealth = null;
@@ -610,6 +623,38 @@ export function createAppServer(env = process.env) {
     if (method === "GET" && url.pathname === "/api/config") {
       await hydrateSettings();
       return sendJson(res,200,{scannerEnabled,autoTradingEnabled,scannerIntervalSeconds:60,riskSettings,persisted:Boolean(supabase),aiProviderId:config.aiProviderId,aiModelId:config.aiModelId,environment:"DEMO",liveTradingEnabled:false});
+    }
+    if (method === "GET" && url.pathname === "/api/ai/providers") {
+      await hydrateSettings();
+      return sendJson(res,200,{providers:aiCatalog.map(provider=>({id:provider.id,label:provider.label,configured:typeof env[provider.apiKeyEnv]==="string"&&Boolean(env[provider.apiKeyEnv].trim()),models:provider.models})),selectedProviderId:config.aiProviderId,selectedModelId:config.aiModelId,persisted:Boolean(supabase)});
+    }
+    if (method === "POST" && url.pathname === "/api/ai/config") {
+      let body;
+      try { body=await readJson(req); } catch(error) { return sendJson(res,error.status??400,{error:"INVALID_BODY",message:error.message}); }
+      if (typeof body.providerId!=="string" || typeof body.modelId!=="string") return sendJson(res,400,{error:"INVALID_AI_CONFIG",message:"اختر مزودًا ونموذجًا من القائمة."});
+      const provider=aiCatalog.find(item=>item.id===body.providerId);
+      if (!provider || !provider.models.some(model=>model.id===body.modelId)) return sendJson(res,400,{error:"AI_CONFIG_NOT_ALLOWLISTED",message:"المزود أو النموذج غير موجود في القائمة المسموحة على الخادم."});
+      const nextProvider=configuredAI(env,aiCatalog,body.providerId,body.modelId);
+      if (!nextProvider) return sendJson(res,409,{error:"PROVIDER_SECRET_MISSING",message:"المفتاح السري لهذا المزود غير مضبوط على الخادم."});
+      let persisted=false;
+      if (supabase) {
+        try {
+          const current=await supabase.readCurrent();
+          const expectedVersion=typeof current._version==="number"?current._version:0;
+          const settings=Object.fromEntries(Object.entries(current).filter(([key])=>key!=="_version"));
+          const saved=await supabase.writeVersioned({...settings,aiProviderId:body.providerId,aiModelId:body.modelId},expectedVersion);
+          if (!saved.ok) return sendJson(res,saved.errorCode==="VERSION_CONFLICT"?409:503,{error:saved.errorCode,message:"تعذر حفظ اختيار مزود AI بشكل دائم."});
+          persisted=true;
+          settingsHydrated=true;
+        } catch { return sendJson(res,503,{error:"PERSISTENCE_FAILED",message:"قاعدة البيانات غير متاحة؛ لم يتم تغيير مزود AI."}); }
+      }
+      config.aiProviderId=body.providerId;
+      config.aiModelId=body.modelId;
+      aiProvider=nextProvider;
+      aiConfigured=true;
+      aiProbePassed=false;
+      autoTradingEnabled=false;
+      return sendJson(res,200,{ok:true,providerId:config.aiProviderId,modelId:config.aiModelId,persisted,message:persisted?"تم حفظ اختيار AI دائمًا.":"تم تغيير AI لهذه الجلسة فقط؛ لا يوجد تخزين دائم."});
     }
     if (method === "POST" && url.pathname === "/api/config/risk") {
       let body;
