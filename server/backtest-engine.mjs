@@ -133,7 +133,7 @@ export async function runHistoricalBacktest(input) {
     delete trade._exitIndex;
     trades.push(trade);
   }
-  const skippedByLimit = Math.max(0, candidates.length - aiCalls - skippedOverlap - aiRejected - aiErrors.length);
+  const skippedByLimit = Math.max(0, candidates.length - aiCalls - skippedOverlap);
   let netPnl = 0, grossProfit = 0, grossLoss = 0, peak = 0, maxDrawdown = 0;
   const equityCurve = [];
   for (const trade of trades) {
