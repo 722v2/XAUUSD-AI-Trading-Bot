@@ -490,7 +490,7 @@ export function createAppServer(env = process.env) {
       const marketState = !bridge ? "NOT_CONFIGURED" : bridgeHealth?.state === "CONNECTED" ? "CONNECTED" : bridgeHealth?.state === "BLOCKED" ? "DISCONNECTED" : "NOT_READY";
       const aiConfigured = Boolean(aiProvider);
       return sendJson(res,200,{
-        marketData:{state:marketState,label:marketState==="CONNECTED"?"MT5 Demo متصل":"MT5 غير متصل",reason:marketState==="CONNECTED"?"تم تأكيد حساب Demo.":bridgeHealth?.reason??"لم يتم ضبط جسر MT5؛ لا توجد بيانات سوق فعلية."},
+        marketData:{state:marketState,label:marketState==="CONNECTED"?"MT5 Demo متصل":"MT5 غير متصل",reason:marketState==="CONNECTED"?(bridgeHealth?.executionReady?"تم تأكيد حساب Demo من نوع Hedging.":"بيانات السوق متاحة؛ التنفيذ الآلي يتطلب حساب Demo من نوع Hedging."):(bridgeHealth?.reason??"لم يتم ضبط جسر MT5؛ لا توجد بيانات سوق فعلية.")},
         ai:{state:!aiConfigured?"NOT_CONFIGURED":aiProbePassed?"CONNECTED":"CONFIGURED_NOT_TESTED",label:!aiConfigured?"لم يتم الاتصال":aiProbePassed?"AI متصل":"إعدادات موجودة · الاتصال يحتاج اختبارًا"},
         database:{state:databaseState,label:databaseState==="CONNECTED"?"Supabase متصل":"Supabase غير متصل"},
         telegram:{state:telegram.configured?"CONFIGURED":"NOT_CONFIGURED",label:telegram.configured?"البوت مهيأ":"التنبيهات غير جاهزة"},
@@ -571,6 +571,7 @@ export function createAppServer(env = process.env) {
       if (!bridge) return sendJson(res,503,{error:"MT5_NOT_CONFIGURED",positions:[]});
       const health=await bridge.health();
       if (!health.ok || health.value.state!=="CONNECTED" || health.value.environment!=="DEMO") return sendJson(res,503,{error:"MT5_DEMO_NOT_READY",positions:[]});
+      if (health.value.executionReady!==true) return sendJson(res,409,{error:"HEDGING_ACCOUNT_REQUIRED",message:"عرض وإدارة صفقات البوت يتطلب حساب MT5 Demo من نوع Hedging.",positions:[]});
       const result=await bridge.positions();
       if (!result.ok) return sendJson(res,503,{error:result.message,positions:[]});
       return sendJson(res,200,{positions:result.value.positions.filter(position=>position.ownedByBot).map(({ownedByBot,...position})=>position),ownershipConflict:result.value.positions.some(position=>!position.ownedByBot),environment:"DEMO"});
