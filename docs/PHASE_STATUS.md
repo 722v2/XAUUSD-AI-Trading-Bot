@@ -32,13 +32,13 @@ Updated: 2026-10-16
 
 ## Phase 7 — Dashboard & Telegram
 - Implemented an Arabic RTL responsive dashboard, readiness API, risk form, manual scan, 60-second scanner toggle, scan log and Telegram discovery/test-message controls.
-- Telegram chat selections and scan history are currently process-local; durable outbox and chat persistence remain release work.
+- Telegram recipients and notifications use the Supabase chat table and outbox when Supabase is configured. Without Supabase, chat selection remains process-local.
 - Dashboard reports missing dependencies rather than fabricating connected status or signals.
 
 ## Phase 8 — Integration, Security & Release
-- Implemented a local Python MT5 bridge with token authentication, loopback default binding, Demo-account enforcement, closed-candle retrieval, broker symbol specifications, order validation and SQLite idempotency ledger.
-- TypeScript bridge client is implemented.
-- **Not complete:** real terminal Demo end-to-end verification, actual AI provider connectivity, Supabase migration execution, durable trade/position reconciliation, release deployment and full order lifecycle testing.
+- Implemented a local Python MT5 bridge with token authentication, loopback-only binding, Demo-account enforcement, closed-candle retrieval, broker symbol specifications, order validation, SQLite idempotency, and bot-owned position monitoring/modification/closure.
+- TypeScript bridge client is implemented; Demo auto-execution is gated behind explicit UI opt-in, fresh quotes, risk validation, persisted intent and AI connectivity probe.
+- **External validation still pending:** real terminal Demo end-to-end verification, actual AI provider credentials, applying the Supabase migration to a real project, restart-time position/order reconciliation, and release deployment.
 - Live trading remains disabled.
 
 ## Release gate
