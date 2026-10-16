@@ -32,7 +32,7 @@ $env:MT5_BRIDGE_PORT = "8765"
 py mt5_bridge/bridge.py
 ```
 
-Keep this window open. The token printed by the first command is available in that PowerShell session. Copy it privately for the second session; never commit it.
+Keep this window open. The token printed by the first command is available in that PowerShell session. Copy it privately for the second session; never commit it. If your broker uses a suffixed symbol (for example `XAUUSD.a`), set `$env:MT5_SYMBOL = "XAUUSD.a"` in this window before starting the bridge. The dashboard-facing symbol remains XAUUSD.
 
 ## 4. Start the dashboard
 
