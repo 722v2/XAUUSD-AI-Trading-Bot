@@ -51,6 +51,15 @@
         </div>
       </section>
 
+      <section id="ai-config" class="section panel">
+        <div class="section-heading"><div><h2>مزود الذكاء الاصطناعي والنموذج</h2><p>اختيار من قائمة الخادم المسموحة؛ لا يتم إرسال المفاتيح السرية للمتصفح</p></div><span id="ai-config-status" class="status-tag muted-tag">غير مضبوط</span></div>
+        <form id="ai-config-form" class="risk-form ai-config-form">
+          <label>مزود AI<select id="ai-provider" required><option value="">جارٍ تحميل المزودين…</option></select></label>
+          <label>النموذج<select id="ai-model" required><option value="">اختر مزودًا أولًا</option></select></label>
+          <div class="form-actions"><button class="primary-button" type="submit">حفظ اختيار AI</button><span id="ai-config-feedback" role="status" class="muted">المفاتيح السرية تُضبط على الخادم فقط.</span></div>
+        </form>
+      </section>
+
       <section id="scanner" class="section panel">
         <div class="section-heading"><div><h2>السكانر والتحليل</h2><p>دورة فحص كل 60 ثانية — لن تعمل قبل جاهزية بيانات السوق</p></div><span class="status-tag muted-tag" id="scanner-status">متوقف بأمان</span></div>
         <div class="scanner-layout">
