@@ -1,7 +1,8 @@
 import type { RiskSettings } from "./types.js";
-export type RiskSettingsValidationError = "INVALID_REFERENCE_CAPITAL" | "INVALID_MINIMUM_RR" | "INVALID_RISK_PERCENT" | "INVALID_RISK_CASH" | "UNEXPECTED_RISK_FIELD";
+export type RiskSettingsValidationError = "INVALID_RISK_MODE" | "INVALID_REFERENCE_CAPITAL" | "INVALID_MINIMUM_RR" | "INVALID_RISK_PERCENT" | "INVALID_RISK_CASH" | "UNEXPECTED_RISK_FIELD";
 /** Validate user-entered values without imposing application-defined risk caps/floors. */
 export function validateRiskSettings(input: RiskSettings): RiskSettingsValidationError | null {
+  if (input.mode !== "PERCENT_OF_CAPITAL" && input.mode !== "FIXED_CASH") return "INVALID_RISK_MODE";
   if (!Number.isFinite(input.referenceCapital) || input.referenceCapital <= 0) return "INVALID_REFERENCE_CAPITAL";
   if (!Number.isFinite(input.minimumRiskRewardRatio) || input.minimumRiskRewardRatio < 0) return "INVALID_MINIMUM_RR";
   if (input.mode === "PERCENT_OF_CAPITAL") {
