@@ -9,7 +9,7 @@ Independent XAUUSD trading system, built from scratch. It does not import or mod
 - Authenticated local MT5 bridge in Python, with Demo-account enforcement and SQLite idempotency ledger.
 - Configurable OpenAI-compatible AI assessment adapter; AI responses are analysis only and cannot directly place orders.
 - Supabase REST persistence adapters and initial schema migration with RLS and atomic versioned settings RPC.
-- Arabic RTL dashboard, scanner manual/scheduled controls, risk settings and Telegram multi-chat discovery.
+- Arabic RTL dashboard, manual/scheduled scanner, risk settings, Demo position monitoring/modification/closure, and Telegram multi-chat discovery with a persistent notification outbox when Supabase is configured.
 - GitHub Actions runs TypeScript tests and Python bridge safety tests.
 
 ## Run the dashboard locally
@@ -21,7 +21,7 @@ npm ci
 npm start
 ```
 
-Open http://127.0.0.1:3000. The dashboard binds to loopback by default. Until the bridge and AI are configured, the scanner deliberately returns NOT_READY and does not fabricate signals.
+Open http://127.0.0.1:3000. The dashboard refuses non-loopback binding because it exposes trade controls and has no public-user authentication layer. Until the bridge and AI are configured, the scanner deliberately returns NOT_READY and does not fabricate signals.
 
 ## Connect an MT5 Demo terminal (Windows)
 
@@ -69,6 +69,7 @@ python -m unittest discover -s tests_python -v
 
 - Live trading is disabled and not exposed as a dashboard option.
 - The scanner can run only after MT5 Demo and AI are configured and health checks pass.
+- Auto-execution starts disabled and can only be armed for Demo after scanner, AI probe, risk settings, Supabase persistence and Demo-account checks pass. Stopping the scanner disarms it.
 - Analysis decisions are not execution authorization. Execution requires separate risk validation, durable intent persistence, Demo verification and broker reconciliation.
 - Ambiguous MT5 order results are not blindly retried.
 - Do not infer profitability from unit tests or architecture completeness.
