@@ -29,5 +29,5 @@ test('analysis refuses stale or insufficient closed M1 history', () => {
   const empty = {M1:[],M5:[],M15:[],H1:[]};
   assert.equal(analyzeClosedMarket({symbol:'XAUUSD',candles:empty,now}).reason, 'INSUFFICIENT_HISTORY');
   const candles = Array.from({length:40},(_,i)=>({symbol:'XAUUSD',timeframe:'M1',openTime:new Date(Date.parse(now)-(40-i)*60_000).toISOString(),closeTime:new Date(Date.parse(now)-(39-i)*60_000).toISOString(),open:2000+i,high:2002+i,low:1999+i,close:2001+i,tickVolume:1,isClosed:true}));
-  assert.equal(analyzeClosedMarket({symbol:'XAUUSD',candles:{M1:candles,M5:[],M15:[],H1:[]},now}).status, 'NO_ANALYSIS');
+  assert.equal(analyzeClosedMarket({symbol:'XAUUSD',candles:{M1:candles,M5:[],M15:[],H1:[]},now:'2026-10-16T12:50:00.000Z'}).reason, 'STALE_DATA');
 });
