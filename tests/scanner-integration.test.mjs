@@ -9,7 +9,7 @@ function listen(server) {
 function close(server) { return new Promise(resolve => server.close(()=>resolve())); }
 function candles(timeframe,count,minutes) {
   const latestClose=Date.now()-1000;
-  const price=i=>2000+i*0.05+Math.sin((i+5)*0.35)*0.7;
+  const price=i=>2000+i*0.05+Math.sin((i+8)*0.35)*0.7;
   return Array.from({length:count},(_,i)=>{
     const openMs=latestClose-(count-i)*minutes*60_000;
     const open=price(i-1),close=price(i);
