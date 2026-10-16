@@ -53,7 +53,7 @@ export function macd(values: readonly number[], fastPeriod = 12, slowPeriod = 26
   const result: (MacdValue | null)[] = Array(values.length).fill(null);
   for (let j = 0; j < compressed.length; j += 1) {
     const index = firstValid + j, signal = signalValues[j];
-    if (signal !== null) result[index] = { macd: compressed[j]!, signal, histogram: compressed[j]! - signal };
+    if (signal !== null && signal !== undefined) result[index] = { macd: compressed[j]!, signal, histogram: compressed[j]! - signal };
   }
   return result;
 }
