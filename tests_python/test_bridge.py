@@ -135,6 +135,18 @@ class BridgeUnitTests(unittest.TestCase):
         finally:
             bridge_module.mt5 = previous
 
+
+    def test_position_management_cannot_remove_existing_stop_loss(self):
+        import mt5_bridge.bridge as bridge_module
+        previous = bridge_module.mt5
+        bridge_module.mt5 = FakeMT5(trade_mode=0)
+        try:
+            status, result = self.service.modify_position({"ticket":77,"stopLoss":0,"takeProfit":2010})
+            self.assertEqual(status,400)
+            self.assertEqual(result["error"],"CANNOT_REMOVE_EXISTING_PROTECTION")
+        finally:
+            bridge_module.mt5 = previous
+
     def test_http_requires_auth_for_market_data_and_order_routes(self):
         server = ThreadingHTTPServer(("127.0.0.1",0),create_handler(self.service))
         thread = Thread(target=server.serve_forever,daemon=True)
