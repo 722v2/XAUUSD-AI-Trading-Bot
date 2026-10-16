@@ -10,8 +10,9 @@ function simulateTrade(candidate, bars, spreadPrice, lots, tickSize, tickValuePe
   if (!(stopDistance > 0 && targetDistance > 0)) return null;
   const entryBar = bars[entryIndex];
   const entryPrice = signal.direction === "BUY" ? entryBar.open + spreadPrice : entryBar.open;
-  const stopLoss = signal.direction === "BUY" ? entryPrice - stopDistance : entryPrice + stopDistance;
-  const takeProfit = signal.direction === "BUY" ? entryPrice + targetDistance : entryPrice - targetDistance;
+  // MT5 chart OHLC is bid-based: BUY exits are checked on bid; SELL exits on ask.
+  const stopLoss = signal.direction === "BUY" ? entryBar.open - stopDistance : entryBar.open + spreadPrice + stopDistance;
+  const takeProfit = signal.direction === "BUY" ? entryBar.open + targetDistance : entryBar.open + spreadPrice - targetDistance;
   let exitPrice = null, exitReason = "DATA_END", exitIndex = bars.length - 1;
   for (let i = entryIndex; i < bars.length; i++) {
     const bar = bars[i];
@@ -37,7 +38,7 @@ function simulateTrade(candidate, bars, spreadPrice, lots, tickSize, tickValuePe
     entryPrice: round(entryPrice, 3), stopLoss: round(stopLoss, 3), takeProfit: round(takeProfit, 3),
     exitPrice: round(exitPrice, 3), exitReason, lots: round(lots, 4),
     grossPnl: round(grossPnl, 2), commission: round(commission, 2), netPnl: round(netPnl, 2),
-    rMultiple: round(netPnl / (stopDistance / tickSize * tickValuePerLot * lots || 1), 3),
+    rMultiple: round(netPnl / (((stopDistance + spreadPrice) / tickSize * tickValuePerLot * lots + commission) || 1), 3),
     _exitIndex: exitIndex
   };
 }
