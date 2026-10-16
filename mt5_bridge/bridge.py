@@ -169,6 +169,26 @@ class BridgeService:
                 return 503, {"error": "INVALID_TICK"}
             return 200, {"symbol": "XAUUSD", "bid": float(tick.bid), "ask": float(tick.ask), "tickTime": utc_iso(tick.time), "receivedAt": utc_iso(time.time())}
 
+    def symbol_spec(self) -> tuple[int, dict[str, Any]]:
+        with self._mt5_lock:
+            connected, reason = self._connect_mt5()
+            if not connected:
+                return 503, {"error": reason}
+            if not mt5.symbol_select(self.symbol, True):
+                return 503, {"error": "SYMBOL_SELECT_FAILED"}
+            info = mt5.symbol_info(self.symbol)
+            if info is None:
+                return 503, {"error": "SYMBOL_INFO_UNAVAILABLE"}
+            tick_size = float(getattr(info, "trade_tick_size", 0) or 0)
+            tick_value = float(getattr(info, "trade_tick_value", 0) or 0)
+            if tick_size <= 0 or tick_value <= 0:
+                return 503, {"error": "TICK_SPEC_UNAVAILABLE"}
+            return 200, {
+                "symbol": "XAUUSD", "tickSize": tick_size, "tickValuePerLot": tick_value,
+                "volumeMin": float(info.volume_min), "volumeMax": float(info.volume_max),
+                "volumeStep": float(info.volume_step), "priceDigits": int(info.digits),
+            }
+
     def candles(self, timeframe: str, count: int) -> tuple[int, dict[str, Any]]:
         if timeframe not in TIMEFRAME_MAP or isinstance(count, bool) or not isinstance(count, int) or count < 35 or count > 1000:
             return 400, {"error": "INVALID_CANDLE_REQUEST"}
@@ -321,6 +341,9 @@ def create_handler(service: BridgeService):
                 return self._send(200, service.health())
             if parsed.path == "/market/quote":
                 status, body = service.quote()
+                return self._send(status, body)
+            if parsed.path == "/market/spec":
+                status, body = service.symbol_spec()
                 return self._send(status, body)
             if parsed.path == "/market/candles":
                 query = parse_qs(parsed.query)
