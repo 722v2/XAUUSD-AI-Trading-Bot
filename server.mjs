@@ -246,8 +246,14 @@ export function createAppServer(env = process.env) {
         const entry=record("AI_NOT_CONFIGURED","TECHNICAL_CANDIDATE_ONLY",{metrics:analysis.metrics});
         return {status:503,body:{error:"AI_NOT_CONFIGURED",message:"تم رصد مرشح فني، لكن AI غير مهيأ. لا يتم اعتماد اتجاه أو إرسال أمر.",analysis:{...analysis,evidence:analysis.evidence.map(({entryPrice,stopLoss,takeProfit,direction,strategyId})=>({entryPrice,stopLoss,takeProfit,direction,strategyId}))},run:entry}};
       }
-      const assessment = await aiProvider.assess({symbol:"XAUUSD",evidence:analysis.evidence,now});
-      aiProbePassed = true;
+      let assessment;
+      try {
+        assessment = await aiProvider.assess({symbol:"XAUUSD",evidence:analysis.evidence,now});
+        aiProbePassed = true;
+      } catch (error) {
+        aiProbePassed = false;
+        throw error;
+      }
       if (Date.parse(assessment.expiresAt) <= Date.now() || Date.parse(evidence.expiresAt) <= Date.now()) {
         if (supabase) await supabase.updateRecord("strategy_candidates",candidateId,{status:"EXPIRED"});
         const entry=record("EXPIRED","AI_ASSESSMENT_EXPIRED");
@@ -387,7 +393,6 @@ export function createAppServer(env = process.env) {
         }
       };
     } catch {
-      aiProbePassed=false;
       await queueNotificationToEnabled("تنبيه النظام: فشلت دورة فحص XAUUSD. راجع سجل النظام قبل إعادة المحاولة.","SYSTEM_ALERT","scan-failure:"+runId);
       const entry=record("FAILED","UNEXPECTED_SCAN_FAILURE");
       return {status:503,body:{error:"SCAN_FAILED",message:"فشل الفحص؛ تم تسجيله دون إعلان نجاح.",run:entry}};
