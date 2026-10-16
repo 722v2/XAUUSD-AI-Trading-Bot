@@ -170,6 +170,37 @@ class BridgeUnitTests(unittest.TestCase):
             bridge_module.mt5 = previous
 
 
+
+    def test_symbol_spec_and_bot_owned_positions_are_returned_only_for_demo_hedging(self):
+        import mt5_bridge.bridge as bridge_module
+        previous = bridge_module.mt5
+        bridge_module.mt5 = FakeMT5(trade_mode=0, margin_mode=2)
+        try:
+            status, spec = self.service.symbol_spec()
+            self.assertEqual(status,200)
+            self.assertEqual(spec["symbol"],"XAUUSD")
+            self.assertGreater(spec["tickSize"],0)
+            self.assertGreater(spec["point"],0)
+            status, result = self.service.positions()
+            self.assertEqual(status,200)
+            self.assertEqual(len(result["positions"]),1)
+            self.assertEqual(result["positions"][0]["ticket"],77)
+        finally:
+            bridge_module.mt5 = previous
+
+    def test_position_stop_modification_is_confirmed_only_after_broker_response(self):
+        import mt5_bridge.bridge as bridge_module
+        previous = bridge_module.mt5
+        fake=FakeMT5(trade_mode=0,margin_mode=2)
+        bridge_module.mt5=fake
+        try:
+            status,result=self.service.modify_position({"ticket":77,"stopLoss":1995,"takeProfit":2020})
+            self.assertEqual(status,200)
+            self.assertEqual(result["state"],"CONFIRMED")
+            self.assertEqual(fake.order_send_calls,1)
+        finally:
+            bridge_module.mt5=previous
+
     def test_position_management_cannot_remove_existing_stop_loss(self):
         import mt5_bridge.bridge as bridge_module
         previous = bridge_module.mt5
