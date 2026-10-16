@@ -627,7 +627,9 @@ export function createAppServer(env = process.env) {
     }
     if (method === "GET" && url.pathname === "/api/ai/providers") {
       await hydrateSettings();
-      return sendJson(res,200,{providers:aiCatalog.map(provider=>({id:provider.id,label:provider.label,configured:typeof env[provider.apiKeyEnv]==="string"&&Boolean(env[provider.apiKeyEnv].trim()),models:provider.models})),selectedProviderId:config.aiProviderId,selectedModelId:config.aiModelId,persisted:Boolean(supabase)});
+      let persisted=false;
+      if (supabase) { try { await supabase.readCurrent(); persisted=true; } catch {} }
+      return sendJson(res,200,{providers:aiCatalog.map(provider=>({id:provider.id,label:provider.label,configured:typeof env[provider.apiKeyEnv]==="string"&&Boolean(env[provider.apiKeyEnv].trim()),models:provider.models})),selectedProviderId:config.aiProviderId,selectedModelId:config.aiModelId,persisted});
     }
     if (method === "POST" && url.pathname === "/api/ai/config") {
       let body;
