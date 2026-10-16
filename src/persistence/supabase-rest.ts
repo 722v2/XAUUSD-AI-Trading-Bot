@@ -95,6 +95,35 @@ export class SupabaseRestRepository implements ExecutionIntentRepository, Runtim
     if (existing) return { ok: true, value: { created: false, intent: existing } };
     return { ok: false, errorCode: "UNKNOWN" };
   }
+  async insertRecord(
+    table: "scanner_runs" | "strategy_candidates" | "ai_assessments" | "trade_decisions" | "broker_orders" | "trade_events" | "audit_events",
+    payload: Readonly<Record<string, unknown>>
+  ): Promise<PersistResult<Readonly<Record<string, unknown>>>> {
+    const response = await this.#request("/" + table, {
+      method: "POST", headers: { Prefer: "return=representation" }, body: JSON.stringify(payload)
+    }).catch(() => null);
+    if (!response) return { ok: false, errorCode: "STORAGE_UNAVAILABLE" };
+    if (!response.ok) return { ok: false, errorCode: response.status === 409 ? "ALREADY_EXISTS" : response.status >= 500 ? "STORAGE_UNAVAILABLE" : "UNKNOWN" };
+    let data: unknown;
+    try { data = await response.json(); } catch { return { ok: false, errorCode: "UNKNOWN" }; }
+    if (!Array.isArray(data) || !data[0] || !isRecord(data[0])) return { ok: false, errorCode: "UNKNOWN" };
+    return { ok: true, value: Object.freeze({ ...data[0] }) };
+  }
+  async updateExecutionIntentStatus(
+    id: ExecutionIntentId,
+    status: "SUBMITTED" | "CONFIRMED" | "REJECTED" | "UNKNOWN" | "RECONCILIATION_REQUIRED" | "CANCELLED"
+  ): Promise<PersistResult<{ readonly updated: boolean }>> {
+    if (!isUuid(id)) return { ok: false, errorCode: "UNKNOWN" };
+    const response = await this.#request(`/execution_intents?id=eq.${encodeURIComponent(id)}`, {
+      method: "PATCH", headers: { Prefer: "return=representation" },
+      body: JSON.stringify({ status, updated_at: new Date().toISOString() })
+    }).catch(() => null);
+    if (!response) return { ok: false, errorCode: "STORAGE_UNAVAILABLE" };
+    if (!response.ok) return { ok: false, errorCode: response.status >= 500 ? "STORAGE_UNAVAILABLE" : "UNKNOWN" };
+    let data: unknown;
+    try { data = await response.json(); } catch { return { ok: false, errorCode: "UNKNOWN" }; }
+    return { ok: true, value: { updated: Array.isArray(data) && data.length > 0 } };
+  }
   async readCurrent(): Promise<Readonly<Record<string, unknown>>> {
     const response = await this.#request("/app_settings?setting_key=eq.runtime_config&select=setting_value,version");
     if (!response.ok) throw new Error("Supabase runtime settings read failed");
