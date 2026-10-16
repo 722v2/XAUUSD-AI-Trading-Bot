@@ -245,3 +245,39 @@ alter table public.telegram_chats enable row level security;
 alter table public.notification_outbox enable row level security;
 alter table public.audit_events enable row level security;
 alter table public.system_health_events enable row level security;
+
+
+-- Atomic optimistic update for the single versioned runtime configuration document.
+create or replace function public.write_runtime_settings(p_settings jsonb, p_expected_version integer)
+returns table(version integer)
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_version integer;
+begin
+  if p_expected_version < 0 or p_settings is null or jsonb_typeof(p_settings) <> 'object' then
+    return;
+  end if;
+
+  insert into public.app_settings (setting_key, setting_value, version, updated_at)
+  values ('runtime_config', p_settings, 1, now())
+  on conflict (setting_key) do update
+    set setting_value = excluded.setting_value,
+        version = public.app_settings.version + 1,
+        updated_at = now()
+    where public.app_settings.version = p_expected_version
+  returning public.app_settings.version into v_version;
+
+  if not found then
+    return;
+  end if;
+  return query select v_version;
+end;
+$$;
+
+revoke all on function public.write_runtime_settings(jsonb, integer) from public;
+revoke all on function public.write_runtime_settings(jsonb, integer) from anon;
+revoke all on function public.write_runtime_settings(jsonb, integer) from authenticated;
+grant execute on function public.write_runtime_settings(jsonb, integer) to service_role;
