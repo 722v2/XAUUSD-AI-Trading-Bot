@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
+import math
 import os
 import sqlite3
 import threading
@@ -166,7 +167,7 @@ class BridgeService:
             if not mt5.symbol_select(self.symbol, True):
                 return 503, {"error": "SYMBOL_SELECT_FAILED"}
             tick = mt5.symbol_info_tick(self.symbol)
-            if tick is None or tick.bid <= 0 or tick.ask < tick.bid:
+            if tick is None or not math.isfinite(float(tick.bid)) or not math.isfinite(float(tick.ask)) or tick.bid <= 0 or tick.ask < tick.bid:
                 return 503, {"error": "INVALID_TICK"}
             return 200, {"symbol": "XAUUSD", "bid": float(tick.bid), "ask": float(tick.ask), "tickTime": utc_iso(tick.time), "receivedAt": utc_iso(time.time())}
 
@@ -182,7 +183,7 @@ class BridgeService:
                 return 503, {"error": "SYMBOL_INFO_UNAVAILABLE"}
             tick_size = float(getattr(info, "trade_tick_size", 0) or 0)
             tick_value = float(getattr(info, "trade_tick_value", 0) or 0)
-            if tick_size <= 0 or tick_value <= 0:
+            if not math.isfinite(tick_size) or not math.isfinite(tick_value) or tick_size <= 0 or tick_value <= 0:
                 return 503, {"error": "TICK_SPEC_UNAVAILABLE"}
             return 200, {
                 "symbol": "XAUUSD", "tickSize": tick_size, "tickValuePerLot": tick_value,
@@ -209,7 +210,12 @@ class BridgeService:
                 return 503, {"error": "INSUFFICIENT_CLOSED_HISTORY", "available": 0 if rates is None else len(rates)}
             result = []
             for row in rates:
+                prices = [float(row[name]) for name in ("open", "high", "low", "close")]
+                if not all(math.isfinite(price) and price > 0 for price in prices):
+                    return 503, {"error": "INVALID_CANDLE_DATA"}
                 opened = int(row["time"])
+                if prices[1] < max(prices[0], prices[3], prices[2]) or prices[2] > min(prices[0], prices[3], prices[1]):
+                    return 503, {"error": "INVALID_CANDLE_DATA"}
                 result.append({
                     "symbol": "XAUUSD", "timeframe": timeframe, "openTime": utc_iso(opened),
                     "closeTime": utc_iso(opened + seconds), "open": float(row["open"]),
@@ -247,7 +253,7 @@ class BridgeService:
                 return 503, {"state": "REJECTED", "error": "SYMBOL_INFO_UNAVAILABLE"}
             volume = float(payload["volume"])
             minimum, maximum, step = float(info.volume_min), float(info.volume_max), float(info.volume_step)
-            if volume < minimum or volume > maximum or step <= 0:
+            if not all(math.isfinite(value) for value in (minimum, maximum, step)) or volume < minimum or volume > maximum or step <= 0:
                 return 400, {"state": "REJECTED", "error": "VOLUME_OUTSIDE_BROKER_LIMITS"}
             steps = volume / step
             if abs(steps - round(steps)) > 1e-7:
@@ -338,9 +344,12 @@ class BridgeService:
             position = matches[0]
             if int(getattr(position, "magic", 0)) != 61016001 or not str(getattr(position, "comment", "")).startswith("XAUAI-"):
                 return 403, {"state": "REJECTED", "error": "POSITION_NOT_OWNED_BY_BOT"}
-            stop = float(payload.get("stopLoss", position.sl))
-            target = float(payload.get("takeProfit", position.tp))
-            if stop < 0 or target < 0:
+            try:
+                stop = float(payload.get("stopLoss", position.sl))
+                target = float(payload.get("takeProfit", position.tp))
+            except (TypeError, ValueError):
+                return 400, {"state": "REJECTED", "error": "INVALID_PROTECTIVE_PRICE"}
+            if not math.isfinite(stop) or not math.isfinite(target) or stop < 0 or target < 0:
                 return 400, {"state": "REJECTED", "error": "INVALID_PROTECTIVE_PRICE"}
             tick = mt5.symbol_info_tick(self.symbol)
             if tick is None:
