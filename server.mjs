@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 import {
   validateRiskSettings, TelegramBotClient, TelegramClientError, SupabaseRestRepository,
   MT5BridgeClient, normalizeClosedCandles, analyzeClosedMarket,
-  OpenAICompatibleAIProvider, coordinateTechnicalAndAI
+  OpenAICompatibleAIProvider, coordinateTechnicalAndAI, prepareExecutionIntent
 } from "./dist/index.js";
 
 const root = fileURLToPath(new URL("./web/", import.meta.url)).replace(/[\\/]+$/, "");
@@ -46,6 +46,9 @@ function configuredAI(env) {
     });
   } catch { return null; }
 }
+function validRiskSettings(value) {
+  return value && typeof value === "object" && validateRiskSettings(value) === null;
+}
 export function createAppServer(env = process.env) {
   const telegram = new TelegramBotClient(env.TELEGRAM_BOT_TOKEN);
   const supabase = configuredSupabase(env);
@@ -55,21 +58,40 @@ export function createAppServer(env = process.env) {
   let riskSettings = null;
   let scannerRuns = [];
   let scannerEnabled = false;
+  let autoTradingEnabled = false;
   let scannerTimer = null;
   let scanInFlight = false;
   const config = { aiProviderId:env.AI_PROVIDER_ID ?? null, aiModelId:env.AI_MODEL_ID ?? null };
+
+  async function hydrateSettings() {
+    if (!supabase || riskSettings) return;
+    try {
+      const current = await supabase.readCurrent();
+      if (validRiskSettings(current.riskSettings)) riskSettings = Object.freeze({...current.riskSettings});
+    } catch {}
+  }
 
   async function performScan(triggerType = "MANUAL") {
     if (scanInFlight) return { status:409, body:{error:"SCAN_ALREADY_RUNNING",message:"هناك دورة فحص قيد التنفيذ."} };
     scanInFlight = true;
     const runId = randomUUID();
     const startedAt = new Date().toISOString();
+    let finalEntry = null;
+    let dbRunCreated = false;
     const record = (status, reason, extra = {}) => {
       const entry = {id:runId,at:startedAt,triggerType,status,reason,...extra};
       scannerRuns = [entry,...scannerRuns].slice(0,50);
+      finalEntry = entry;
       return entry;
     };
     try {
+      if (supabase) {
+        const savedRun = await supabase.insertRecord("scanner_runs", {
+          id:runId, trigger_type:triggerType, scheduled_at:triggerType==="SCHEDULED"?startedAt:null,
+          started_at:startedAt, status:"RUNNING", correlation_id:runId
+        });
+        dbRunCreated = savedRun.ok;
+      }
       if (!bridge) {
         const entry=record("NOT_READY","MT5_BRIDGE_NOT_CONFIGURED");
         return {status:409,body:{error:"SCANNER_NOT_READY",message:"لم يتم ضبط جسر MT5 مع رمز المصادقة؛ لم يتم توليد إشارة.",run:entry}};
@@ -104,27 +126,153 @@ export function createAppServer(env = process.env) {
         const entry=record("WAIT",analysis.reason,{metrics:analysis.metrics});
         return {status:200,body:{status:"WAIT",message:"اكتمل التحليل الفني دون فرصة مطابقة؛ لم يتم إصدار إشارة.",analysis,run:entry}};
       }
+      const evidence = analysis.evidence[0];
+      const candidateKey = evidence.strategyId + ":" + evidence.direction + ":" + analysis.latestClosedBarTime;
+      let candidateId = randomUUID();
+      let decisionId = randomUUID();
+      let assessmentId = randomUUID();
+      let existingCandidate = null;
+      if (supabase) {
+        const candidatePayload = {
+          id:candidateId,candidate_key:candidateKey,strategy_id:evidence.strategyId,symbol:"XAUUSD",
+          direction:evidence.direction,entry_price:evidence.entryPrice,stop_loss:evidence.stopLoss,
+          take_profit:evidence.takeProfit,evidence:analysis.evidence,status:"AI_PENDING",
+          created_at:now,expires_at:evidence.expiresAt
+        };
+        const savedCandidate = await supabase.insertRecord("strategy_candidates",candidatePayload);
+        if (!savedCandidate.ok && savedCandidate.errorCode === "ALREADY_EXISTS") {
+          existingCandidate = await supabase.findCandidateByKey(candidateKey).catch(()=>null);
+          if (!existingCandidate || typeof existingCandidate.id !== "string") {
+            const entry=record("FAILED","CANDIDATE_DEDUPE_LOOKUP_FAILED");
+            return {status:503,body:{error:"PERSISTENCE_FAILED",message:"تعذر التحقق من الفرصة المكررة؛ لم يتم التنفيذ.",run:entry}};
+          }
+          if (existingCandidate.status === "DECIDED") {
+            const entry=record("DUPLICATE_CANDIDATE","ALREADY_PROCESSED",{candidateId:existingCandidate.id});
+            return {status:200,body:{status:"DUPLICATE_CANDIDATE",message:"هذه الشمعة تمت معالجتها سابقًا؛ تم منع تكرار القرار والتنفيذ.",run:entry}};
+          }
+          candidateId = existingCandidate.id;
+        } else if (!savedCandidate.ok) {
+          const entry=record("FAILED","CANDIDATE_PERSIST_FAILED");
+          return {status:503,body:{error:"PERSISTENCE_FAILED",message:"تعذر حفظ الفرصة؛ لن يتم اعتماد قرار أو تنفيذ.",run:entry}};
+        }
+      }
       if (!aiProvider) {
         const entry=record("AI_NOT_CONFIGURED","TECHNICAL_CANDIDATE_ONLY",{metrics:analysis.metrics});
         return {status:503,body:{error:"AI_NOT_CONFIGURED",message:"تم رصد مرشح فني، لكن AI غير مهيأ. لا يتم اعتماد اتجاه أو إرسال أمر.",analysis:{...analysis,evidence:analysis.evidence.map(({entryPrice,stopLoss,takeProfit,direction,strategyId})=>({entryPrice,stopLoss,takeProfit,direction,strategyId}))},run:entry}};
       }
       const assessment = await aiProvider.assess({symbol:"XAUUSD",evidence:analysis.evidence,now});
       const decision = coordinateTechnicalAndAI(analysis.evidence,assessment);
-      const entry=record(decision.outcome,"AI_ASSESSMENT_COMPLETED",{reasonCodes:decision.reasonCodes,technicalStatus:analysis.status,aiOutcome:assessment.outcome});
+      if (supabase) {
+        const savedAssessment = await supabase.insertRecord("ai_assessments",{
+          id:assessmentId,candidate_id:candidateId,provider_id:assessment.providerId,model_id:assessment.modelId,
+          outcome:assessment.outcome,rationale:assessment.rationale,rationale_codes:assessment.rationaleCodes,
+          assessed_at:assessment.assessedAt,expires_at:assessment.expiresAt
+        });
+        if (!savedAssessment.ok) {
+          const entry=record("FAILED","AI_ASSESSMENT_PERSIST_FAILED");
+          return {status:503,body:{error:"PERSISTENCE_FAILED",message:"تعذر حفظ تقييم AI؛ لن يتم اعتماد القرار أو التنفيذ.",run:entry}};
+        }
+        const technicalOutcome = evidence.direction;
+        const savedDecision = await supabase.insertRecord("trade_decisions",{
+          id:decisionId,candidate_id:candidateId,ai_assessment_id:assessmentId,
+          technical_outcome:technicalOutcome,ai_outcome:assessment.outcome,outcome:decision.outcome,
+          reason_codes:decision.reasonCodes,decided_at:now,expires_at:evidence.expiresAt
+        });
+        if (!savedDecision.ok) {
+          const entry=record("FAILED","TRADE_DECISION_PERSIST_FAILED");
+          return {status:503,body:{error:"PERSISTENCE_FAILED",message:"تعذر حفظ القرار؛ لن يتم التنفيذ.",run:entry}};
+        }
+        const updatedCandidate = await supabase.updateRecord("strategy_candidates",candidateId,{status:"DECIDED"});
+        if (!updatedCandidate.ok || !updatedCandidate.value.updated) {
+          const entry=record("FAILED","CANDIDATE_STATE_PERSIST_FAILED");
+          return {status:503,body:{error:"PERSISTENCE_FAILED",message:"تعذر تثبيت حالة الفرصة؛ تم منع التنفيذ.",run:entry}};
+        }
+      }
+      let execution = "NOT_SUBMITTED";
+      let executionDetail = "التنفيذ الآلي غير مفعّل.";
+      if ((decision.outcome === "BUY" || decision.outcome === "SELL") && autoTradingEnabled) {
+        await hydrateSettings();
+        if (!supabase || !dbRunCreated || !riskSettings) {
+          const entry=record("FAILED","EXECUTION_PREREQUISITES_MISSING");
+          return {status:503,body:{error:"EXECUTION_NOT_READY",message:"متطلبات التخزين الدائم أو المخاطرة غير جاهزة؛ لم يتم إرسال الأمر.",run:entry}};
+        }
+        const symbolSpec = await bridge.symbolSpec();
+        if (!symbolSpec.ok) {
+          const entry=record("FAILED","BROKER_SPEC_UNAVAILABLE");
+          return {status:503,body:{error:"RISK_NOT_READY",message:"تعذر جلب مواصفات XAUUSD من الوسيط؛ لم يتم إرسال الأمر.",run:entry}};
+        }
+        const prepared = prepareExecutionIntent({
+          id:randomUUID(),idempotencyKey:candidateKey+":DEMO",opportunityId:candidateId,decisionId,
+          environment:"DEMO",settings:riskSettings,
+          trade:{direction:decision.direction,entryPrice:evidence.entryPrice,stopLoss:evidence.stopLoss,takeProfit:evidence.takeProfit,minimumRiskRewardRatio:riskSettings.minimumRiskRewardRatio},
+          spec:symbolSpec.value,now
+        });
+        if (!prepared.accepted) {
+          const entry=record("RISK_REJECTED",prepared.reason);
+          return {status:200,body:{status:"RISK_REJECTED",message:"رفض مدير المخاطر الأمر قبل الإرسال.",decision,execution:"NOT_SUBMITTED",risk:prepared,run:entry}};
+        }
+        const storedIntent = await supabase.createIfAbsent(prepared.intent);
+        if (!storedIntent.ok) {
+          const entry=record("FAILED","EXECUTION_INTENT_PERSIST_FAILED");
+          return {status:503,body:{error:"PERSISTENCE_FAILED",message:"تعذر حفظ نية التنفيذ؛ لم يتم إرسال الأمر.",run:entry}};
+        }
+        if (!storedIntent.value.created) {
+          const entry=record("RECONCILIATION_REQUIRED","EXECUTION_INTENT_ALREADY_EXISTS");
+          return {status:409,body:{status:"RECONCILIATION_REQUIRED",message:"نية تنفيذ موجودة مسبقًا؛ تم منع إعادة الإرسال الآلي.",execution:"NOT_SUBMITTED",run:entry}};
+        }
+        const submitted = await bridge.submitDemoOrder({intent:storedIntent.value.intent});
+        if (!submitted.ok) {
+          const targetStatus = submitted.errorCode === "RECONCILIATION_REQUIRED" ? "RECONCILIATION_REQUIRED" : submitted.errorCode === "UNAVAILABLE" ? "UNKNOWN" : "REJECTED";
+          await supabase.updateExecutionIntentStatus(prepared.intent.id,targetStatus);
+          execution = targetStatus;
+          executionDetail = submitted.message;
+          const entry=record(targetStatus,submitted.errorCode);
+          return {status:submitted.errorCode==="RECONCILIATION_REQUIRED"?202:503,body:{status:targetStatus,message:"نتيجة الوسيط غير مؤكدة أو مرفوضة؛ لا إعادة إرسال تلقائية.",decision,execution,executionDetail,run:entry}};
+        }
+        if (submitted.value.state === "CONFIRMED") {
+          const savedStatus = await supabase.updateExecutionIntentStatus(prepared.intent.id,"CONFIRMED");
+          const accountLogin = health.value.accountLogin;
+          let orderPersisted = false;
+          if (accountLogin && submitted.value.brokerOrderId) {
+            const order = await supabase.insertRecord("broker_orders",{
+              id:randomUUID(),execution_intent_id:prepared.intent.id,account_login:String(accountLogin),
+              broker_order_id:submitted.value.brokerOrderId,status:"CONFIRMED",
+              request_payload:{symbol:"XAUUSD",direction:decision.direction,volume:prepared.intent.volume,stopLoss:evidence.stopLoss,takeProfit:evidence.takeProfit},
+              response_payload:submitted.value,created_at:new Date().toISOString(),updated_at:new Date().toISOString()
+            });
+            orderPersisted = order.ok;
+          }
+          await supabase.insertRecord("trade_events",{id:randomUUID(),execution_intent_id:prepared.intent.id,event_type:"DEMO_ORDER_CONFIRMED",payload:{brokerOrderId:submitted.value.brokerOrderId,orderPersisted},occurred_at:new Date().toISOString()});
+          execution = "CONFIRMED";
+          executionDetail = savedStatus.ok && orderPersisted ? "تم تأكيد أمر Demo وحفظه." : "تم تأكيد أمر Demo؛ يلزم فحص سجل التخزين.";
+        } else if (submitted.value.state === "REJECTED") {
+          await supabase.updateExecutionIntentStatus(prepared.intent.id,"REJECTED");
+          execution = "REJECTED"; executionDetail = submitted.value.error ?? "رفض الوسيط الأمر.";
+        } else {
+          await supabase.updateExecutionIntentStatus(prepared.intent.id,"RECONCILIATION_REQUIRED");
+          execution = "RECONCILIATION_REQUIRED"; executionDetail = "النتيجة غامضة؛ إعادة الإرسال محظورة.";
+        }
+      }
+      const entry=record(decision.outcome,"AI_ASSESSMENT_COMPLETED",{reasonCodes:decision.reasonCodes,technicalStatus:analysis.status,aiOutcome:assessment.outcome,execution});
       return {
         status:200,
         body:{
           status:decision.outcome,
-          message:decision.outcome==="BUY"||decision.outcome==="SELL"
-            ? "قرار تحليلي متوافق؛ لم يتم إرسال أمر تداول."
+          message:execution==="CONFIRMED" ? "تم تأكيد أمر Demo من الوسيط." : decision.outcome==="BUY"||decision.outcome==="SELL"
+            ? "قرار تحليلي متوافق؛ "+executionDetail
             : "لم يتم اعتماد دخول بسبب الانتظار أو التعارض أو الرفض.",
-          reasonCodes:decision.reasonCodes,analysis,assessment,decision,execution:"NOT_SUBMITTED",run:entry
+          reasonCodes:decision.reasonCodes,analysis,assessment,decision,execution,executionDetail,run:entry
         }
       };
-    } catch (error) {
+    } catch {
       const entry=record("FAILED","UNEXPECTED_SCAN_FAILURE");
-      return {status:503,body:{error:"SCAN_FAILED",message:"فشل الفحص؛ تم تسجيله دون إنشاء إشارة.",run:entry}};
+      return {status:503,body:{error:"SCAN_FAILED",message:"فشل الفحص؛ تم تسجيله دون إعلان نجاح.",run:entry}};
     } finally {
+      if (supabase && dbRunCreated && finalEntry) {
+        const status = finalEntry.status === "FAILED" || finalEntry.status === "RECONCILIATION_REQUIRED" ? "FAILED"
+          : finalEntry.status === "NOT_READY" || finalEntry.status === "NO_ANALYSIS" || finalEntry.status === "AI_NOT_CONFIGURED" ? "SKIPPED" : "COMPLETED";
+        await supabase.updateRecord("scanner_runs",runId,{status,completed_at:new Date().toISOString(),error_code:status==="FAILED"?finalEntry.reason:null}).catch(()=>undefined);
+      }
       scanInFlight = false;
     }
   }
@@ -144,12 +292,13 @@ export function createAppServer(env = process.env) {
         ai:{state:aiConfigured?"CONFIGURED_NOT_TESTED":"NOT_CONFIGURED",label:aiConfigured?"إعدادات موجودة · الاتصال يحتاج اختبارًا":"لم يتم الاتصال"},
         database:{state:databaseState,label:databaseState==="CONNECTED"?"Supabase متصل":"Supabase غير متصل"},
         telegram:{state:telegram.configured?"CONFIGURED":"NOT_CONFIGURED",label:telegram.configured?"البوت مهيأ":"التنبيهات غير جاهزة"},
-        scanner:{state:scannerEnabled?"CONNECTED":"NOT_READY",label:scannerEnabled?"السكانر مفعّل":"السكانر غير جاهز",reason:scannerEnabled?"يفحص كل 60 ثانية؛ النتائج التحليلية لا تنفذ أوامر تلقائيًا.":"يتطلب اتصال MT5 Demo وتهيئة AI."},
-        execution:{state:"DISABLED"}
+        scanner:{state:scannerEnabled?"CONNECTED":"NOT_READY",label:scannerEnabled?"السكانر مفعّل":"السكانر غير جاهز",reason:scannerEnabled?"يفحص كل 60 ثانية؛ التنفيذ يعتمد على إعدادات Demo والمخاطر.":"يتطلب اتصال MT5 Demo وتهيئة AI."},
+        execution:{state:autoTradingEnabled?"ARMED_DEMO":"DISABLED",liveTradingEnabled:false}
       });
     }
     if (method === "GET" && url.pathname === "/api/config") {
-      return sendJson(res,200,{scannerEnabled,scannerIntervalSeconds:60,riskSettings,persisted:Boolean(supabase),aiProviderId:config.aiProviderId,aiModelId:config.aiModelId,environment:"DEMO",liveTradingEnabled:false});
+      await hydrateSettings();
+      return sendJson(res,200,{scannerEnabled,autoTradingEnabled,scannerIntervalSeconds:60,riskSettings,persisted:Boolean(supabase),aiProviderId:config.aiProviderId,aiModelId:config.aiModelId,environment:"DEMO",liveTradingEnabled:false});
     }
     if (method === "POST" && url.pathname === "/api/config/risk") {
       let body;
@@ -193,6 +342,19 @@ export function createAppServer(env = process.env) {
       scannerTimer.unref?.();
       void performScan("SCHEDULED");
       return sendJson(res,200,{ok:true,enabled:true,intervalSeconds:60});
+    }
+    if (method === "POST" && url.pathname === "/api/trading/auto") {
+      let body;
+      try { body=await readJson(req); } catch(error) { return sendJson(res,error.status??400,{error:"INVALID_BODY",message:error.message}); }
+      if (typeof body.enabled!=="boolean") return sendJson(res,400,{error:"INVALID_VALUE"});
+      if (!body.enabled) { autoTradingEnabled=false; return sendJson(res,200,{ok:true,enabled:false,environment:"DEMO",liveTradingEnabled:false}); }
+      await hydrateSettings();
+      if (!scannerEnabled || !bridge || !aiProvider || !supabase || !riskSettings) return sendJson(res,409,{error:"EXECUTION_PREREQUISITES_MISSING",message:"يلزم تفعيل السكانر وضبط MT5 Demo وAI والمخاطرة وSupabase قبل التنفيذ الآلي."});
+      const health=await bridge.health();
+      if (!health.ok || health.value.state!=="CONNECTED" || health.value.environment!=="DEMO" || !health.value.accountLogin) return sendJson(res,409,{error:"MT5_DEMO_NOT_CONFIRMED",message:"لم يتم تأكيد حساب Demo؛ التنفيذ الآلي ما زال متوقفًا."});
+      try { await supabase.readCurrent(); } catch { return sendJson(res,503,{error:"PERSISTENCE_UNAVAILABLE",message:"قاعدة البيانات غير متاحة؛ التنفيذ الآلي مرفوض."}); }
+      autoTradingEnabled=true;
+      return sendJson(res,200,{ok:true,enabled:true,environment:"DEMO",liveTradingEnabled:false});
     }
     if (method === "GET" && url.pathname === "/api/scanner/log") return sendJson(res,200,{runs:scannerRuns});
     if (method === "GET" && url.pathname === "/api/telegram/chats") {
