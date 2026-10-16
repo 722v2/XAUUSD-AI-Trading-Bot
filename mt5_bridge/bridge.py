@@ -303,6 +303,126 @@ class BridgeService:
                 self.store.update(key, "UNKNOWN", result)
                 return 202, {"state": "RECONCILIATION_REQUIRED", "comment": comment}
 
+    def positions(self) -> tuple[int, dict[str, Any]]:
+        with self._mt5_lock:
+            allowed, reason = self._account_is_demo()
+            if not allowed:
+                return 503 if reason != "NON_DEMO_ACCOUNT_BLOCKED" else 403, {"error": reason, "positions": []}
+            positions = mt5.positions_get(symbol=self.symbol)
+            if positions is None:
+                return 503, {"error": "POSITIONS_UNAVAILABLE", "positions": []}
+            owned = []
+            for position in positions:
+                if int(getattr(position, "magic", 0)) != 61016001 or not str(getattr(position, "comment", "")).startswith("XAUAI-"):
+                    continue
+                owned.append({
+                    "ticket": int(position.ticket), "symbol": "XAUUSD",
+                    "direction": "BUY" if int(position.type) == getattr(mt5, "POSITION_TYPE_BUY", 0) else "SELL",
+                    "volume": float(position.volume), "entryPrice": float(position.price_open),
+                    "stopLoss": float(position.sl), "takeProfit": float(position.tp),
+                    "profit": float(position.profit), "openedAt": utc_iso(position.time),
+                    "comment": str(position.comment)
+                })
+            return 200, {"positions": owned, "environment": "DEMO"}
+
+    def modify_position(self, payload: Any) -> tuple[int, dict[str, Any]]:
+        if not isinstance(payload, dict) or isinstance(payload.get("ticket"), bool) or not isinstance(payload.get("ticket"), int):
+            return 400, {"state": "REJECTED", "error": "INVALID_TICKET"}
+        with self._mt5_lock:
+            allowed, reason = self._account_is_demo()
+            if not allowed:
+                return 503 if reason != "NON_DEMO_ACCOUNT_BLOCKED" else 403, {"state": "REJECTED", "error": reason}
+            matches = mt5.positions_get(ticket=payload["ticket"])
+            if not matches:
+                return 404, {"state": "REJECTED", "error": "POSITION_NOT_FOUND"}
+            position = matches[0]
+            if int(getattr(position, "magic", 0)) != 61016001 or not str(getattr(position, "comment", "")).startswith("XAUAI-"):
+                return 403, {"state": "REJECTED", "error": "POSITION_NOT_OWNED_BY_BOT"}
+            stop = float(payload.get("stopLoss", position.sl))
+            target = float(payload.get("takeProfit", position.tp))
+            if stop < 0 or target < 0:
+                return 400, {"state": "REJECTED", "error": "INVALID_PROTECTIVE_PRICE"}
+            tick = mt5.symbol_info_tick(self.symbol)
+            if tick is None:
+                return 503, {"state": "REJECTED", "error": "TICK_UNAVAILABLE"}
+            is_buy = int(position.type) == getattr(mt5, "POSITION_TYPE_BUY", 0)
+            if (is_buy and ((stop and stop >= tick.bid) or (target and target <= tick.bid))) or (not is_buy and ((stop and stop <= tick.ask) or (target and target >= tick.ask))):
+                return 400, {"state": "REJECTED", "error": "INVALID_PROTECTIVE_DIRECTION"}
+            request = {"action": mt5.TRADE_ACTION_SLTP, "symbol": self.symbol, "position": int(position.ticket), "sl": stop, "tp": target, "magic": 61016001, "comment": str(position.comment)}
+            try:
+                check = mt5.order_check(request)
+                if check is None or int(getattr(check, "retcode", -1)) not in (0, getattr(mt5, "TRADE_RETCODE_DONE", 10009)):
+                    return 422, {"state": "REJECTED", "error": "ORDER_CHECK_REJECTED"}
+                result = mt5.order_send(request)
+                if result is None:
+                    return 202, {"state": "RECONCILIATION_REQUIRED", "error": "MODIFY_RESULT_UNKNOWN"}
+                if int(getattr(result, "retcode", -1)) in {getattr(mt5, name, -99999) for name in SUCCESS_RET_CODES}:
+                    return 200, {"state": "CONFIRMED", "ticket": int(position.ticket), "stopLoss": stop, "takeProfit": target}
+                return 422, {"state": "REJECTED", "error": "BROKER_REJECTED", "brokerCode": int(getattr(result, "retcode", -1))}
+            except Exception:
+                return 202, {"state": "RECONCILIATION_REQUIRED", "error": "MODIFY_RESULT_UNKNOWN"}
+
+    def close_position(self, payload: Any) -> tuple[int, dict[str, Any]]:
+        if not isinstance(payload, dict) or isinstance(payload.get("ticket"), bool) or not isinstance(payload.get("ticket"), int):
+            return 400, {"state": "REJECTED", "error": "INVALID_TICKET"}
+        key = payload.get("idempotencyKey")
+        if not isinstance(key, str) or not key.strip() or len(key) > 180:
+            return 400, {"state": "REJECTED", "error": "INVALID_IDEMPOTENCY_KEY"}
+        with self._mt5_lock:
+            allowed, reason = self._account_is_demo()
+            if not allowed:
+                return 503 if reason != "NON_DEMO_ACCOUNT_BLOCKED" else 403, {"state": "REJECTED", "error": reason}
+            matches = mt5.positions_get(ticket=payload["ticket"])
+            if not matches:
+                return 404, {"state": "REJECTED", "error": "POSITION_NOT_FOUND"}
+            position = matches[0]
+            if int(getattr(position, "magic", 0)) != 61016001 or not str(getattr(position, "comment", "")).startswith("XAUAI-"):
+                return 403, {"state": "REJECTED", "error": "POSITION_NOT_OWNED_BY_BOT"}
+            comment = stable_order_comment(key)
+            created, previous = self.store.reserve(key, comment, payload)
+            if not created:
+                if previous["status"] in ("CONFIRMED", "REJECTED"):
+                    return 200, json.loads(previous["result_json"] or "{}")
+                return 409, {"state": "RECONCILIATION_REQUIRED", "error": "CLOSE_RESULT_MAY_BE_AMBIGUOUS"}
+            tick = mt5.symbol_info_tick(self.symbol)
+            if tick is None:
+                result = {"state": "REJECTED", "error": "TICK_UNAVAILABLE"}
+                self.store.update(key, "REJECTED", result)
+                return 503, result
+            is_buy = int(position.type) == getattr(mt5, "POSITION_TYPE_BUY", 0)
+            request = {
+                "action": mt5.TRADE_ACTION_DEAL, "symbol": self.symbol, "position": int(position.ticket),
+                "volume": float(position.volume),
+                "type": mt5.ORDER_TYPE_SELL if is_buy else mt5.ORDER_TYPE_BUY,
+                "price": float(tick.bid if is_buy else tick.ask),
+                "deviation": int(os.getenv("MT5_DEVIATION_POINTS", "20")),
+                "magic": 61016001, "comment": comment, "type_time": mt5.ORDER_TIME_GTC,
+                "type_filling": getattr(mt5, "ORDER_FILLING_IOC", 1),
+            }
+            try:
+                check = mt5.order_check(request)
+                if check is None or int(getattr(check, "retcode", -1)) not in (0, getattr(mt5, "TRADE_RETCODE_DONE", 10009)):
+                    result = {"state": "REJECTED", "error": "ORDER_CHECK_REJECTED"}
+                    self.store.update(key, "REJECTED", result)
+                    return 422, result
+                result = mt5.order_send(request)
+                if result is None:
+                    uncertain = {"state": "UNKNOWN", "error": "CLOSE_RESULT_UNKNOWN", "comment": comment}
+                    self.store.update(key, "UNKNOWN", uncertain)
+                    return 202, {"state": "RECONCILIATION_REQUIRED", "comment": comment}
+                code = int(getattr(result, "retcode", -1))
+                if code in {getattr(mt5, name, -99999) for name in SUCCESS_RET_CODES}:
+                    confirmed = {"state": "CONFIRMED", "ticket": int(position.ticket), "brokerOrderId": str(getattr(result, "order", "") or getattr(result, "deal", "")), "comment": comment}
+                    self.store.update(key, "CONFIRMED", confirmed)
+                    return 200, confirmed
+                rejected = {"state": "REJECTED", "error": "BROKER_REJECTED", "brokerCode": code, "comment": comment}
+                self.store.update(key, "REJECTED", rejected)
+                return 422, rejected
+            except Exception:
+                uncertain = {"state": "UNKNOWN", "error": "CLOSE_RESULT_UNKNOWN", "comment": comment}
+                self.store.update(key, "UNKNOWN", uncertain)
+                return 202, {"state": "RECONCILIATION_REQUIRED", "comment": comment}
+
     def lookup_intent(self, key: str) -> tuple[int, dict[str, Any]]:
         if not key or len(key) > 180:
             return 400, {"error": "INVALID_IDEMPOTENCY_KEY"}
@@ -346,6 +466,9 @@ def create_handler(service: BridgeService):
             if parsed.path == "/market/spec":
                 status, body = service.symbol_spec()
                 return self._send(status, body)
+            if parsed.path == "/positions":
+                status, body = service.positions()
+                return self._send(status, body)
             if parsed.path == "/market/candles":
                 query = parse_qs(parsed.query)
                 timeframe = query.get("timeframe", ["M1"])[0]
@@ -362,7 +485,8 @@ def create_handler(service: BridgeService):
         def do_POST(self) -> None:
             if not self._authorized():
                 return self._send(401, {"error": "UNAUTHORIZED"})
-            if urlparse(self.path).path != "/orders":
+            route = urlparse(self.path).path
+            if route not in ("/orders", "/positions/modify", "/positions/close"):
                 return self._send(404, {"error": "NOT_FOUND"})
             try:
                 length = int(self.headers.get("content-length", "0"))
@@ -371,7 +495,12 @@ def create_handler(service: BridgeService):
                 payload = json.loads(self.rfile.read(length))
             except (ValueError, json.JSONDecodeError):
                 return self._send(400, {"error": "INVALID_JSON"})
-            status, body = service.submit_order(payload)
+            if route == "/orders":
+                status, body = service.submit_order(payload)
+            elif route == "/positions/modify":
+                status, body = service.modify_position(payload)
+            else:
+                status, body = service.close_position(payload)
             return self._send(status, body)
 
         def do_PUT(self) -> None:
