@@ -34,13 +34,13 @@ export class MT5BridgeClient {
     this.#timeoutMs = config.timeoutMs ?? 2500;
     this.#fetch = fetchImpl;
   }
-  async #request<T>(path: string, init: RequestInit = {}): Promise<BridgeResult<T>> {
+  async #request<T>(path: string, init: RequestInit = {}, timeoutMs = this.#timeoutMs): Promise<BridgeResult<T>> {
     let response: Response;
     try {
       response = await this.#fetch(this.#baseUrl + path, {
         ...init,
         headers: { "content-type": "application/json", "X-Bridge-Token": this.#token, ...((init.headers ?? {}) as Record<string,string>) },
-        signal: AbortSignal.timeout(this.#timeoutMs)
+        signal: AbortSignal.timeout(timeoutMs)
       });
     } catch {
       return { ok: false, status: 0, errorCode: "UNAVAILABLE", message: "MT5 bridge request failed or timed out" };
@@ -62,7 +62,7 @@ export class MT5BridgeClient {
     return this.#request("/market/spec");
   }
   candles(timeframe: Timeframe, count = 100): Promise<BridgeResult<{ readonly symbol: "XAUUSD"; readonly timeframe: Timeframe; readonly candles: readonly RawCandle[] }>> {
-    return this.#request(`/market/candles?timeframe=${encodeURIComponent(timeframe)}&count=${count}`);
+    return this.#request(`/market/candles?timeframe=${encodeURIComponent(timeframe)}&count=${count}`, {}, 10_000);
   }
   submitDemoOrder(input: {
     readonly intent: ExecutionIntent;
