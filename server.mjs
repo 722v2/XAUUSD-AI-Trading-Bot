@@ -196,6 +196,16 @@ export function createAppServer(env = process.env) {
           const entry=record("FAILED","EXECUTION_PREREQUISITES_MISSING");
           return {status:503,body:{error:"EXECUTION_NOT_READY",message:"متطلبات التخزين الدائم أو المخاطرة غير جاهزة؛ لم يتم إرسال الأمر.",run:entry}};
         }
+        const liveQuote = await bridge.quote();
+        if (!liveQuote.ok) {
+          const entry=record("FAILED","LIVE_QUOTE_UNAVAILABLE");
+          return {status:503,body:{error:"LIVE_QUOTE_UNAVAILABLE",message:"تعذر جلب سعر حالي من MT5؛ لم يتم إرسال الأمر.",run:entry}};
+        }
+        const tickAgeMs = Date.now() - Date.parse(liveQuote.value.tickTime);
+        if (!Number.isFinite(tickAgeMs) || tickAgeMs < 0 || tickAgeMs > 15000) {
+          const entry=record("RISK_REJECTED","STALE_EXECUTION_QUOTE");
+          return {status:409,body:{status:"RISK_REJECTED",message:"سعر MT5 غير حديث؛ تم منع التنفيذ.",execution:"NOT_SUBMITTED",run:entry}};
+        }
         const symbolSpec = await bridge.symbolSpec();
         if (!symbolSpec.ok) {
           const entry=record("FAILED","BROKER_SPEC_UNAVAILABLE");
@@ -204,7 +214,7 @@ export function createAppServer(env = process.env) {
         const prepared = prepareExecutionIntent({
           id:randomUUID(),idempotencyKey:candidateKey+":DEMO",opportunityId:candidateId,decisionId,
           environment:"DEMO",settings:riskSettings,
-          trade:{direction:decision.direction,entryPrice:evidence.entryPrice,stopLoss:evidence.stopLoss,takeProfit:evidence.takeProfit,minimumRiskRewardRatio:riskSettings.minimumRiskRewardRatio},
+          trade:{direction:decision.direction,entryPrice:decision.direction==="BUY"?liveQuote.value.ask:liveQuote.value.bid,stopLoss:evidence.stopLoss,takeProfit:evidence.takeProfit,minimumRiskRewardRatio:riskSettings.minimumRiskRewardRatio},
           spec:symbolSpec.value,now
         });
         if (!prepared.accepted) {
