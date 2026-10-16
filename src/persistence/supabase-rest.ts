@@ -146,6 +146,13 @@ export class SupabaseRestRepository implements ExecutionIntentRepository, Runtim
     try { data = await response.json(); } catch { return { ok: false, errorCode: "UNKNOWN" }; }
     return { ok: true, value: { updated: Array.isArray(data) && data.length > 0 } };
   }
+  async listUnresolvedExecutionIntents(limit = 25): Promise<readonly Readonly<Record<string, unknown>>[]> {
+    const response = await this.#request(`/execution_intents?status=in.(CREATED,SUBMITTED,UNKNOWN,RECONCILIATION_REQUIRED)&select=id,idempotency_key,status,created_at,candidate_id,decision_id&order=created_at.asc&limit=${Math.max(1,Math.min(100,Math.trunc(limit)))}`);
+    if (!response.ok) throw new Error("Supabase unresolved execution intents read failed");
+    const data: unknown=await response.json();
+    if (!Array.isArray(data)) throw new Error("Supabase unresolved execution intents response is invalid");
+    return data.filter(isRecord).map(row=>Object.freeze({...row}));
+  }
   async upsertPosition(input: {
     readonly accountLogin: string; readonly ticket: number; readonly direction: "BUY" | "SELL";
     readonly volume: number; readonly entryPrice: number; readonly stopLoss: number; readonly takeProfit: number; readonly initialStopLoss?: number;
