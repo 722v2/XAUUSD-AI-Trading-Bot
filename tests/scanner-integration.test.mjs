@@ -52,5 +52,8 @@ test('manual scanner uses authenticated MT5 candles and structured AI without au
   assert.ok(['BUY','SELL','WAIT'].includes(data.status));
   assert.equal(data.execution,'NOT_SUBMITTED');
   assert.equal(data.run.triggerType,'MANUAL');
+  assert.equal(data.chartCandles.length,60);
+  assert.ok(['TRENDING','RANGING'].includes(data.analysis.metrics.marketRegime));
+  assert.ok(['M1_TREND_CONTINUATION_V1','M1_PULLBACK_RECLAIM_V1','M1_RANGE_BREAKOUT_V1'].includes(data.analysis.evidence[0].strategyId));
   assert.ok(aiCalls>=1,'AI adapter should be called when the deterministic technical setup is ready');
 });
