@@ -1,5 +1,6 @@
 import type { Candle, Direction, TechnicalEvidence, Timeframe } from "../domain/types.js";
 import { atr, ema, macd, rsi } from "./indicators.js";
+import { selectAdaptiveStrategy, type MarketRegime } from "./strategy-selector.js";
 
 export type TechnicalAnalysisStatus = "READY" | "WAIT" | "NO_ANALYSIS";
 export type TechnicalAnalysisReason = "INSUFFICIENT_HISTORY" | "INVALID_HISTORY" | "STALE_DATA" | "NO_SETUP" | "CONFLICTING_EVIDENCE" | "SETUP_FOUND";
@@ -17,6 +18,8 @@ export interface TechnicalAnalysisResult {
     readonly macdSignal: number;
     readonly macdHistogram: number;
     readonly atr14: number;
+    readonly marketRegime: MarketRegime;
+    readonly trendStrength: number;
     readonly higherTimeframeContext: Readonly<Record<"M5" | "M15" | "H1", TrendContext>>;
   };
   readonly evidence: readonly TechnicalEvidence[];
@@ -69,22 +72,33 @@ export function analyzeClosedMarket(input: TechnicalAnalysisInput): TechnicalAna
     M15: trendContext(input.candles.M15, "M15", nowMs),
     H1: trendContext(input.candles.H1, "H1", nowMs)
   };
-  const metrics = { ema9: e9, ema21: e21, rsi14: rv, macd: mv.macd, macdSignal: mv.signal, macdHistogram: mv.histogram, atr14: av, higherTimeframeContext };
-  const up = e9 > e21 && mv.histogram > 0 && rv >= 50 && rv < 75;
-  const down = e9 < e21 && mv.histogram < 0 && rv <= 50 && rv > 25;
-  if (!up && !down) return { status: "WAIT", reason: "NO_SETUP", evaluatedAt: input.now, latestClosedBarTime: latest.closeTime, metrics, evidence: EMPTY };
-  const direction: Direction = up ? "BUY" : "SELL";
+  const trendStrength=Math.abs(e9-e21)/av;
+  const previousEma9=ema9[i-1], ema21FiveBarsAgo=ema21[i-5];
+  const previous=m1[i-1]!;
+  const priorRange=m1.slice(Math.max(0,i-20),i);
+  if (previousEma9==null || ema21FiveBarsAgo==null || priorRange.length<20) {
+    return { status:"NO_ANALYSIS",reason:"INSUFFICIENT_HISTORY",evaluatedAt:input.now,latestClosedBarTime:latest.closeTime,evidence:EMPTY };
+  }
+  const priorRangeHigh=Math.max(...priorRange.map(bar=>bar.high));
+  const priorRangeLow=Math.min(...priorRange.map(bar=>bar.low));
+  const selection=selectAdaptiveStrategy({
+    trendStrength,ema9:e9,ema21:e21,ema21FiveBarsAgo,previousEma9,previousClose:previous.close,
+    currentOpen:latest.open,currentClose:latest.close,priorRangeHigh,priorRangeLow,rsi14:rv,macdHistogram:mv.histogram,atr14:av
+  });
+  const metrics = { ema9:e9,ema21:e21,rsi14:rv,macd:mv.macd,macdSignal:mv.signal,macdHistogram:mv.histogram,atr14:av,marketRegime:selection?.regime ?? (trendStrength>=0.25?"TRENDING":"RANGING") as MarketRegime,trendStrength,higherTimeframeContext };
+  if (!selection) return { status:"WAIT",reason:"NO_SETUP",evaluatedAt:input.now,latestClosedBarTime:latest.closeTime,metrics,evidence:EMPTY };
+  const direction: Direction = selection.direction;
   const entryPrice = latest.close;
   const stopLoss = direction === "BUY" ? entryPrice - 1.5 * av : entryPrice + 1.5 * av;
   const takeProfit = direction === "BUY" ? entryPrice + 3 * av : entryPrice - 3 * av;
   const contextCodes = Object.entries(higherTimeframeContext).map(([timeframe, trend]) => `${timeframe}_${trend}`);
   const evidence: TechnicalEvidence = {
-    strategyId: "M1_EMA_MACD_RSI_ATR_V1",
+    strategyId: selection.strategyId,
     direction,
-    evidenceCodes: ["CLOSED_M1_ONLY", up ? "EMA9_ABOVE_EMA21" : "EMA9_BELOW_EMA21", up ? "MACD_HISTOGRAM_POSITIVE" : "MACD_HISTOGRAM_NEGATIVE", up ? "RSI_BULLISH_RANGE" : "RSI_BEARISH_RANGE", "ATR_STRUCTURAL_DISTANCE_V1", ...contextCodes],
+    evidenceCodes: ["CLOSED_M1_ONLY",...selection.evidenceCodes,direction==="BUY"?"MACD_HISTOGRAM_POSITIVE":"MACD_HISTOGRAM_NEGATIVE",direction==="BUY"?"RSI_BULLISH_RANGE":"RSI_BEARISH_RANGE","ATR_STRUCTURAL_DISTANCE_V1",...contextCodes],
     entryPrice, stopLoss, takeProfit,
     createdAt: input.now as TechnicalEvidence["createdAt"],
     expiresAt: new Date(nowMs + 60_000).toISOString() as TechnicalEvidence["expiresAt"]
   };
-  return { status: "READY", reason: "SETUP_FOUND", evaluatedAt: input.now, latestClosedBarTime: latest.closeTime, metrics, evidence: [evidence] };
+  return { status:"READY",reason:"SETUP_FOUND",evaluatedAt:input.now,latestClosedBarTime:latest.closeTime,metrics,evidence:[evidence] };
 }
