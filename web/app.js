@@ -55,6 +55,50 @@ function updateRiskMode() {
   $("risk-percent").required = percent;
   $("risk-cash").required = !percent;
 }
+let aiProviders = [];
+let selectedAiModelId = null;
+function renderAIModels(preferredModelId) {
+  const provider=aiProviders.find(item=>item.id===$("ai-provider").value);
+  const select=$("ai-model");
+  const models=provider?.models||[];
+  select.innerHTML=models.map(model=>`<option value="${escapeHtml(model.id)}">${escapeHtml(model.label||model.id)}</option>`).join("");
+  select.disabled=models.length===0;
+  const wanted=preferredModelId&&models.some(model=>model.id===preferredModelId)?preferredModelId:models[0]?.id;
+  if(wanted) select.value=wanted;
+}
+async function loadAIProviders() {
+  try {
+    const data=await api("/api/ai/providers");
+    aiProviders=data.providers||[];
+    const select=$("ai-provider");
+    select.innerHTML=aiProviders.map(provider=>`<option value="${escapeHtml(provider.id)}" ${provider.configured?"":"disabled"}>${escapeHtml(provider.label)}${provider.configured?"":" — المفتاح غير مضبوط على الخادم"}</option>`).join("");
+    select.disabled=!aiProviders.length;
+    const selected=aiProviders.find(provider=>provider.id===data.selectedProviderId&&provider.configured)||aiProviders.find(provider=>provider.configured)||aiProviders[0];
+    if(selected) select.value=selected.id;
+    selectedAiModelId=data.selectedModelId||null;
+    renderAIModels(selected?.id===data.selectedProviderId?selectedAiModelId:null);
+    $("ai-config-status").textContent=data.persisted?"الإعدادات الدائمة متاحة":"حفظ مؤقت";
+    $("ai-config-status").className="status-tag "+(data.persisted?"ok-tag":"warn-tag");
+    $("ai-config-feedback").textContent=aiProviders.length?"المفاتيح تبقى في بيئة الخادم؛ القائمة لا تسمح بعنوان مزود عشوائي.":"أضف AI_BASE_URL وAI_MODEL_ID أو AI_PROVIDER_CATALOG_JSON إلى بيئة الخادم.";
+    $("ai-config-form").querySelector('button[type="submit"]').disabled=!aiProviders.some(provider=>provider.configured);
+  } catch(error) {
+    $("ai-config-feedback").textContent=error.message||"تعذر تحميل قائمة مزودي AI.";
+    $("ai-config-form").querySelector('button[type="submit"]').disabled=true;
+  }
+}
+$("ai-provider").addEventListener("change",()=>renderAIModels(null));
+$("ai-config-form").addEventListener("submit",async event=>{
+  event.preventDefault();
+  const feedback=$("ai-config-feedback");
+  feedback.textContent="جارٍ حفظ اختيار AI…";
+  try {
+    const result=await api("/api/ai/config",{method:"POST",body:JSON.stringify({providerId:$("ai-provider").value,modelId:$("ai-model").value})});
+    feedback.textContent=result.message;
+    selectedAiModelId=result.modelId;
+    await loadAIProviders();
+    await refreshHealth();
+  } catch(error) { feedback.textContent=error.data?.message||error.message; }
+});
 async function loadConfig() {
   try {
     const config = await api("/api/config");
@@ -68,6 +112,7 @@ async function loadConfig() {
     updateRiskMode();
     $("scanner-toggle").textContent = config.scannerEnabled ? "إيقاف السكانر" : "تشغيل السكانر";
     $("auto-trading-toggle").textContent = config.autoTradingEnabled ? "إيقاف التنفيذ الآلي (Demo)" : "تفعيل التنفيذ الآلي (Demo)";
+    await loadAIProviders();
   } catch {}
 }
 $("risk-mode").addEventListener("change",updateRiskMode);
