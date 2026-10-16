@@ -7,6 +7,7 @@ export interface MT5BridgeHealth {
   readonly reason: string;
   readonly environment: "DEMO" | "BLOCKED";
   readonly liveTradingEnabled: false;
+  readonly accountLogin?: string;
 }
 export type BridgeResult<T> =
   | { readonly ok: true; readonly value: T }
