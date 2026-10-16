@@ -220,6 +220,56 @@ export function createAppServer(env = process.env) {
       return {ok:false,reason:"POSITION_MANAGER_FAILURE"};
     }
   }
+
+  async function reconcilePendingExecutionIntents(health) {
+    if (!supabase) return {ok:true};
+    let pending;
+    try { pending=await supabase.listUnresolvedExecutionIntents(25); }
+    catch { return {ok:false,reason:"UNRESOLVED_INTENTS_UNAVAILABLE"}; }
+    for (const intent of pending) {
+      if (typeof intent.id!=="string" || typeof intent.idempotency_key!=="string" || typeof intent.status!=="string") {
+        return {ok:false,reason:"INVALID_STORED_EXECUTION_INTENT"};
+      }
+      const lookup=await bridge.lookupOrder(intent.idempotency_key);
+      if (lookup.ok) {
+        if (lookup.value.state==="CONFIRMED") {
+          const updated=await supabase.updateExecutionIntentStatus(intent.id,"CONFIRMED");
+          if (!updated.ok || !updated.value.updated) return {ok:false,reason:"CONFIRMED_INTENT_RECOVERY_FAILED"};
+          const brokerOrderId=lookup.value.brokerOrderId;
+          if (health.accountLogin && typeof brokerOrderId==="string" && brokerOrderId) {
+            const order=await supabase.insertRecord("broker_orders",{
+              id:randomUUID(),execution_intent_id:intent.id,account_login:String(health.accountLogin),
+              broker_order_id:brokerOrderId,status:"CONFIRMED",request_payload:{recovered:true},
+              response_payload:lookup.value,created_at:new Date().toISOString(),updated_at:new Date().toISOString()
+            });
+            if (!order.ok && order.errorCode!=="ALREADY_EXISTS") return {ok:false,reason:"RECOVERED_ORDER_PERSIST_FAILED"};
+          }
+          const event=await supabase.insertRecord("trade_events",{id:randomUUID(),execution_intent_id:intent.id,event_type:"EXECUTION_CONFIRMED_ON_RECOVERY",payload:{brokerOrderId},occurred_at:new Date().toISOString()});
+          if (!event.ok) return {ok:false,reason:"RECOVERY_AUDIT_FAILED"};
+          continue;
+        }
+        if (lookup.value.state==="REJECTED") {
+          const updated=await supabase.updateExecutionIntentStatus(intent.id,"REJECTED");
+          if (!updated.ok || !updated.value.updated) return {ok:false,reason:"REJECTED_INTENT_RECOVERY_FAILED"};
+          const event=await supabase.insertRecord("trade_events",{id:randomUUID(),execution_intent_id:intent.id,event_type:"EXECUTION_REJECTED_ON_RECOVERY",payload:lookup.value,occurred_at:new Date().toISOString()});
+          if (!event.ok) return {ok:false,reason:"RECOVERY_AUDIT_FAILED"};
+          continue;
+        }
+        return {ok:false,reason:"BROKER_LEDGER_REQUIRES_RECONCILIATION"};
+      }
+      if (lookup.status===404 && lookup.message==="NOT_FOUND" && intent.status==="CREATED") {
+        const createdAt=Date.parse(String(intent.created_at??""));
+        if (!Number.isFinite(createdAt) || Date.now()-createdAt<15000) return {ok:false,reason:"EXECUTION_INTENT_SETTLING"};
+        const cancelled=await supabase.updateExecutionIntentStatus(intent.id,"CANCELLED");
+        if (!cancelled.ok || !cancelled.value.updated) return {ok:false,reason:"UNSENT_INTENT_CANCELLATION_FAILED"};
+        const event=await supabase.insertRecord("trade_events",{id:randomUUID(),execution_intent_id:intent.id,event_type:"UNSENT_INTENT_CANCELLED_ON_RECOVERY",payload:{reason:"BRIDGE_LEDGER_NOT_FOUND"},occurred_at:new Date().toISOString()});
+        if (!event.ok) return {ok:false,reason:"RECOVERY_AUDIT_FAILED"};
+        continue;
+      }
+      return {ok:false,reason:"EXECUTION_RESULT_UNKNOWN"};
+    }
+    return {ok:true};
+  }
   async function performScan(triggerType = "MANUAL") {
     if (scanInFlight) return { status:409, body:{error:"SCAN_ALREADY_RUNNING",message:"هناك دورة فحص قيد التنفيذ."} };
     scanInFlight = true;
@@ -249,6 +299,11 @@ export function createAppServer(env = process.env) {
       if (!health.ok || health.value.state !== "CONNECTED" || health.value.environment !== "DEMO") {
         const entry=record("NOT_READY",health.ok?health.value.reason:health.message);
         return {status:503,body:{error:"MT5_NOT_READY",message:"اتصال MT5 التجريبي غير مؤكد؛ تم إيقاف الفحص بأمان.",run:entry}};
+      }
+      const reconciliation=await reconcilePendingExecutionIntents(health.value);
+      if (!reconciliation.ok) {
+        const entry=record("RECONCILIATION_REQUIRED",reconciliation.reason);
+        return {status:503,body:{error:"RECONCILIATION_REQUIRED",message:"هناك نية تنفيذ سابقة تحتاج مصالحة؛ تم منع أي دخول جديد.",run:entry}};
       }
       const timeframes = ["M1","M5","M15","H1"];
       const fetched = await Promise.all(timeframes.map(async timeframe => [timeframe,await bridge.candles(timeframe, timeframe==="M1"?120:60)]));
