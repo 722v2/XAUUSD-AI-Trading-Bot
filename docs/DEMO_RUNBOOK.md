@@ -60,7 +60,7 @@ Open http://127.0.0.1:3000. The dashboard refuses non-loopback binding by design
 4. Discover Telegram chats if notifications are needed. Start the bot in Telegram first. Enable only intended recipients.
 5. Start the scanner. It checks closed M1 candles every 60 seconds and uses M5/M15/H1 as context. Invalid/stale data should produce NO_ANALYSIS, not a signal.
 6. Review scanner history and analysis output before enabling Demo auto-execution.
-7. Enable **تفعيل التنفيذ الآلي (Demo)** only when you intend to allow orders on that Demo account. The system checks AI, persisted risk settings, fresh quote, broker specifications and durable intent before sending.
+7. Enable **تفعيل التنفيذ الآلي (Demo)** only when you intend to allow orders on that Demo account. The system checks AI, persisted risk settings, fresh quote, broker specifications and durable intent before sending. It permits at most one bot-owned XAUUSD position at a time; a second entry is blocked until the existing position closes.
 8. Verify every submitted order and position directly in MetaTrader 5, not only in the dashboard.
 
 ## 6. Stop and recovery
