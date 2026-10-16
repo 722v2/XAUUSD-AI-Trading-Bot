@@ -329,6 +329,7 @@ export function createAppServer(env = process.env) {
       if (typeof body.enabled !== "boolean") return sendJson(res,400,{error:"INVALID_VALUE",message:"قيمة تشغيل السكانر غير صالحة."});
       if (!body.enabled) {
         scannerEnabled=false;
+        autoTradingEnabled=false;
         if (scannerTimer) clearInterval(scannerTimer);
         scannerTimer=null;
         return sendJson(res,200,{ok:true,enabled:false});
