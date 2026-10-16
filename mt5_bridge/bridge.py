@@ -154,6 +154,7 @@ class BridgeService:
                 "reason": "DEMO_ACCOUNT_CONFIRMED" if is_demo else "NON_DEMO_ACCOUNT_BLOCKED",
                 "environment": "DEMO" if is_demo else "BLOCKED",
                 "accountMode": "DEMO" if is_demo else "BLOCKED",
+                "accountLogin": str(getattr(account, "login", "")) if is_demo else None,
                 "liveTradingEnabled": False,
             }
 
