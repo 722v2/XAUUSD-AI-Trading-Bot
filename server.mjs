@@ -246,6 +246,11 @@ export function createAppServer(env = process.env) {
         return {status:503,body:{error:"AI_NOT_CONFIGURED",message:"تم رصد مرشح فني، لكن AI غير مهيأ. لا يتم اعتماد اتجاه أو إرسال أمر.",analysis:{...analysis,evidence:analysis.evidence.map(({entryPrice,stopLoss,takeProfit,direction,strategyId})=>({entryPrice,stopLoss,takeProfit,direction,strategyId}))},run:entry}};
       }
       const assessment = await aiProvider.assess({symbol:"XAUUSD",evidence:analysis.evidence,now});
+      if (Date.parse(assessment.expiresAt) <= Date.now() || Date.parse(evidence.expiresAt) <= Date.now()) {
+        if (supabase) await supabase.updateRecord("strategy_candidates",candidateId,{status:"EXPIRED"});
+        const entry=record("EXPIRED","AI_ASSESSMENT_EXPIRED");
+        return {status:409,body:{error:"ASSESSMENT_EXPIRED",message:"انتهت صلاحية الأدلة أثناء انتظار AI؛ تم منع التنفيذ.",run:entry}};
+      }
       const decision = coordinateTechnicalAndAI(analysis.evidence,assessment);
       if (supabase) {
         const savedAssessment = await supabase.insertRecord("ai_assessments",{
