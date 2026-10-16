@@ -49,6 +49,9 @@ $env:AI_API_KEY = "your-provider-secret"
 # $env:AI_ALLOWED_MODELS = "model-a,model-b,provider/model-c"
 # For multiple providers, set AI_PROVIDER_CATALOG_JSON to an allowlist whose apiKeyEnv
 # values name separate environment variables. The UI cannot submit arbitrary provider URLs.
+# Example template (replace provider/model IDs and host; keep the key in its own env variable):
+# $env:AI_PROVIDER_CATALOG_JSON = '[{"id":"provider-a","label":"Provider A","baseUrl":"https://api.example.com/v1","apiKeyEnv":"PROVIDER_A_API_KEY","models":[{"id":"model-a","label":"Model A"}]}]'
+# $env:PROVIDER_A_API_KEY = "set-your-secret-in-this-shell"
 $env:SUPABASE_URL = "https://your-project.supabase.co"
 $env:SUPABASE_SERVICE_ROLE_KEY = "your-server-only-service-role-key"
 npm start
