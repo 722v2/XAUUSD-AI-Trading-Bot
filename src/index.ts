@@ -9,3 +9,6 @@ export * from "./pipeline/contracts.js";
 export * from "./marketdata/normalize.js";
 export * from "./analysis/indicators.js";
 export * from "./analysis/technical-analysis.js";
+export * from "./opportunities/lifecycle.js";
+export * from "./risk/risk-manager.js";
+export * from "./execution/mt5-demo-port.js";
