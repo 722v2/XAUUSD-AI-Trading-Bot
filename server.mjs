@@ -57,6 +57,7 @@ export function createAppServer(env = process.env) {
   const bridge = configuredBridge(env);
   const aiProvider = configuredAI(env);
   const enabledChats = new Set();
+  const localNotificationKeys = new Set();
   let riskSettings = null;
   let scannerRuns = [];
   let scannerEnabled = false;
@@ -142,8 +143,12 @@ export function createAppServer(env = process.env) {
       void drainOutbox().catch(()=>undefined);
       return {sent:queued,failed,reason:failed?"OUTBOX_PARTIAL_FAILURE":"QUEUED"};
     }
-    const recipients=[...enabledChats];
-    void telegram.sendToDiscoveredChats(message,recipients).catch(()=>undefined);
+    const recipients=[...enabledChats].filter(chatId=>!localNotificationKeys.has(dedupeKey+":"+chatId));
+    if (!recipients.length) return {sent:0,failed:0,reason:"DUPLICATE_SUPPRESSED"};
+    void telegram.sendToDiscoveredChats(message,recipients).then(results=>{
+      for (const result of results) if (result.ok) localNotificationKeys.add(dedupeKey+":"+result.chatId);
+      while (localNotificationKeys.size>500) localNotificationKeys.delete(localNotificationKeys.values().next().value);
+    }).catch(()=>undefined);
     return {sent:0,failed:0,reason:"PROCESS_LOCAL_QUEUED"};
   }
 
@@ -418,7 +423,7 @@ export function createAppServer(env = process.env) {
       if (decision.outcome === "BUY" || decision.outcome === "SELL") {
         notification = await queueNotificationToEnabled(
           "XAUUSD "+decision.outcome+" — قرار تحليلي بعد توافق التحليل الفني وAI. هذه ليست رسالة تأكيد تنفيذ؛ راجع حالة الوسيط في لوحة التحكم.",
-          "TRADE_DECISION","decision:"+candidateId+":"+decision.outcome
+          "TRADE_DECISION","decision:"+candidateKey+":"+decision.outcome
         );
       }
       let execution = "NOT_SUBMITTED";
@@ -525,7 +530,7 @@ export function createAppServer(env = process.env) {
         }
       };
     } catch {
-      await queueNotificationToEnabled("تنبيه النظام: فشلت دورة فحص XAUUSD. راجع سجل النظام قبل إعادة المحاولة.","SYSTEM_ALERT","scan-failure:"+runId);
+      await queueNotificationToEnabled("تنبيه النظام: فشلت دورة فحص XAUUSD. راجع سجل النظام قبل إعادة المحاولة.","SYSTEM_ALERT","scan-failure:"+Math.floor(Date.now()/300000));
       const entry=record("FAILED","UNEXPECTED_SCAN_FAILURE");
       return {status:503,body:{error:"SCAN_FAILED",message:"فشل الفحص؛ تم تسجيله دون إعلان نجاح.",run:entry}};
     } finally {
