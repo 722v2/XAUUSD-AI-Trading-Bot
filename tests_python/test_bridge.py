@@ -1,12 +1,47 @@
 import json
 import tempfile
 import unittest
+from types import SimpleNamespace
 from pathlib import Path
 from urllib.request import Request, urlopen
 from urllib.error import HTTPError
 from threading import Thread
 from mt5_bridge.bridge import BridgeService, IdempotencyStore, create_handler, stable_order_comment, validate_order_payload
 from http.server import ThreadingHTTPServer
+
+
+class FakeMT5:
+    ACCOUNT_TRADE_MODE_DEMO = 0
+    TRADE_ACTION_DEAL = 1
+    TRADE_ACTION_SLTP = 2
+    ORDER_TYPE_BUY = 0
+    ORDER_TYPE_SELL = 1
+    ORDER_FILLING_IOC = 1
+    ORDER_TIME_GTC = 0
+    TRADE_RETCODE_DONE = 10009
+    TRADE_RETCODE_PLACED = 10008
+    TRADE_RETCODE_DONE_PARTIAL = 10010
+    POSITION_TYPE_BUY = 0
+
+    def __init__(self, trade_mode=0):
+        self.trade_mode = trade_mode
+        self.order_send_calls = 0
+        self.position = SimpleNamespace(ticket=77, magic=61016001, comment="XAUAI-abcd", type=0,
+            volume=0.1, price_open=1990.0, sl=1980.0, tp=2010.0, profit=2.0, time=1792152000)
+
+    def initialize(self, **kwargs): return True
+    def terminal_info(self): return SimpleNamespace(connected=True)
+    def account_info(self): return SimpleNamespace(trade_mode=self.trade_mode, login=12345, server="Demo", currency="USD")
+    def symbol_select(self, symbol, enabled): return True
+    def symbol_info_tick(self, symbol): return SimpleNamespace(bid=2000.0, ask=2000.2, time=1792152000)
+    def symbol_info(self, symbol): return SimpleNamespace(volume_min=0.01, volume_max=100.0, volume_step=0.01, digits=2, trade_tick_size=0.1, trade_tick_value=1.0)
+    def order_check(self, request): return SimpleNamespace(retcode=0)
+    def order_send(self, request):
+        self.order_send_calls += 1
+        return SimpleNamespace(retcode=10009, order=9876, deal=9877)
+    def positions_get(self, **kwargs):
+        if kwargs.get("ticket") and kwargs["ticket"] != self.position.ticket: return ()
+        return (self.position,)
 
 
 class BridgeUnitTests(unittest.TestCase):
@@ -48,6 +83,55 @@ class BridgeUnitTests(unittest.TestCase):
         try:
             bridge_module.mt5 = None
             self.assertEqual(self.service.health()["state"],"NOT_CONFIGURED")
+        finally:
+            bridge_module.mt5 = previous
+
+
+    def test_live_account_is_rejected_before_any_order_submission(self):
+        import mt5_bridge.bridge as bridge_module
+        previous = bridge_module.mt5
+        fake = FakeMT5(trade_mode=2)
+        bridge_module.mt5 = fake
+        try:
+            payload = {"environment":"DEMO","symbol":"XAUUSD","direction":"BUY","idempotencyKey":"real-account-test","volume":0.1,"stopLoss":1990,"takeProfit":2020}
+            status, result = self.service.submit_order(payload)
+            self.assertEqual(status,403)
+            self.assertEqual(result["error"],"NON_DEMO_ACCOUNT_BLOCKED")
+            self.assertEqual(fake.order_send_calls,0)
+            self.assertIsNone(self.store.get("real-account-test"))
+        finally:
+            bridge_module.mt5 = previous
+
+    def test_demo_order_is_sent_once_for_a_repeated_idempotency_key(self):
+        import mt5_bridge.bridge as bridge_module
+        previous = bridge_module.mt5
+        fake = FakeMT5(trade_mode=0)
+        bridge_module.mt5 = fake
+        try:
+            payload = {"environment":"DEMO","symbol":"XAUUSD","direction":"BUY","idempotencyKey":"repeat-demo-order","volume":0.1,"stopLoss":1990,"takeProfit":2020}
+            first = self.service.submit_order(payload)
+            second = self.service.submit_order(payload)
+            self.assertEqual(first[0],200)
+            self.assertEqual(first[1]["state"],"CONFIRMED")
+            self.assertEqual(second[0],200)
+            self.assertEqual(second[1]["state"],"CONFIRMED")
+            self.assertEqual(fake.order_send_calls,1)
+        finally:
+            bridge_module.mt5 = previous
+
+    def test_close_order_is_idempotent_after_success(self):
+        import mt5_bridge.bridge as bridge_module
+        previous = bridge_module.mt5
+        fake = FakeMT5(trade_mode=0)
+        bridge_module.mt5 = fake
+        try:
+            payload = {"ticket":77,"idempotencyKey":"close-position-77"}
+            first = self.service.close_position(payload)
+            second = self.service.close_position(payload)
+            self.assertEqual(first[0],200)
+            self.assertEqual(first[1]["state"],"CONFIRMED")
+            self.assertEqual(second[1]["state"],"CONFIRMED")
+            self.assertEqual(fake.order_send_calls,1)
         finally:
             bridge_module.mt5 = previous
 
