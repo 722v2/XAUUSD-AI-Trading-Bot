@@ -47,7 +47,7 @@ export function analyzeClosedMarket(input: TechnicalAnalysisInput): TechnicalAna
   const macds = macd(closes), atrs = atr(m1.map((bar) => bar.high), m1.map((bar) => bar.low), closes);
   const i = m1.length - 1;
   const e9 = ema9[i], e21 = ema21[i], rv = rsis[i], mv = macds[i], av = atrs[i];
-  if (e9 === null || e21 === null || rv === null || mv === null || av === null || av <= 0) {
+  if (e9 == null || e21 == null || rv == null || mv == null || av == null || av <= 0) {
     return { status: "NO_ANALYSIS", reason: "INSUFFICIENT_HISTORY", evaluatedAt: input.now, latestClosedBarTime: latest.closeTime, evidence: EMPTY };
   }
   const htfBars = [...input.candles.M5, ...input.candles.M15, ...input.candles.H1];
