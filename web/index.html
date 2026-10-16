@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <title>XAUUSD AI Trading Bot</title>
+  <link rel="stylesheet" href="/styles.css">
+  <script src="/app.js" defer></script>
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar">
+      <a class="brand" href="/" aria-label="الرئيسية">
+        <span class="brand-mark">X</span>
+        <span><strong>XAUUSD</strong><small>AI TRADING BOT</small></span>
+      </a>
+      <div class="side-label">مساحة العمل</div>
+      <nav class="nav">
+        <a class="nav-link active" href="#overview"><span>◫</span> نظرة عامة</a>
+        <a class="nav-link" href="#scanner"><span>⌁</span> السكانر والتحليل</a>
+        <a class="nav-link" href="#risk"><span>◈</span> المخاطر ورأس المال</a>
+        <a class="nav-link" href="#mt5"><span>⇄</span> اتصال MT5</a>
+        <a class="nav-link" href="#trades"><span>▤</span> الصفقات والسجل</a>
+        <a class="nav-link" href="#telegram"><span>➤</span> Telegram</a>
+        <a class="nav-link" href="#settings"><span>⚙</span> الإعدادات</a>
+      </nav>
+      <div class="sidebar-bottom">
+        <div class="environment"><span class="dot amber"></span><div><b>وضع تجريبي</b><small>التداول الحقيقي معطّل</small></div></div>
+        <div class="version">Phase 7 · Dashboard preview</div>
+      </div>
+    </aside>
+
+    <main class="main">
+      <header class="topbar">
+        <div><p class="eyebrow">لوحة التحكم / الذهب</p><h1>نظرة عامة</h1></div>
+        <div class="top-actions"><span class="live-pill"><i></i> مراقبة النظام</span><button id="refresh" class="icon-button" title="تحديث الحالة" aria-label="تحديث الحالة">↻</button></div>
+      </header>
+
+      <section class="notice" id="system-notice">
+        <span class="notice-icon">!</span><div><b>النظام في وضع التهيئة</b><p>لا يتم إنشاء إشارات أو تنفيذ أوامر وهمية. اربط MT5 ومزود البيانات قبل تشغيل السكانر.</p></div>
+      </section>
+
+      <section id="overview" class="section">
+        <div class="section-heading"><div><h2>حالة النظام</h2><p>الحالة الفعلية للخدمات من الخادم</p></div><span id="last-updated" class="muted">جارٍ التحديث…</span></div>
+        <div class="status-grid">
+          <article class="status-card"><div class="card-top"><span class="card-icon gold">◈</span><span id="market-status" class="status-tag muted-tag">غير مهيأ</span></div><p>بيانات السوق</p><h3 id="market-value">MT5 غير متصل</h3><small>المصدر المطلوب: MT5</small></article>
+          <article class="status-card"><div class="card-top"><span class="card-icon violet">✳</span><span id="ai-status" class="status-tag muted-tag">غير مهيأ</span></div><p>مزود الذكاء الاصطناعي</p><h3 id="ai-value">لم يتم الاتصال</h3><small>المفتاح يبقى على الخادم</small></article>
+          <article class="status-card"><div class="card-top"><span class="card-icon blue">▣</span><span id="db-status" class="status-tag muted-tag">غير مهيأ</span></div><p>قاعدة البيانات</p><h3 id="db-value">Supabase</h3><small>الإعدادات والسجل الدائم</small></article>
+          <article class="status-card"><div class="card-top"><span class="card-icon teal">➤</span><span id="telegram-status" class="status-tag muted-tag">غير مهيأ</span></div><p>Telegram</p><h3 id="telegram-value">التنبيهات غير جاهزة</h3><small>يدعم عدة محادثات</small></article>
+        </div>
+      </section>
+
+      <section id="scanner" class="section panel">
+        <div class="section-heading"><div><h2>السكانر والتحليل</h2><p>دورة فحص كل 60 ثانية — لن تعمل قبل جاهزية بيانات السوق</p></div><span class="status-tag muted-tag" id="scanner-status">متوقف بأمان</span></div>
+        <div class="scanner-layout">
+          <div class="scanner-main"><div class="scanner-orbit"><div class="orbit-core">XAU<span>/</span>USD</div></div><div><h3 id="scanner-title">السكانر غير جاهز</h3><p id="scanner-detail">لم يتم تأكيد اتصال MT5 وبيانات الشموع المغلقة.</p><div class="scanner-meta"><span>الإطار الأساسي <b>M1</b></span><span>السياق <b>M5 · M15 · H1</b></span><span>الفاصل <b>60 ثانية</b></span></div></div></div>
+          <div class="scanner-actions"><button id="scanner-toggle" class="secondary-button" type="button">تشغيل السكانر</button><button id="scan-now" class="primary-button">↻ فحص الآن</button></div>
+        </div>
+        <div id="scan-result" class="inline-result" role="status">لم يبدأ أي فحص بعد.</div>
+        <div class="table-wrap"><table><thead><tr><th>وقت الحدث</th><th>المرحلة</th><th>الحالة</th><th>التفاصيل</th></tr></thead><tbody id="scan-log"><tr><td colspan="4" class="empty">لا توجد دورات فحص مسجلة.</td></tr></tbody></table></div>
+      </section>
+
+      <section id="risk" class="section panel">
+        <div class="section-heading"><div><h2>المخاطر ورأس المال</h2><p>الإعدادات تحفظ مؤقتًا حتى تفعيل التخزين الدائم</p></div><span id="persistence-label" class="status-tag muted-tag">غير محفوظ دائمًا</span></div>
+        <form id="risk-form" class="risk-form">
+          <label>رأس المال المرجعي<input id="capital" type="number" min="0.000001" step="any" placeholder="أدخل رأس المال" required></label>
+          <label>طريقة حساب المخاطرة<select id="risk-mode"><option value="PERCENT_OF_CAPITAL">نسبة مئوية من رأس المال</option><option value="FIXED_CASH">مبلغ نقدي ثابت</option></select></label>
+          <label id="risk-percent-label">المخاطرة (%)<input id="risk-percent" type="number" min="0.000001" step="any" placeholder="مثال: 1"></label>
+          <label id="risk-cash-label" hidden>المخاطرة النقدية<input id="risk-cash" type="number" min="0.000001" step="any" placeholder="مبلغ المخاطرة"></label>
+          <label>الحد الأدنى لنسبة العائد إلى المخاطرة<input id="min-rr" type="number" min="0" step="any" value="2" required></label>
+          <div class="form-actions"><button class="primary-button" type="submit">حفظ إعدادات المخاطرة</button><span id="risk-feedback" role="status" class="muted"></span></div>
+        </form>
+        <p class="footnote">هذه القيم لا تنشئ صفقة. حجم العقد الفعلي يحتاج مواصفات الوسيط وتأكيد حساب MT5.</p>
+      </section>
+
+      <section id="mt5" class="section panel">
+        <div class="section-heading"><div><h2>اتصال MT5</h2><p>لن يتم إرسال أي أمر تداول من هذه الواجهة في المرحلة الحالية.</p></div><span id="execution-status" class="status-tag muted-tag">معطّل</span></div>
+        <div class="connection-row"><div class="connection-symbol">MT5</div><div class="connection-copy"><b id="mt5-title">جسر MT5 غير متصل</b><p id="mt5-detail">لم يتم تأكيد حساب تجريبي أو مواصفات الرمز XAUUSD.</p></div><span class="status-tag muted-tag">Demo فقط</span></div>
+        <div class="safety-strip"><span>⛨</span><p><b>حماية التنفيذ مفعّلة</b><br>التداول الحقيقي غير متاح. أي نتيجة تنفيذ غامضة يجب أن تدخل المصالحة بدل إعادة الإرسال التلقائي.</p></div>
+        <div class="auto-trading-row"><div><b>التنفيذ الآلي على Demo</b><p>لا يتفعّل إلا بعد اتصال MT5 وAI وSupabase وحفظ إعدادات المخاطرة. يبقى متوقفًا بعد إعادة تشغيل الخادم.</p></div><button id="auto-trading-toggle" class="secondary-button" type="button">تفعيل التنفيذ الآلي (Demo)</button></div>
+      </section>
+
+      <section id="trades" class="section panel">
+        <div class="section-heading"><div><h2>الصفقات والسجل</h2><p>لا توجد بيانات تداول حقيقية موصولة بعد</p></div><span class="status-tag muted-tag">بانتظار MT5</span></div>
+        <div class="table-wrap"><table class="positions-table"><thead><tr><th>Ticket</th><th>الاتجاه</th><th>الحجم</th><th>سعر الدخول</th><th>وقف الخسارة</th><th>جني الربح</th><th>الربح العائم</th><th>الإجراءات</th></tr></thead><tbody id="positions-table"><tr><td colspan="8" class="empty">لا توجد صفقات بوت مفتوحة أو أن MT5 غير متصل.</td></tr></tbody></table></div>
+        <p class="footnote">تعرض هذه القائمة صفقات البوت فقط، ولا تسمح بتعديل صفقات يدوية أو صفقات لا تحمل علامة البوت.</p>
+      </section>
+
+      <section id="telegram" class="section panel">
+        <div class="section-heading"><div><h2>Telegram</h2><p>اكتشاف المحادثات يتطلب أن يبدأ المستخدم المحادثة مع البوت أو يرسل رسالة إليه.</p></div><span id="telegram-chat-count" class="status-tag muted-tag">0 محادثات</span></div>
+        <div class="telegram-controls"><button id="discover-chats" class="secondary-button">اكتشاف المحادثات</button><span id="telegram-feedback" role="status" class="muted">لن يظهر رمز البوت أو أي مفتاح داخل المتصفح.</span></div>
+        <div id="telegram-chats" class="chat-list"><p class="empty">لم يتم اكتشاف محادثات.</p></div>
+      </section>
+
+      <section id="settings" class="section panel">
+        <div class="section-heading"><div><h2>الإعدادات</h2><p>الإعدادات الأساسية للمشروع</p></div></div>
+        <div class="settings-grid">
+          <div><span>رمز التداول</span><b>XAUUSD</b></div><div><span>الإطار الأساسي</span><b>M1</b></div><div><span>فاصل السكانر</span><b>60 ثانية</b></div><div><span>اللغة</span><b>العربية · RTL</b></div><div><span>بيئة التنفيذ</span><b>Demo</b></div><div><span>التداول الحقيقي</span><b class="danger-text">معطّل</b></div>
+        </div>
+        <p class="footnote">مفاتيح API وبيانات الاعتماد يجب ضبطها كمتغيرات بيئة على الخادم، لا في HTML أو إعدادات المتصفح.</p>
+      </section>
+      <footer> XAUUSD AI Trading Bot <span>·</span> نظام قيد التطوير · لا يوجد ضمان للربحية</footer>
+    </main>
+  </div>
+</body>
+</html>

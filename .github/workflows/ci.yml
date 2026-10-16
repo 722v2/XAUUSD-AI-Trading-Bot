@@ -1,0 +1,30 @@
+name: CI
+on:
+  push:
+    branches: [main, 'feature/**']
+  pull_request:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  foundation:
+    name: Foundation checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.16.0'
+          cache: npm
+      - name: Install locked dependencies
+        run: npm ci
+      - name: Type check
+        run: npm run typecheck
+      - name: Build and test
+        run: npm test
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Test MT5 bridge safety contracts
+        run: python -m unittest discover -s tests_python -v
