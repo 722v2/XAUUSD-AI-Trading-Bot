@@ -5,7 +5,7 @@ Updated: 2026-10-16
 ## Phase 1 — Foundation
 - Implemented strict domain contracts, versioned in-memory runtime config, persistence interfaces, secret readiness and opportunity state transitions.
 - Supabase initial schema migration is present; it has not been applied to a real project in this repository workflow.
-- Integrated GitHub Actions passed on the current implementation: 51 Node.js tests and 14 Python bridge tests, with 0 failures.
+- Integrated GitHub Actions passed on the current implementation: 56 Node.js tests and 14 Python bridge tests, with 0 failures.
 
 ## Phase 2 — Market Data & Analysis
 - Implemented quote/candle normalization, closed-bar validation, EMA, RSI, MACD and ATR, and an M1 deterministic candidate analyzer.
