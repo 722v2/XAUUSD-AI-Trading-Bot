@@ -328,6 +328,7 @@ export function createAppServer(env = process.env) {
     }
     return {ok:true};
   }
+  let latestScanView=null;
   async function performScan(triggerType = "MANUAL") {
     if (scanInFlight) return { status:409, body:{error:"SCAN_ALREADY_RUNNING",message:"هناك دورة فحص قيد التنفيذ."} };
     scanInFlight = true;
@@ -600,6 +601,11 @@ export function createAppServer(env = process.env) {
     }
   }
 
+  async function runAndStoreScan(triggerType) {
+    const result=await performScan(triggerType);
+    if (result.body?.error!=="SCAN_ALREADY_RUNNING") latestScanView={statusCode:result.status,updatedAt:new Date().toISOString(),body:result.body};
+    return result;
+  }
   const outboxTimer = supabase && telegram.configured ? setInterval(()=>{ void drainOutbox(); },15000) : null;
   outboxTimer?.unref?.();
   const server = createServer(async (req,res) => {
@@ -678,8 +684,11 @@ export function createAppServer(env = process.env) {
       riskSettings = Object.freeze({...body});
       return sendJson(res,200,{ok:true,persisted:false,message:"تم التحقق. التخزين مؤقت داخل عملية الخادم."});
     }
+    if (method === "GET" && url.pathname === "/api/scanner/latest") {
+      return sendJson(res,200,{scan:latestScanView});
+    }
     if (method === "POST" && url.pathname === "/api/scan") {
-      const result=await performScan("MANUAL");
+      const result=await runAndStoreScan("MANUAL");
       return sendJson(res,result.status,result.body);
     }
     if (method === "POST" && url.pathname === "/api/scanner/enabled") {
@@ -700,9 +709,9 @@ export function createAppServer(env = process.env) {
       scannerEnabled=true;
       if (scannerTimer) clearInterval(scannerTimer);
       nextScheduledScanAt=Date.now()+60000;
-      scannerTimer=setInterval(()=>{ nextScheduledScanAt=Date.now()+60000; void performScan("SCHEDULED"); },60000);
+      scannerTimer=setInterval(()=>{ nextScheduledScanAt=Date.now()+60000; void runAndStoreScan("SCHEDULED"); },60000);
       scannerTimer.unref?.();
-      void performScan("SCHEDULED");
+      void runAndStoreScan("SCHEDULED");
       return sendJson(res,200,{ok:true,enabled:true,intervalSeconds:60});
     }
     if (method === "POST" && url.pathname === "/api/trading/auto") {
