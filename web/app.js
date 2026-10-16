@@ -150,6 +150,9 @@ async function loadPositions() {
   try {
     const data = await api("/api/positions");
     const positions = data.positions || [];
+    const warning = $("positions-warning");
+    warning.hidden = !data.ownershipConflict;
+    warning.textContent = data.ownershipConflict ? "تم رصد مركز XAUUSD لا يمكن تأكيد ملكيته للبوت. التنفيذ الآلي محظور حتى تتم مراجعة هذا المركز يدويًا." : "";
     body.innerHTML = positions.length ? positions.map(position => `<tr data-position-row="${position.ticket}"><td>${escapeHtml(position.ticket)}</td><td>${position.direction==="BUY"?"شراء":"بيع"}</td><td>${escapeHtml(position.volume)}</td><td>${escapeHtml(position.entryPrice)}</td><td><input class="position-sl" type="number" step="any" min="0.000001" value="${escapeHtml(position.stopLoss)}" aria-label="وقف الخسارة"></td><td><input class="position-tp" type="number" step="any" min="0.000001" value="${escapeHtml(position.takeProfit)}" aria-label="جني الربح"></td><td class="${position.profit>=0?"profit-text":"loss-text"}">${escapeHtml(position.profit)}</td><td><div class="position-actions"><button class="secondary-button" data-modify-position="${escapeHtml(position.ticket)}">حفظ SL/TP</button><button class="danger-button" data-close-position="${escapeHtml(position.ticket)}">إغلاق</button></div></td></tr>`).join("") : '<tr><td colspan="8" class="empty">لا توجد صفقات بوت مفتوحة.</td></tr>';
   } catch(error) {
     body.innerHTML = `<tr><td colspan="8" class="empty">${escapeHtml(error.message || "MT5 غير متصل")}</td></tr>`;
