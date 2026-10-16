@@ -22,6 +22,7 @@ test('risk settings reject invalid values without app-specific caps', () => {
   assert.equal(validateRiskSettings({ ...validCashRisk, riskCash: -1 }), 'INVALID_RISK_CASH');
   assert.equal(validateRiskSettings({ ...validCashRisk, riskPercent: 1 }), 'UNEXPECTED_RISK_FIELD');
   assert.equal(validateRiskSettings({ ...validPercentRisk, minimumRiskRewardRatio: -0.1 }), 'INVALID_MINIMUM_RR');
+  assert.equal(validateRiskSettings({ ...validCashRisk, mode: 'MARTINGALE' }), 'INVALID_RISK_MODE');
 });
 test('security readiness fails closed for missing or blank secrets', () => {
   assert.deepEqual(checkSecretReadiness(undefined), { configured: false, reason: 'MISSING_OR_BLANK' });
