@@ -31,3 +31,23 @@ test('analysis refuses stale or insufficient closed M1 history', () => {
   const candles = Array.from({length:40},(_,i)=>({symbol:'XAUUSD',timeframe:'M1',openTime:new Date(Date.parse(now)-(40-i)*60_000).toISOString(),closeTime:new Date(Date.parse(now)-(39-i)*60_000).toISOString(),open:2000+i,high:2002+i,low:1999+i,close:2001+i,tickVolume:1,isClosed:true}));
   assert.equal(analyzeClosedMarket({symbol:'XAUUSD',candles:{M1:candles,M5:[],M15:[],H1:[]},now:'2026-10-16T12:50:00.000Z'}).reason, 'STALE_DATA');
 });
+
+test('analysis incorporates closed M5, M15 and H1 trend context without lookahead', () => {
+  const nowMs = Date.parse('2026-10-16T12:40:00.000Z');
+  const bars = (timeframe, count, minutes) => Array.from({length:count},(_,i)=>{
+    const openMs = nowMs - (count-i)*minutes*60_000;
+    return {symbol:'XAUUSD',timeframe,openTime:new Date(openMs).toISOString(),closeTime:new Date(openMs+minutes*60_000).toISOString(),open:2000+i,high:2002+i,low:1999+i,close:2001+i,tickVolume:1,isClosed:true};
+  });
+  const result = analyzeClosedMarket({symbol:'XAUUSD',now:new Date(nowMs).toISOString(),candles:{
+    M1:bars('M1',40,1),M5:bars('M5',30,5),M15:bars('M15',30,15),H1:bars('H1',30,60)
+  }});
+  assert.equal(result.status,'WAIT');
+  assert.equal(result.metrics.higherTimeframeContext.M5,'BULLISH');
+  assert.equal(result.metrics.higherTimeframeContext.M15,'BULLISH');
+  assert.equal(result.metrics.higherTimeframeContext.H1,'BULLISH');
+});
+test('numeric epoch-second timestamps are normalized as seconds, not milliseconds', () => {
+  const normalized = normalizeClosedCandles([{symbol:'XAUUSD',timeframe:'M1',openTime:1792152000,closeTime:1792152060,open:2000,high:2002,low:1999,close:2001,tickVolume:1,isClosed:true}],'M1');
+  assert.equal(normalized.ok,true);
+  if (normalized.ok) assert.equal(Date.parse(normalized.value[0].openTime),1792152000000);
+});
