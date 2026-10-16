@@ -47,3 +47,24 @@ test('risk API validates settings and marks non-durable saves honestly', async (
     assert.equal(invalid.status,400);
   });
 });
+
+test('auto execution stays off and Live remains disabled without all prerequisites', async () => {
+  await withServer(async base => {
+    const configResponse = await fetch(base+'/api/config');
+    const config = await configResponse.json();
+    assert.equal(config.autoTradingEnabled,false);
+    assert.equal(config.liveTradingEnabled,false);
+    const response = await fetch(base+'/api/trading/auto',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({enabled:true})});
+    const data = await response.json();
+    assert.equal(response.status,409);
+    assert.equal(data.error,'EXECUTION_PREREQUISITES_MISSING');
+  });
+});
+test('positions API never invents positions when MT5 bridge is absent', async () => {
+  await withServer(async base => {
+    const response = await fetch(base+'/api/positions');
+    const data = await response.json();
+    assert.equal(response.status,503);
+    assert.deepEqual(data.positions,[]);
+  });
+});
