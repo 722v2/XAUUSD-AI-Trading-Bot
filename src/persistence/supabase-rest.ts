@@ -152,6 +152,7 @@ export class SupabaseRestRepository implements ExecutionIntentRepository, Runtim
     readonly openedAt: string;
   }): Promise<PersistResult<{ readonly id: string }>> {
     if (!input.accountLogin.trim() || !Number.isInteger(input.ticket) || !Number.isFinite(input.volume) || input.volume <= 0 ||
+        ![input.entryPrice,input.stopLoss,input.takeProfit].every(Number.isFinite) || input.entryPrice <= 0 || input.stopLoss < 0 || input.takeProfit < 0 ||
         !Number.isFinite(Date.parse(input.openedAt))) return { ok: false, errorCode: "UNKNOWN" };
     const now = new Date().toISOString();
     const response = await this.#request("/positions?on_conflict=account_login,broker_position_id", {
