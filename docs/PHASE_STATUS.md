@@ -33,7 +33,7 @@ Updated: 2026-10-16
 - A real Supabase project must be configured and all migrations applied before durable persistence is operational.
 
 ## Phase 7 — Dashboard & Telegram
-- Implemented an Arabic RTL responsive dashboard, readiness API, risk form, allowlisted AI provider/model selector, manual scan, 60-second scanner toggle, scan log, live bot-position table with SL/TP/close controls, and Telegram discovery/test-message controls.
+- Implemented an Arabic RTL responsive dashboard, readiness API, risk form, allowlisted AI provider/model selector, manual/scheduled scanner with countdown, M1 candlestick chart, metrics/evidence panel, scan log, live bot-position table with SL/TP/close controls, and Telegram discovery/test-message controls.
 - Telegram recipients and notifications use the Supabase chat table and outbox when Supabase is configured. Failed deliveries are retried according to stored retry time; without Supabase, chat selection remains process-local.
 - Dashboard reports missing dependencies rather than fabricating connected status or signals.
 
