@@ -79,7 +79,7 @@ export function createAppServer(env = process.env) {
     let finalEntry = null;
     let dbRunCreated = false;
     const record = (status, reason, extra = {}) => {
-      const entry = {id:runId,at:startedAt,triggerType,status,reason,...extra};
+      const entry = {id:runId,at:startedAt,triggerType,status,reason,...(supabase && !dbRunCreated ? {persistenceWarning:true} : {}),...extra};
       scannerRuns = [entry,...scannerRuns].slice(0,50);
       finalEntry = entry;
       return entry;
@@ -252,9 +252,11 @@ export function createAppServer(env = process.env) {
             });
             orderPersisted = order.ok;
           }
-          await supabase.insertRecord("trade_events",{id:randomUUID(),execution_intent_id:prepared.intent.id,event_type:"DEMO_ORDER_CONFIRMED",payload:{brokerOrderId:submitted.value.brokerOrderId,orderPersisted},occurred_at:new Date().toISOString()});
+          const auditEvent = await supabase.insertRecord("trade_events",{id:randomUUID(),execution_intent_id:prepared.intent.id,event_type:"DEMO_ORDER_CONFIRMED",payload:{brokerOrderId:submitted.value.brokerOrderId,orderPersisted},occurred_at:new Date().toISOString()});
           execution = "CONFIRMED";
-          executionDetail = savedStatus.ok && orderPersisted ? "تم تأكيد أمر Demo وحفظه." : "تم تأكيد أمر Demo؛ يلزم فحص سجل التخزين.";
+          executionDetail = savedStatus.ok && orderPersisted && auditEvent.ok
+            ? "تم تأكيد أمر Demo وحفظ سجل التنفيذ."
+            : "تم تأكيد أمر Demo، لكن بعض سجلات التخزين أو التدقيق لم تُحفظ. يلزم فحص السجل؛ لا تعِد الإرسال.";
         } else if (submitted.value.state === "REJECTED") {
           await supabase.updateExecutionIntentStatus(prepared.intent.id,"REJECTED");
           execution = "REJECTED"; executionDetail = submitted.value.error ?? "رفض الوسيط الأمر.";
@@ -431,6 +433,10 @@ export function createAppServer(env = process.env) {
 }
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const host = process.env.HOST ?? "127.0.0.1";
+  if (!["127.0.0.1","localhost","::1"].includes(host)) {
+    process.stderr.write("Remote dashboard binding is disabled. Keep the dashboard on loopback.\\n");
+    process.exitCode = 1;
+  } else {
   const port = Number(process.env.PORT ?? 3000);
   const server = createAppServer();
   server.listen(port,host,()=>process.stdout.write("XAUUSD dashboard listening on "+host+":"+port+"\n"));
