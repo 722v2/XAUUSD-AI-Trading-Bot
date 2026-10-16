@@ -189,6 +189,7 @@ class BridgeService:
                 "symbol": "XAUUSD", "tickSize": tick_size, "tickValuePerLot": tick_value,
                 "volumeMin": float(info.volume_min), "volumeMax": float(info.volume_max),
                 "volumeStep": float(info.volume_step), "priceDigits": int(info.digits),
+                "point": float(getattr(info, "point", 0) or 0), "stopsLevelPoints": int(getattr(info, "trade_stops_level", 0) or 0),
             }
 
     def candles(self, timeframe: str, count: int) -> tuple[int, dict[str, Any]]:
@@ -329,7 +330,8 @@ class BridgeService:
                     "profit": float(position.profit), "openedAt": utc_iso(position.time),
                     "comment": str(position.comment)
                 })
-            return 200, {"positions": owned, "environment": "DEMO"}
+            account = mt5.account_info()
+            return 200, {"positions": owned, "environment": "DEMO", "accountLogin": str(getattr(account, "login", "")) if account is not None else None}
 
     def modify_position(self, payload: Any) -> tuple[int, dict[str, Any]]:
         if not isinstance(payload, dict) or isinstance(payload.get("ticket"), bool) or not isinstance(payload.get("ticket"), int):
