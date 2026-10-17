@@ -677,8 +677,15 @@ export function createAppServer(env = process.env) {
       let body;
       try { body=await readJson(req); } catch(error) { return sendJson(res,error.status??400,{error:"INVALID_BODY",message:error.message}); }
       if (typeof body.providerId!=="string" || typeof body.modelId!=="string") return sendJson(res,400,{error:"INVALID_AI_CONFIG",message:"اكتب معرّف المزود ومعرّف النموذج."});
-      const nextProvider=buildConfiguredAI(body.providerId.trim(),body.modelId.trim());
-      if (!nextProvider) return sendJson(res,409,{error:"AI_ENV_OR_MODEL_INVALID",message:"تحقق من AI_PROVIDER_ID وAI_BASE_URL وAI_API_KEY في Environment، ومن صيغة النموذج أو قائمة AI_ALLOWED_MODELS إن كانت مضبوطة."});
+      const requestedProvider=body.providerId.trim(), requestedModel=body.modelId.trim();
+      const allowedModels=(env.AI_ALLOWED_MODELS||"").split(",").map(value=>value.trim()).filter(Boolean);
+      if (requestedProvider!==(env.AI_PROVIDER_ID||"openai-compatible") ||
+          !/^[A-Za-z0-9][A-Za-z0-9._:/-]{0,199}$/.test(requestedModel) ||
+          (allowedModels.length>0 && !allowedModels.includes(requestedModel))) {
+        return sendJson(res,400,{error:"AI_CONFIG_NOT_ALLOWED",message:"معرّف المزود أو النموذج لا يطابق إعدادات Environment على الخادم."});
+      }
+      const nextProvider=buildConfiguredAI(requestedProvider,requestedModel);
+      if (!nextProvider) return sendJson(res,409,{error:"AI_ENV_OR_MODEL_INVALID",message:"تحقق من AI_PROVIDER_ID وAI_BASE_URL وAI_API_KEY في Environment."});
       let persisted=false;
       if (supabase) {
         try {
