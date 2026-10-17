@@ -1,5 +1,5 @@
 import { createServer } from "node:http";
-import { randomUUID } from "node:crypto";
+import { randomUUID, timingSafeEqual } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { extname, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -27,6 +27,15 @@ async function readJson(req,maxBytes=16384) {
   if (!chunks.length) return {};
   try { const value=JSON.parse(Buffer.concat(chunks).toString("utf8")); if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error(); return value; }
   catch { throw Object.assign(new Error("Invalid JSON body"),{status:400}); }
+}
+function basicAuthMatches(header, username, password) {
+  if (!username || !password || typeof header !== "string" || !header.startsWith("Basic ")) return false;
+  let supplied;
+  try { supplied=Buffer.from(header.slice(6).trim(),"base64").toString("utf8"); } catch { return false; }
+  const expected=username+":"+password;
+  const a=Buffer.from(supplied);
+  const b=Buffer.from(expected);
+  return a.length===b.length && timingSafeEqual(a,b);
 }
 function configuredSupabase(env) {
   if (!env.SUPABASE_URL || !env.SUPABASE_SERVICE_ROLE_KEY) return null;
@@ -613,7 +622,15 @@ export function createAppServer(env = process.env) {
   }
   const outboxTimer = supabase && telegram.configured ? setInterval(()=>{ void drainOutbox(); },15000) : null;
   outboxTimer?.unref?.();
+  const dashboardUsername=typeof env.DASHBOARD_USERNAME==="string"?env.DASHBOARD_USERNAME:"";
+  const dashboardPassword=typeof env.DASHBOARD_PASSWORD==="string"?env.DASHBOARD_PASSWORD:"";
+  const dashboardAuthEnabled=Boolean(dashboardUsername && dashboardPassword);
   const server = createServer(async (req,res) => {
+    if (dashboardAuthEnabled && !basicAuthMatches(req.headers.authorization,dashboardUsername,dashboardPassword)) {
+      res.writeHead(401,{"content-type":"text/plain; charset=utf-8","www-authenticate":'Basic realm="XAUUSD Dashboard", charset="UTF-8"',"cache-control":"no-store"});
+      res.end("Dashboard authentication required.");
+      return;
+    }
     const url = new URL(req.url ?? "/", "http://localhost");
     const method = req.method ?? "GET";
     if (method === "GET" && url.pathname === "/api/health") {
@@ -908,8 +925,9 @@ export function createAppServer(env = process.env) {
 }
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const host = process.env.HOST ?? "127.0.0.1";
-  if (!["127.0.0.1","localhost","::1"].includes(host)) {
-    process.stderr.write("Remote dashboard binding is disabled. Keep the dashboard on loopback.\n");
+  const hasDashboardAuth=Boolean(process.env.DASHBOARD_USERNAME?.trim() && process.env.DASHBOARD_PASSWORD?.trim());
+  if (!["127.0.0.1","localhost","::1"].includes(host) && !hasDashboardAuth) {
+    process.stderr.write("Remote dashboard binding requires DASHBOARD_USERNAME and DASHBOARD_PASSWORD.\n");
     process.exitCode = 1;
   } else {
     const port = Number(process.env.PORT ?? 3000);
