@@ -43,7 +43,12 @@ def stable_order_comment(idempotency_key: str) -> str:
 def validate_order_payload(payload: Any, symbol: str = DEFAULT_SYMBOL) -> tuple[bool, str]:
     if not isinstance(payload, dict):
         return False, "INVALID_BODY"
-    if payload.get("environment") != "DEMO":
+    if payload.get("environment") not in ("DEMO", "LIVE"):
+        return False, "INVALID_ENVIRONMENT"
+    if payload.get("environment") == "LIVE" and not (
+        os.getenv("MT5_LIVE_TRADING_ENABLED", "").strip().lower() == "true"
+        and os.getenv("MT5_LIVE_CONFIRMATION", "") == "I_UNDERSTAND_LIVE_TRADING_RISK"
+    ):
         return False, "LIVE_DISABLED"
     if payload.get("symbol") != "XAUUSD":
         return False, "INVALID_SYMBOL"
@@ -124,6 +129,14 @@ class BridgeService:
         self.store = store
         self.symbol = symbol
         self._mt5_lock = threading.RLock()
+        requested_environment = os.getenv("MT5_EXECUTION_ENVIRONMENT", "DEMO").strip().upper()
+        self.execution_environment = requested_environment if requested_environment in ("DEMO", "LIVE") else "DEMO"
+        self.live_enabled = (
+            os.getenv("MT5_LIVE_TRADING_ENABLED", "").strip().lower() == "true"
+            and os.getenv("MT5_LIVE_CONFIRMATION", "") == "I_UNDERSTAND_LIVE_TRADING_RISK"
+        )
+        if self.execution_environment == "LIVE" and not self.live_enabled:
+            self.execution_environment = "DEMO"
 
     def _connect_mt5(self) -> tuple[bool, str]:
         if mt5 is None:
@@ -144,24 +157,27 @@ class BridgeService:
         with self._mt5_lock:
             connected, reason = self._connect_mt5()
             if not connected:
-                return {"state": "NOT_CONFIGURED" if reason == "MT5_PACKAGE_MISSING" else "DISCONNECTED", "reason": reason, "environment": "DEMO", "liveTradingEnabled": False}
+                return {"state": "NOT_CONFIGURED" if reason == "MT5_PACKAGE_MISSING" else "DISCONNECTED", "reason": reason, "environment": self.execution_environment, "liveTradingEnabled": self.live_enabled}
             account = mt5.account_info()
             if account is None:
-                return {"state": "DISCONNECTED", "reason": "ACCOUNT_INFO_UNAVAILABLE", "environment": "DEMO", "liveTradingEnabled": False}
+                return {"state": "DISCONNECTED", "reason": "ACCOUNT_INFO_UNAVAILABLE", "environment": self.execution_environment, "liveTradingEnabled": self.live_enabled}
             demo_mode = getattr(mt5, "ACCOUNT_TRADE_MODE_DEMO", 0)
-            is_demo = getattr(account, "trade_mode", None) == demo_mode
+            real_mode = getattr(mt5, "ACCOUNT_TRADE_MODE_REAL", 2)
+            actual_environment = "DEMO" if getattr(account, "trade_mode", None) == demo_mode else "LIVE" if getattr(account, "trade_mode", None) == real_mode else "BLOCKED"
+            mode_matches = actual_environment == self.execution_environment
+            live_allowed = actual_environment != "LIVE" or self.live_enabled
             hedging_mode = getattr(mt5, "ACCOUNT_MARGIN_MODE_RETAIL_HEDGING", 2)
             is_hedging = getattr(account, "margin_mode", None) == hedging_mode
-            execution_ready = is_demo and is_hedging
-            reason = "DEMO_ACCOUNT_CONFIRMED" if execution_ready else "HEDGING_ACCOUNT_REQUIRED" if is_demo else "NON_DEMO_ACCOUNT_BLOCKED"
+            execution_ready = mode_matches and live_allowed and is_hedging
+            reason = ("DEMO_ACCOUNT_CONFIRMED" if actual_environment == "DEMO" else "LIVE_ACCOUNT_CONFIRMED") if execution_ready else "LIVE_DISABLED" if actual_environment == "LIVE" and not live_allowed else "EXECUTION_ENVIRONMENT_MISMATCH" if not mode_matches else "HEDGING_ACCOUNT_REQUIRED"
             return {
-                "state": "CONNECTED" if is_demo else "BLOCKED",
+                "state": "CONNECTED" if execution_ready else "BLOCKED",
                 "reason": reason,
-                "environment": "DEMO" if is_demo else "BLOCKED",
-                "accountMode": "DEMO" if is_demo else "BLOCKED",
-                "accountLogin": str(getattr(account, "login", "")) if is_demo else None,
+                "environment": actual_environment,
+                "accountMode": actual_environment,
+                "accountLogin": str(getattr(account, "login", "")) if execution_ready else None,
                 "executionReady": execution_ready,
-                "liveTradingEnabled": False,
+                "liveTradingEnabled": self.live_enabled,
             }
 
     def quote(self) -> tuple[int, dict[str, Any]]:
@@ -234,18 +250,24 @@ class BridgeService:
                 })
             return 200, {"symbol": "XAUUSD", "timeframe": timeframe, "candles": result}
 
-    def _account_is_demo(self) -> tuple[bool, str]:
+    def _account_matches_environment(self, expected_environment: str | None = None) -> tuple[bool, str]:
         connected, reason = self._connect_mt5()
         if not connected:
             return False, reason
         account = mt5.account_info()
         if account is None:
             return False, "ACCOUNT_INFO_UNAVAILABLE"
-        if getattr(account, "trade_mode", None) != getattr(mt5, "ACCOUNT_TRADE_MODE_DEMO", 0):
-            return False, "NON_DEMO_ACCOUNT_BLOCKED"
+        demo_mode = getattr(mt5, "ACCOUNT_TRADE_MODE_DEMO", 0)
+        real_mode = getattr(mt5, "ACCOUNT_TRADE_MODE_REAL", 2)
+        actual = "DEMO" if getattr(account, "trade_mode", None) == demo_mode else "LIVE" if getattr(account, "trade_mode", None) == real_mode else "BLOCKED"
+        expected = expected_environment or self.execution_environment
+        if actual != expected:
+            return False, "EXECUTION_ENVIRONMENT_MISMATCH"
+        if actual == "LIVE" and not self.live_enabled:
+            return False, "LIVE_DISABLED"
         if getattr(account, "margin_mode", None) != getattr(mt5, "ACCOUNT_MARGIN_MODE_RETAIL_HEDGING", 2):
             return False, "HEDGING_ACCOUNT_REQUIRED"
-        return True, "DEMO_ACCOUNT_CONFIRMED"
+        return True, actual + "_ACCOUNT_CONFIRMED"
 
     def submit_order(self, payload: Any) -> tuple[int, dict[str, Any]]:
         valid, reason = validate_order_payload(payload, self.symbol)
@@ -254,7 +276,7 @@ class BridgeService:
         key = payload["idempotencyKey"]
         comment = stable_order_comment(key)
         with self._mt5_lock:
-            allowed, account_reason = self._account_is_demo()
+            allowed, account_reason = self._account_matches_environment()
             if not allowed:
                 return 403 if account_reason == "NON_DEMO_ACCOUNT_BLOCKED" else 503, {"state": "REJECTED", "error": account_reason}
             if payload.get("symbol") != "XAUUSD" or not mt5.symbol_select(self.symbol, True):
@@ -341,7 +363,7 @@ class BridgeService:
                     "ownedByBot": owned_by_bot, "comment": str(position.comment) if owned_by_bot else ""
                 })
             account = mt5.account_info()
-            return 200, {"positions": visible_positions, "environment": "DEMO", "accountLogin": str(getattr(account, "login", "")) if account is not None else None}
+            return 200, {"positions": visible_positions, "environment": self.execution_environment, "accountLogin": str(getattr(account, "login", "")) if account is not None else None}
 
     def modify_position(self, payload: Any) -> tuple[int, dict[str, Any]]:
         if not isinstance(payload, dict) or isinstance(payload.get("ticket"), bool) or not isinstance(payload.get("ticket"), int):
@@ -548,7 +570,7 @@ def main() -> None:
     db_path = os.getenv("MT5_BRIDGE_DB", str(ROOT / "state.sqlite3"))
     service = BridgeService(token, IdempotencyStore(db_path))
     server = ThreadingHTTPServer((host, port), create_handler(service))
-    print(f"MT5 bridge listening on {host}:{port}; live trading is disabled.")
+    print(f"MT5 bridge listening on {host}:{port}; execution environment={service.execution_environment}; live enabled={service.live_enabled}.")
     try:
         server.serve_forever(poll_interval=0.5)
     except KeyboardInterrupt:
