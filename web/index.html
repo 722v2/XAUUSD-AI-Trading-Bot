@@ -118,10 +118,10 @@
       </section>
 
       <section id="mt5" class="section panel">
-        <div class="section-heading"><div><h2>اتصال MT5</h2><p>إرسال الأوامر محصور بحساب Demo من نوع Hedging؛ التداول الحقيقي معطّل.</p></div><span id="execution-status" class="status-tag muted-tag">معطّل</span></div>
-        <div class="connection-row"><div class="connection-symbol">MT5</div><div class="connection-copy"><b id="mt5-title">جسر MT5 غير متصل</b><p id="mt5-detail">لم يتم تأكيد حساب تجريبي أو مواصفات الرمز XAUUSD.</p></div><span class="status-tag muted-tag">Demo فقط</span></div>
+        <div class="section-heading"><div><h2>اتصال MT5</h2><p>إرسال الأوامر يتطلب حساب Hedging مطابقًا للبيئة المختارة. Live يبقى محجوبًا ما لم يُفعّل صراحةً على الخادم والجسر.</p></div><span id="execution-status" class="status-tag muted-tag">معطّل</span></div>
+        <div class="connection-row"><div class="connection-symbol">MT5</div><div class="connection-copy"><b id="mt5-title">جسر MT5 غير متصل</b><p id="mt5-detail">لم يتم تأكيد حساب تجريبي أو مواصفات الرمز XAUUSD.</p></div><span id="mt5-environment-badge" class="status-tag muted-tag">Demo</span></div>
         <div class="safety-strip"><span>⛨</span><p><b>حماية التنفيذ مفعّلة</b><br>التداول الحقيقي غير متاح. أي نتيجة تنفيذ غامضة يجب أن تدخل المصالحة بدل إعادة الإرسال التلقائي.</p></div>
-        <div class="auto-trading-row"><div><b>التنفيذ الآلي على Demo</b><p>لا يتفعّل إلا بعد اتصال MT5 وAI وSupabase وحفظ إعدادات المخاطرة. يبقى متوقفًا بعد إعادة تشغيل الخادم.</p></div><button id="auto-trading-toggle" class="secondary-button" type="button">تفعيل التنفيذ الآلي (Demo)</button></div>
+        <div class="auto-trading-row"><div><b id="auto-trading-title">التنفيذ الآلي</b><p>لا يتفعّل إلا بعد اتصال MT5 وAI وSupabase وحفظ إعدادات المخاطرة. يتطلب Live تفعيلًا منفصلًا وتأكيدًا صريحًا، ويبقى التنفيذ متوقفًا بعد إعادة تشغيل الخادم.</p></div><button id="auto-trading-toggle" class="secondary-button" type="button">تفعيل التنفيذ الآلي (Demo)</button></div>
       </section>
 
       <section id="trades" class="section panel">
@@ -140,9 +140,9 @@
       <section id="settings" class="section panel">
         <div class="section-heading"><div><h2>الإعدادات</h2><p>الإعدادات الأساسية للمشروع</p></div></div>
         <div class="settings-grid">
-          <div><span>رمز التداول</span><b>XAUUSD</b></div><div><span>الإطار الأساسي</span><b>M1</b></div><div><span>فاصل السكانر</span><b>60 ثانية</b></div><div><span>اللغة</span><b>العربية · RTL</b></div><div><span>بيئة التنفيذ</span><select id="execution-environment" aria-label="بيئة التنفيذ"><option value="DEMO" selected>Demo</option><option value="LIVE" disabled>Live · يتطلب موافقة صريحة</option></select></div><div><span>التداول الحقيقي</span><b class="danger-text">معطّل</b></div>
+          <div><span>رمز التداول</span><b>XAUUSD</b></div><div><span>الإطار الأساسي</span><b>M1</b></div><div><span>فاصل السكانر</span><b>60 ثانية</b></div><div><span>اللغة</span><b>العربية · RTL</b></div><div><span>بيئة التنفيذ</span><select id="execution-environment" aria-label="بيئة التنفيذ"><option value="DEMO" selected>Demo</option><option value="LIVE">Live · يتطلب تأكيدًا صريحًا</option></select></div><div><span>التداول الحقيقي</span><b id="live-trading-status" class="danger-text">محجوب افتراضيًا</b></div>
         </div>
-        <p class="footnote">مفاتيح API وبيانات الاعتماد يجب ضبطها كمتغيرات بيئة على الخادم، لا في HTML أو إعدادات المتصفح.</p>
+        <p class="footnote">مفاتيح API وبيانات الاعتماد تُضبط كمتغيرات بيئة على الخادم أو الجسر، لا في HTML أو المتصفح. تغيير الوضع لا يفعّل التنفيذ الآلي وحده.</p>
       </section>
       <footer> XAUUSD AI Trading Bot <span>·</span> نظام قيد التطوير · لا يوجد ضمان للربحية</footer>
     </main>
