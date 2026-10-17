@@ -5,8 +5,8 @@ export type MT5BridgeErrorCode = "NOT_CONFIGURED" | "UNAUTHORIZED" | "UNAVAILABL
 export interface MT5BridgeHealth {
   readonly state: "CONNECTED" | "DISCONNECTED" | "NOT_CONFIGURED" | "BLOCKED";
   readonly reason: string;
-  readonly environment: "DEMO" | "BLOCKED";
-  readonly liveTradingEnabled: false;
+  readonly environment: "DEMO" | "LIVE" | "BLOCKED";
+  readonly liveTradingEnabled: boolean;
   readonly accountLogin?: string;
   readonly executionReady?: boolean;
 }
@@ -64,22 +64,20 @@ export class MT5BridgeClient {
   candles(timeframe: Timeframe, count = 100): Promise<BridgeResult<{ readonly symbol: "XAUUSD"; readonly timeframe: Timeframe; readonly candles: readonly RawCandle[] }>> {
     return this.#request(`/market/candles?timeframe=${encodeURIComponent(timeframe)}&count=${count}`, {}, 10_000);
   }
-  submitDemoOrder(input: {
-    readonly intent: ExecutionIntent;
-  }): Promise<BridgeResult<{ readonly state: "CONFIRMED" | "REJECTED" | "RECONCILIATION_REQUIRED"; readonly brokerOrderId?: string; readonly error?: string }>> {
-    if (input.intent.environment !== "DEMO") {
-      return Promise.resolve({ ok: false, status: 403, errorCode: "BROKER_REJECTED", message: "LIVE_DISABLED" });
+  submitOrder(input: { readonly intent: ExecutionIntent }): Promise<BridgeResult<{ readonly state: "CONFIRMED" | "REJECTED" | "RECONCILIATION_REQUIRED"; readonly brokerOrderId?: string; readonly error?: string }>> {
+    if (input.intent.environment !== "DEMO" && input.intent.environment !== "LIVE") {
+      return Promise.resolve({ ok: false, status: 403, errorCode: "BROKER_REJECTED", message: "INVALID_EXECUTION_ENVIRONMENT" });
     }
     return this.#request("/orders", {
       method: "POST",
       body: JSON.stringify({
-        idempotencyKey: input.intent.idempotencyKey, environment: "DEMO", symbol: "XAUUSD",
+        idempotencyKey: input.intent.idempotencyKey, environment: input.intent.environment, symbol: "XAUUSD",
         direction: input.intent.direction, volume: input.intent.volume,
         stopLoss: input.intent.stopLoss, takeProfit: input.intent.takeProfit
       })
     });
   }
-  positions(): Promise<BridgeResult<{ readonly environment: "DEMO"; readonly accountLogin?: string; readonly positions: readonly { readonly ticket: number; readonly symbol: "XAUUSD"; readonly direction: "BUY" | "SELL"; readonly volume: number; readonly entryPrice: number; readonly stopLoss: number; readonly takeProfit: number; readonly profit: number; readonly openedAt: string; readonly ownedByBot: boolean; readonly comment: string }[] }>> {
+  positions(): Promise<BridgeResult<{ readonly environment: "DEMO" | "LIVE"; readonly accountLogin?: string; readonly positions: readonly { readonly ticket: number; readonly symbol: "XAUUSD"; readonly direction: "BUY" | "SELL"; readonly volume: number; readonly entryPrice: number; readonly stopLoss: number; readonly takeProfit: number; readonly profit: number; readonly openedAt: string; readonly ownedByBot: boolean; readonly comment: string }[] }>> {
     return this.#request("/positions");
   }
   modifyPosition(input: { readonly ticket: number; readonly stopLoss?: number; readonly takeProfit?: number }): Promise<BridgeResult<{ readonly state: "CONFIRMED" | "REJECTED" | "RECONCILIATION_REQUIRED"; readonly ticket?: number }>> {
