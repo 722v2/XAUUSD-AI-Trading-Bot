@@ -55,6 +55,9 @@ export class MT5BridgeClient {
     return { ok: true, value: body as T };
   }
   health(): Promise<BridgeResult<MT5BridgeHealth>> { return this.#request("/health"); }
+  setEnvironment(environment: "DEMO" | "LIVE", confirmation?: string): Promise<BridgeResult<{ readonly ok: true; readonly environment: "DEMO" | "LIVE"; readonly liveTradingEnabled: boolean }>> {
+    return this.#request("/environment", { method: "POST", body: JSON.stringify({ environment, ...(confirmation ? { confirmation } : {}) }) });
+  }
   quote(): Promise<BridgeResult<{ readonly symbol: "XAUUSD"; readonly bid: number; readonly ask: number; readonly tickTime: string; readonly receivedAt: string }>> {
     return this.#request("/market/quote");
   }
