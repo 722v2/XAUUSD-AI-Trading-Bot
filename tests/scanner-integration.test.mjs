@@ -46,6 +46,8 @@ test('manual scanner uses authenticated MT5 candles and structured AI without au
   const app=createAppServer({MT5_BRIDGE_URL:bridgeUrl,MT5_BRIDGE_TOKEN:'bridge-test-token',AI_API_KEY:'test-key',AI_BASE_URL:aiUrl+'/v1',AI_PROVIDER_ID:'fixture',AI_MODEL_ID:'fixture-model'});
   const appUrl=await listen(app);
   t.after(async()=>{await close(app);await close(bridge);await close(ai);});
+  const aiConfig=await fetch(appUrl+'/api/ai/config',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({providerId:'fixture',modelId:'fixture-model'})});
+  assert.equal(aiConfig.status,200,'test explicitly selects the AI provider and model');
   const response=await fetch(appUrl+'/api/scan',{method:'POST'});
   const data=await response.json();
   assert.equal(response.status,200);
