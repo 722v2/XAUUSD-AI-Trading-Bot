@@ -224,12 +224,12 @@ export function createAppServer(env = process.env) {
       if (validRiskSettings(current.riskSettings)) riskSettings = Object.freeze({...current.riskSettings});
       const storedProvider=typeof current.aiProviderId==="string"?current.aiProviderId:null;
       const storedModel=typeof current.aiModelId==="string"?current.aiModelId:null;
-      const provider=aiCatalog.find(item=>item.id===storedProvider);
-      if (provider && storedModel && provider.models.some(model=>model.id===storedModel)) {
+      const restored=storedProvider && storedModel ? buildConfiguredAI(storedProvider,storedModel) : null;
+      if (restored) {
         config.aiProviderId=storedProvider;
         config.aiModelId=storedModel;
-        aiProvider=configuredAI(env,aiCatalog,storedProvider,storedModel);
-        aiConfigured=Boolean(aiProvider);
+        aiProvider=restored;
+        aiConfigured=true;
         aiProbePassed=false;
       }
       settingsHydrated=true;
