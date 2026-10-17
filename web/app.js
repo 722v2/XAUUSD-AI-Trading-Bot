@@ -1,7 +1,7 @@
 const $ = (id) => document.getElementById(id);
 const scanLog = [];
 const labels = {
-  CONNECTED: ["متصل", "ok-tag"], CONFIGURED: ["مهيأ", "ok-tag"], CONFIGURED_NOT_TESTED: ["مهيأ · غير مختبر", "warn-tag"],
+  CONNECTED: ["متصل", "ok-tag"], ARMED_LIVE: ["مفعّل · Live", "error-tag"], CONFIGURED: ["مهيأ", "ok-tag"], CONFIGURED_NOT_TESTED: ["مهيأ · غير مختبر", "warn-tag"],
   DISCONNECTED: ["غير متصل", "error-tag"], NOT_CONFIGURED: ["غير مهيأ", "muted-tag"], NOT_READY: ["غير جاهز", "warn-tag"],
   DEGRADED: ["متدهور", "warn-tag"], HEALTHY: ["سليم", "ok-tag"], DISABLED: ["معطّل", "muted-tag"], ARMED_DEMO: ["مفعّل · Demo", "warn-tag"]
 };
@@ -38,11 +38,16 @@ async function refreshHealth() {
     nextScanAtMs=health.scanner.nextScanAt?Date.parse(health.scanner.nextScanAt):null;
     updateCountdown();
     $("scanner-toggle").textContent = health.scanner.state === "CONNECTED" ? "إيقاف السكانر" : "تشغيل السكانر";
-    $("auto-trading-toggle").textContent = health.execution.state === "ARMED_DEMO" ? "إيقاف التنفيذ الآلي (Demo)" : "تفعيل التنفيذ الآلي (Demo)";
+    $("auto-trading-toggle").textContent = health.execution.state === "ARMED_DEMO" || health.execution.state === "ARMED_LIVE" ? "إيقاف التنفيذ الآلي ("+ (health.execution.environment||"DEMO") +")" : "تفعيل التنفيذ الآلي ("+(health.execution.environment||"DEMO")+")";
     $("scanner-title").textContent = health.scanner.label;
     $("scanner-detail").textContent = health.scanner.reason;
     $("mt5-title").textContent = health.marketData.label;
     $("mt5-detail").textContent = health.marketData.reason;
+    const envMode=health.execution.environment||"DEMO";
+    if ($("execution-environment")) $("execution-environment").value=envMode;
+    if ($("mt5-environment-badge")) { $("mt5-environment-badge").textContent=envMode; $("mt5-environment-badge").className="status-tag "+(envMode==="LIVE"?"error-tag":"muted-tag"); }
+    if ($("auto-trading-title")) $("auto-trading-title").textContent="التنفيذ الآلي على "+envMode;
+    if ($("live-trading-status")) { $("live-trading-status").textContent=health.execution.liveTradingEnabled?"مسموح بالخادم والجسر، مع بقاء التأكيد مطلوبًا":"محجوب افتراضيًا"; $("live-trading-status").className=health.execution.liveTradingEnabled?"warn-tag":"danger-text"; }
     $("last-updated").textContent = "آخر تحديث " + timeNow();
     $("persistence-label").textContent = health.database.state === "CONNECTED" ? "التخزين الدائم متصل" : "تخزين مؤقت داخل الخادم";
     $("persistence-label").className = "status-tag " + (health.database.state === "CONNECTED" ? "ok-tag" : "warn-tag");
@@ -103,7 +108,7 @@ async function loadConfig() {
     }
     updateRiskMode();
     $("scanner-toggle").textContent = config.scannerEnabled ? "إيقاف السكانر" : "تشغيل السكانر";
-    $("auto-trading-toggle").textContent = config.autoTradingEnabled ? "إيقاف التنفيذ الآلي (Demo)" : "تفعيل التنفيذ الآلي (Demo)";
+    $("auto-trading-toggle").textContent = config.autoTradingEnabled ? "إيقاف التنفيذ الآلي ("+(config.environment||"DEMO")+")" : "تفعيل التنفيذ الآلي ("+(config.environment||"DEMO")+")";
     await loadAIProviders();
   } catch {}
 }
@@ -142,6 +147,31 @@ async function loadScanLog() {
     $("scan-log").innerHTML = scanLog.length ? scanLog.map(item => `<tr><td>${escapeHtml(item.time)}</td><td>${escapeHtml(item.stage)}</td><td>${escapeHtml(item.status)}</td><td>${escapeHtml(item.details)}</td></tr>`).join("") : '<tr><td colspan="4" class="empty">لا توجد دورات فحص مسجلة.</td></tr>';
   } catch {}
 }
+$("execution-environment").addEventListener("change",async () => {
+  const select=$("execution-environment");
+  const requested=select.value;
+  if(requested==="LIVE") {
+    const confirmation=window.prompt("للمتابعة اكتب حرفيًا: I_UNDERSTAND_LIVE_TRADING_RISK");
+    if(confirmation!=="I_UNDERSTAND_LIVE_TRADING_RISK") { select.value="DEMO"; return; }
+    if(!window.confirm("هذا يختار حسابًا حقيقيًا وقد يؤدي إلى خسارة أموال حقيقية. هل تؤكد تغيير البيئة إلى LIVE؟")) { select.value="DEMO"; return; }
+    try {
+      const result=await api("/api/trading/environment",{method:"POST",body:JSON.stringify({environment:"LIVE",confirmation})});
+      $("system-notice").querySelector("p").textContent="تم اختيار LIVE. التنفيذ الآلي ما زال متوقفًا حتى تفعيله منفصلًا.";
+      await refreshHealth();
+    } catch(error) {
+      select.value="DEMO";
+      $("system-notice").querySelector("p").textContent=error.data?.message||error.message;
+    }
+  } else {
+    try {
+      await api("/api/trading/environment",{method:"POST",body:JSON.stringify({environment:"DEMO"})});
+      await refreshHealth();
+    } catch(error) {
+      select.value="LIVE";
+      $("system-notice").querySelector("p").textContent=error.data?.message||error.message;
+    }
+  }
+});
 $("auto-trading-toggle").addEventListener("click",async () => {
   const enabled = $("auto-trading-toggle").textContent.includes("تفعيل");
   $("auto-trading-toggle").disabled = true;
