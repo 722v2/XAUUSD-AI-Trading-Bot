@@ -17,14 +17,14 @@
       </a>
       <div class="side-label">مساحة العمل</div>
       <nav class="nav">
-        <a class="nav-link active" href="#overview"><span>◫</span> نظرة عامة</a>
-        <a class="nav-link" href="#scanner"><span>⌁</span> السكانر والتحليل</a>
-        <a class="nav-link" href="#backtest"><span>▥</span> الاختبار التاريخي</a>
-        <a class="nav-link" href="#risk"><span>◈</span> المخاطر ورأس المال</a>
-        <a class="nav-link" href="#mt5"><span>⇄</span> اتصال MT5</a>
-        <a class="nav-link" href="#trades"><span>▤</span> الصفقات والسجل</a>
-        <a class="nav-link" href="#telegram"><span>➤</span> Telegram</a>
-        <a class="nav-link" href="#settings"><span>⚙</span> الإعدادات</a>
+        <a class="nav-link active" href="#overview" data-page="overview"><span>◫</span> نظرة عامة</a>
+        <a class="nav-link" href="#scanner" data-page="scanner"><span>⌁</span> السكانر والتحليل</a>
+        <a class="nav-link" href="#backtest" data-page="backtest"><span>▥</span> الاختبار التاريخي</a>
+        <a class="nav-link" href="#risk" data-page="risk"><span>◈</span> المخاطر ورأس المال</a>
+        <a class="nav-link" href="#mt5" data-page="mt5"><span>⇄</span> اتصال MT5</a>
+        <a class="nav-link" href="#trades" data-page="trades"><span>▤</span> الصفقات والسجل</a>
+        <a class="nav-link" href="#telegram" data-page="telegram"><span>➤</span> Telegram</a>
+        <a class="nav-link" href="#settings" data-page="settings"><span>⚙</span> الإعدادات</a>
       </nav>
       <div class="sidebar-bottom">
         <div class="environment"><span class="dot amber"></span><div><b>وضع تجريبي</b><small>التداول الحقيقي معطّل</small></div></div>
@@ -34,7 +34,7 @@
 
     <main class="main">
       <header class="topbar">
-        <div><p class="eyebrow">لوحة التحكم / الذهب</p><h1>نظرة عامة</h1></div>
+        <div><p class="eyebrow">لوحة التحكم / الذهب</p><h1 id="page-title">نظرة عامة</h1></div>
         <div class="top-actions"><span class="live-pill"><i></i> مراقبة النظام</span><button id="refresh" class="icon-button" title="تحديث الحالة" aria-label="تحديث الحالة">↻</button></div>
       </header>
 
@@ -53,11 +53,11 @@
       </section>
 
       <section id="ai-config" class="section panel">
-        <div class="section-heading"><div><h2>مزود الذكاء الاصطناعي والنموذج</h2><p>اختيار من قائمة الخادم المسموحة؛ لا يتم إرسال المفاتيح السرية للمتصفح</p></div><span id="ai-config-status" class="status-tag muted-tag">غير مضبوط</span></div>
+        <div class="section-heading"><div><h2>مزود الذكاء الاصطناعي والنموذج</h2><p>اختر المزود والنموذج من القوائم. المفتاح السري يبقى على الخادم ولا يُكتب في هذه الصفحة.</p></div><span id="ai-config-status" class="status-tag muted-tag">غير مضبوط</span></div>
         <form id="ai-config-form" class="risk-form ai-config-form">
           <label>مزود AI<select id="ai-provider" required><option value="">جارٍ تحميل المزودين…</option></select></label>
           <label>النموذج<select id="ai-model" required><option value="">اختر مزودًا أولًا</option></select></label>
-          <div class="form-actions"><button class="primary-button" type="submit">حفظ اختيار AI</button><span id="ai-config-feedback" role="status" class="muted">المفاتيح السرية تُضبط على الخادم فقط.</span></div>
+          <div class="form-actions"><button class="primary-button" type="submit">حفظ اختيار AI</button><span id="ai-config-feedback" role="status" class="muted">اختر المزود والنموذج. لتشغيله، أضف مفتاح API في Environment على Render.</span></div>
         </form>
       </section>
 

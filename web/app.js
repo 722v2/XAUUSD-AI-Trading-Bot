@@ -95,7 +95,7 @@ async function loadAIProviders() {
     const data=await api("/api/ai/providers");
     aiProviders=data.providers||[];
     const select=$("ai-provider");
-    select.innerHTML=aiProviders.map(provider=>`<option value="${escapeHtml(provider.id)}" ${provider.configured?"":"disabled"}>${escapeHtml(provider.label)}${provider.configured?"":" — المفتاح غير مضبوط على الخادم"}</option>`).join("");
+    select.innerHTML=aiProviders.map(provider=>`<option value="${escapeHtml(provider.id)}" >${escapeHtml(provider.label)}${provider.configured?"":" — يحتاج مفتاح API على Render"}</option>`).join("");
     select.disabled=!aiProviders.length;
     const selected=aiProviders.find(provider=>provider.id===data.selectedProviderId&&provider.configured)||aiProviders.find(provider=>provider.configured)||aiProviders[0];
     if(selected) select.value=selected.id;
@@ -105,7 +105,12 @@ async function loadAIProviders() {
     $("ai-config-status").textContent=data.persisted?"الإعدادات الدائمة متاحة":"حفظ مؤقت";
     $("ai-config-status").className="status-tag "+(data.persisted?"ok-tag":"warn-tag");
     $("ai-config-feedback").textContent=aiProviders.length?"المفاتيح تبقى في بيئة الخادم؛ القائمة لا تسمح بعنوان مزود عشوائي.":"أضف AI_BASE_URL وAI_MODEL_ID أو AI_PROVIDER_CATALOG_JSON إلى بيئة الخادم.";
-    $("ai-config-form").querySelector('button[type="submit"]').disabled=!aiProviders.some(provider=>provider.configured);
+    $("ai-config-form").querySelector('button[type="submit"]').disabled=false;
+    if (!aiProviders.some(provider=>provider.configured)) {
+      $("ai-config-feedback").textContent="القائمة جاهزة للاختيار، لكن يلزم إضافة OPENROUTER_API_KEY في Render → Environment لتفعيل OpenRouter.";
+      $("ai-config-status").textContent="ينقص مفتاح API";
+      $("ai-config-status").className="status-tag warn-tag";
+    }
   } catch(error) {
     $("ai-config-feedback").textContent=error.message||"تعذر تحميل قائمة مزودي AI.";
     $("ai-config-form").querySelector('button[type="submit"]').disabled=true;
@@ -402,3 +407,54 @@ refreshHealth(); loadConfig(); loadTelegramChats(); loadScanLog(); loadPositions
 setInterval(()=>{void refreshHealth();},10000);
 setInterval(updateCountdown,1000);
 setInterval(()=>{void loadLatestScan();void loadScanLog();void loadPositions();},15000);
+
+
+// Real page navigation: each sidebar item shows a dedicated workspace view.
+const dashboardPages = {
+  overview: { title: "نظرة عامة", sections: ["overview"], notice: true },
+  scanner: { title: "السكانر والتحليل", sections: ["scanner"] },
+  backtest: { title: "الاختبار التاريخي", sections: ["backtest"] },
+  risk: { title: "المخاطر ورأس المال", sections: ["risk"] },
+  mt5: { title: "اتصال MT5", sections: ["mt5"] },
+  trades: { title: "الصفقات والسجل", sections: ["trades"] },
+  telegram: { title: "Telegram", sections: ["telegram"] },
+  settings: { title: "الإعدادات", sections: ["settings", "ai-config"] }
+};
+function pageFromHash() {
+  const raw = location.hash.replace(/^#/, "");
+  if (raw.startsWith("page=") && dashboardPages[raw.slice(5)]) return raw.slice(5);
+  const legacy = raw.toLowerCase();
+  return Object.keys(dashboardPages).find(key => dashboardPages[key].sections.includes(legacy)) || "overview";
+}
+function showDashboardPage(pageKey, updateUrl = false) {
+  const page = dashboardPages[pageKey] || dashboardPages.overview;
+  document.querySelectorAll(".main > .section").forEach(section => {
+    section.hidden = !page.sections.includes(section.id);
+  });
+  const notice = $("system-notice");
+  if (notice) notice.hidden = !page.notice;
+  document.querySelectorAll(".nav-link[data-page]").forEach(link => {
+    const active = link.dataset.page === pageKey;
+    link.classList.toggle("active", active);
+    if (active) link.setAttribute("aria-current", "page");
+    else link.removeAttribute("aria-current");
+  });
+  const title = $("page-title");
+  if (title) title.textContent = page.title;
+  const eyebrow = document.querySelector(".topbar .eyebrow");
+  if (eyebrow) eyebrow.textContent = "لوحة التحكم / " + page.title;
+  if (updateUrl && location.hash !== "#page=" + pageKey) history.pushState({ page: pageKey }, "", "#page=" + pageKey);
+  window.scrollTo({ top: 0, behavior: "auto" });
+}
+function initDashboardNavigation() {
+  document.querySelectorAll(".nav-link[data-page]").forEach(link => {
+    link.addEventListener("click", event => {
+      event.preventDefault();
+      showDashboardPage(link.dataset.page, true);
+    });
+  });
+  window.addEventListener("hashchange", () => showDashboardPage(pageFromHash(), false));
+  window.addEventListener("popstate", () => showDashboardPage(pageFromHash(), false));
+  showDashboardPage(pageFromHash(), false);
+}
+initDashboardNavigation();
