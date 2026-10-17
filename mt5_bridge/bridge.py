@@ -298,6 +298,10 @@ class BridgeService:
         valid, reason = validate_order_payload(payload, self.symbol)
         if not valid:
             return 400 if reason != "LIVE_DISABLED" else 403, {"state": "REJECTED", "error": reason}
+        if payload.get("environment") != self.execution_environment:
+            return 403, {"state": "REJECTED", "error": "EXECUTION_ENVIRONMENT_MISMATCH"}
+        if payload.get("environment") == "LIVE" and not self.live_enabled:
+            return 403, {"state": "REJECTED", "error": "LIVE_DISABLED"}
         key = payload["idempotencyKey"]
         comment = stable_order_comment(key)
         with self._mt5_lock:
