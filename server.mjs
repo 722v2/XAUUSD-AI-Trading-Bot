@@ -78,16 +78,6 @@ function aiProviderCatalogFromEnv(env) {
     const models=[...new Set(ids)].map(id=>({id,label:id}));
     catalog.push({id:env.AI_PROVIDER_ID||"openai-compatible",label:env.AI_PROVIDER_LABEL||env.AI_PROVIDER_ID||"OpenAI-compatible",baseUrl:env.AI_BASE_URL,apiKeyEnv:"AI_API_KEY",models});
   }
-  if (!catalog.length) {
-    catalog.push({
-      id:"openrouter",label:"OpenRouter",baseUrl:"https://openrouter.ai/api/v1",apiKeyEnv:"OPENROUTER_API_KEY",
-      models:[
-        {id:"openai/gpt-oss-20b:free",label:"GPT-OSS 20B · Free"},
-        {id:"deepseek/deepseek-r1-0528:free",label:"DeepSeek R1 · Free"},
-        {id:"qwen/qwen3-30b-a3b:free",label:"Qwen3 30B A3B · Free"}
-      ]
-    });
-  }
   return catalog;
 }
 function configuredAI(env, catalog, providerId, modelId) {
@@ -110,12 +100,23 @@ export function createAppServer(env = process.env) {
   const supabase = configuredSupabase(env);
   const bridge = configuredBridge(env);
   const aiCatalog = aiProviderCatalogFromEnv(env);
-  const config = {
-    aiProviderId:env.AI_PROVIDER_ID && aiCatalog.some(provider=>provider.id===env.AI_PROVIDER_ID) ? env.AI_PROVIDER_ID : aiCatalog[0]?.id ?? null,
-    aiModelId:env.AI_MODEL_ID && aiCatalog.find(provider=>provider.id===(env.AI_PROVIDER_ID??aiCatalog[0]?.id))?.models.some(model=>model.id===env.AI_MODEL_ID) ? env.AI_MODEL_ID : aiCatalog.find(provider=>provider.id===(env.AI_PROVIDER_ID??aiCatalog[0]?.id))?.models[0]?.id ?? null
-  };
-  let aiProvider = configuredAI(env,aiCatalog,config.aiProviderId,config.aiModelId);
-  let aiConfigured = Boolean(aiProvider);
+  const config = { aiProviderId:null, aiModelId:null };
+  let aiProvider = null;
+  let aiConfigured = false;
+  const modelIdPattern=/^[A-Za-z0-9][A-Za-z0-9._:/-]{0,199}$/;
+  function buildConfiguredAI(providerId, modelId) {
+    if (typeof providerId!=="string" || !/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/.test(providerId) ||
+        typeof modelId!=="string" || !modelIdPattern.test(modelId)) return null;
+    const allowedProviderId=env.AI_PROVIDER_ID || "openai-compatible";
+    if (providerId!==allowedProviderId) return null;
+    const baseUrl=env.AI_BASE_URL;
+    const apiKey=env.AI_API_KEY;
+    if (typeof baseUrl!=="string" || !allowedAIBaseUrl(baseUrl) || typeof apiKey!=="string" || !apiKey.trim()) return null;
+    const allowedModels=(env.AI_ALLOWED_MODELS||"").split(",").map(value=>value.trim()).filter(Boolean);
+    if (allowedModels.length && !allowedModels.includes(modelId)) return null;
+    try { return new OpenAICompatibleAIProvider({providerId,modelId,baseUrl,apiKey,timeoutMs:15000,assessmentTtlMs:60000}); }
+    catch { return null; }
+  }
   const enabledChats = new Set();
   const localNotificationKeys = new Set();
   let riskSettings = null;
@@ -667,16 +668,15 @@ export function createAppServer(env = process.env) {
       await hydrateSettings();
       let persisted=false;
       if (supabase) { try { await supabase.readCurrent(); persisted=true; } catch {} }
-      return sendJson(res,200,{providers:aiCatalog.map(provider=>({id:provider.id,label:provider.label,configured:typeof env[provider.apiKeyEnv]==="string"&&Boolean(env[provider.apiKeyEnv].trim()),models:provider.models})),selectedProviderId:config.aiProviderId,selectedModelId:config.aiModelId,persisted});
+      const configured=Boolean(env.AI_BASE_URL && allowedAIBaseUrl(env.AI_BASE_URL) && typeof env.AI_API_KEY==="string" && env.AI_API_KEY.trim());
+      return sendJson(res,200,{configured,providerId:env.AI_PROVIDER_ID||"openai-compatible",providerLabel:env.AI_PROVIDER_LABEL||env.AI_PROVIDER_ID||"OpenAI-compatible",persisted});
     }
     if (method === "POST" && url.pathname === "/api/ai/config") {
       let body;
       try { body=await readJson(req); } catch(error) { return sendJson(res,error.status??400,{error:"INVALID_BODY",message:error.message}); }
-      if (typeof body.providerId!=="string" || typeof body.modelId!=="string") return sendJson(res,400,{error:"INVALID_AI_CONFIG",message:"اختر مزودًا ونموذجًا من القائمة."});
-      const provider=aiCatalog.find(item=>item.id===body.providerId);
-      if (!provider || !provider.models.some(model=>model.id===body.modelId)) return sendJson(res,400,{error:"AI_CONFIG_NOT_ALLOWLISTED",message:"المزود أو النموذج غير موجود في القائمة المسموحة على الخادم."});
-      const nextProvider=configuredAI(env,aiCatalog,body.providerId,body.modelId);
-      if (!nextProvider) return sendJson(res,409,{error:"PROVIDER_SECRET_MISSING",message:"المفتاح السري لهذا المزود غير مضبوط على الخادم."});
+      if (typeof body.providerId!=="string" || typeof body.modelId!=="string") return sendJson(res,400,{error:"INVALID_AI_CONFIG",message:"اكتب معرّف المزود ومعرّف النموذج."});
+      const nextProvider=buildConfiguredAI(body.providerId.trim(),body.modelId.trim());
+      if (!nextProvider) return sendJson(res,409,{error:"AI_ENV_OR_MODEL_INVALID",message:"تحقق من AI_PROVIDER_ID وAI_BASE_URL وAI_API_KEY في Environment، ومن صيغة النموذج أو قائمة AI_ALLOWED_MODELS إن كانت مضبوطة."});
       let persisted=false;
       if (supabase) {
         try {
@@ -703,12 +703,8 @@ export function createAppServer(env = process.env) {
       if (typeof body.providerId!=="string" || typeof body.modelId!=="string") {
         return sendJson(res,400,{error:"AI_MODEL_REQUIRED",message:"اختر مزود AI والنموذج المراد اختباره."});
       }
-      const provider=aiCatalog.find(item=>item.id===body.providerId);
-      if (!provider || !provider.models.some(model=>model.id===body.modelId)) {
-        return sendJson(res,400,{error:"AI_MODEL_NOT_ALLOWLISTED",message:"النموذج غير موجود في القائمة المسموحة على الخادم."});
-      }
-      const testProvider=configuredAI(env,aiCatalog,body.providerId,body.modelId);
-      if (!testProvider) return sendJson(res,409,{error:"AI_SECRET_MISSING",message:"مفتاح المزود غير مضبوط على الخادم؛ لم يبدأ الاختبار."});
+      const testProvider=buildConfiguredAI(body.providerId.trim(),body.modelId.trim());
+      if (!testProvider) return sendJson(res,409,{error:"AI_ENV_OR_MODEL_INVALID",message:"تحقق من AI_PROVIDER_ID وAI_BASE_URL وAI_API_KEY في Environment، ومن صيغة النموذج أو قائمة AI_ALLOWED_MODELS إن كانت مضبوطة. لم يبدأ الاختبار."});
       const health=bridge ? await bridge.health() : null;
       if (!health?.ok || health.value.state!=="CONNECTED" || health.value.environment!=="DEMO") {
         return sendJson(res,409,{error:"MT5_DEMO_NOT_READY",message:"اتصل بجسر MT5 على حساب Demo قبل الاختبار التاريخي."});
@@ -727,7 +723,7 @@ export function createAppServer(env = process.env) {
       backtestInFlight=true;
       try {
         const result=await runHistoricalBacktest({
-          bridge,aiProvider:testProvider,aiProviderId:provider.id,aiModelId:body.modelId,
+          bridge,aiProvider:testProvider,aiProviderId:body.providerId.trim(),aiModelId:body.modelId.trim(),
           request:{barsCount:body.barsCount,lots:body.lots,spreadPrice,spreadSource,commissionPerLot:body.commissionPerLot,maxAiCalls:body.maxAiCalls},
           normalizeClosedCandles,analyzeClosedMarket,coordinateTechnicalAndAI
         });
