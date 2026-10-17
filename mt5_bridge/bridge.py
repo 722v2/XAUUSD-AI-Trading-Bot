@@ -345,7 +345,7 @@ class BridgeService:
 
     def positions(self) -> tuple[int, dict[str, Any]]:
         with self._mt5_lock:
-            allowed, reason = self._account_is_demo()
+            allowed, reason = self._account_matches_environment()
             if not allowed:
                 return 503 if reason != "NON_DEMO_ACCOUNT_BLOCKED" else 403, {"error": reason, "positions": []}
             positions = mt5.positions_get(symbol=self.symbol)
@@ -369,7 +369,7 @@ class BridgeService:
         if not isinstance(payload, dict) or isinstance(payload.get("ticket"), bool) or not isinstance(payload.get("ticket"), int):
             return 400, {"state": "REJECTED", "error": "INVALID_TICKET"}
         with self._mt5_lock:
-            allowed, reason = self._account_is_demo()
+            allowed, reason = self._account_matches_environment()
             if not allowed:
                 return 503 if reason != "NON_DEMO_ACCOUNT_BLOCKED" else 403, {"state": "REJECTED", "error": reason}
             matches = mt5.positions_get(ticket=payload["ticket"])
@@ -419,7 +419,7 @@ class BridgeService:
                 if previous["status"] in ("CONFIRMED", "REJECTED"):
                     return 200, json.loads(previous["result_json"] or "{}")
                 return 409, {"state": "RECONCILIATION_REQUIRED", "error": "CLOSE_RESULT_MAY_BE_AMBIGUOUS"}
-            allowed, reason = self._account_is_demo()
+            allowed, reason = self._account_matches_environment()
             if not allowed:
                 return 503 if reason != "NON_DEMO_ACCOUNT_BLOCKED" else 403, {"state": "REJECTED", "error": reason}
             matches = mt5.positions_get(ticket=payload["ticket"])
