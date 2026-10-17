@@ -76,3 +76,20 @@ python -m unittest discover -s tests_python -v
 - Do not infer profitability from unit tests or architecture completeness.
 
 See `docs/DEMO_RUNBOOK.md`, `docs/PROJECT_SPEC.md`, `docs/ARCHITECTURE.md`, `docs/PHASE_1_ACCEPTANCE.md`, `docs/TEST_STRATEGY.md`, and `docs/PHASE_STATUS.md`.
+
+
+## Demo and Live execution modes
+
+The bridge and dashboard support an explicit execution environment selection. **Demo is the default and Live remains blocked unless independently enabled on both the dashboard host and the machine running MT5.** Selecting Live does not itself arm automated trading; the separate automated-execution action is still required. Automated execution is reset to off after a server restart.
+
+Dashboard host environment variables:
+- `LIVE_TRADING_ENABLED=true`
+- `LIVE_TRADING_CONFIRMATION=I_UNDERSTAND_LIVE_TRADING_RISK`
+
+MT5 bridge machine environment variables (set separately on the Windows machine that runs the bridge):
+- `MT5_LIVE_TRADING_ENABLED=true`
+- `MT5_LIVE_CONFIRMATION=I_UNDERSTAND_LIVE_TRADING_RISK`
+
+The bridge starts in Demo mode by default. Keep it bound to loopback; do not expose its port directly to the internet. Render can reach a locally hosted bridge only through an authenticated, encrypted tunnel or a secure private network. Configure `MT5_BRIDGE_URL` to that HTTPS endpoint and retain the matching `MT5_BRIDGE_TOKEN`. The dashboard refuses to switch modes unless the bridge confirms that the actual connected MT5 account matches the requested environment and is execution-ready.
+
+Live mode is not enabled by this code change alone. The two environment gates, matching MT5 real account, a secure bridge route, successful regression tests, and a deliberate confirmation in the dashboard are all required. Historical backtests remain simulations and never submit broker orders.
