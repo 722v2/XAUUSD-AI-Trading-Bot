@@ -402,3 +402,54 @@ refreshHealth(); loadConfig(); loadTelegramChats(); loadScanLog(); loadPositions
 setInterval(()=>{void refreshHealth();},10000);
 setInterval(updateCountdown,1000);
 setInterval(()=>{void loadLatestScan();void loadScanLog();void loadPositions();},15000);
+
+
+// Real page navigation: each sidebar item shows a dedicated workspace view.
+const dashboardPages = {
+  overview: { title: "نظرة عامة", sections: ["overview"], notice: true },
+  scanner: { title: "السكانر والتحليل", sections: ["scanner"] },
+  backtest: { title: "الاختبار التاريخي", sections: ["backtest"] },
+  risk: { title: "المخاطر ورأس المال", sections: ["risk"] },
+  mt5: { title: "اتصال MT5", sections: ["mt5"] },
+  trades: { title: "الصفقات والسجل", sections: ["trades"] },
+  telegram: { title: "Telegram", sections: ["telegram"] },
+  settings: { title: "الإعدادات", sections: ["settings", "ai-config"] }
+};
+function pageFromHash() {
+  const raw = location.hash.replace(/^#/, "");
+  if (raw.startsWith("page=") && dashboardPages[raw.slice(5)]) return raw.slice(5);
+  const legacy = raw.toLowerCase();
+  return Object.keys(dashboardPages).find(key => dashboardPages[key].sections.includes(legacy)) || "overview";
+}
+function showDashboardPage(pageKey, updateUrl = false) {
+  const page = dashboardPages[pageKey] || dashboardPages.overview;
+  document.querySelectorAll(".main > .section").forEach(section => {
+    section.hidden = !page.sections.includes(section.id);
+  });
+  const notice = $("system-notice");
+  if (notice) notice.hidden = !page.notice;
+  document.querySelectorAll(".nav-link[data-page]").forEach(link => {
+    const active = link.dataset.page === pageKey;
+    link.classList.toggle("active", active);
+    if (active) link.setAttribute("aria-current", "page");
+    else link.removeAttribute("aria-current");
+  });
+  const title = $("page-title");
+  if (title) title.textContent = page.title;
+  const eyebrow = document.querySelector(".topbar .eyebrow");
+  if (eyebrow) eyebrow.textContent = "لوحة التحكم / " + page.title;
+  if (updateUrl && location.hash !== "#page=" + pageKey) history.pushState({ page: pageKey }, "", "#page=" + pageKey);
+  window.scrollTo({ top: 0, behavior: "auto" });
+}
+function initDashboardNavigation() {
+  document.querySelectorAll(".nav-link[data-page]").forEach(link => {
+    link.addEventListener("click", event => {
+      event.preventDefault();
+      showDashboardPage(link.dataset.page, true);
+    });
+  });
+  window.addEventListener("hashchange", () => showDashboardPage(pageFromHash(), false));
+  window.addEventListener("popstate", () => showDashboardPage(pageFromHash(), false));
+  showDashboardPage(pageFromHash(), false);
+}
+initDashboardNavigation();
