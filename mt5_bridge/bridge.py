@@ -180,6 +180,31 @@ class BridgeService:
                 "liveTradingEnabled": self.live_enabled,
             }
 
+    def set_environment(self, payload: Any) -> tuple[int, dict[str, Any]]:
+        if not isinstance(payload, dict) or payload.get("environment") not in ("DEMO", "LIVE"):
+            return 400, {"error": "INVALID_ENVIRONMENT"}
+        requested = payload["environment"]
+        if requested == "LIVE":
+            supplied = payload.get("confirmation")
+            if not self.live_enabled or supplied != "I_UNDERSTAND_LIVE_TRADING_RISK":
+                return 403, {"error": "LIVE_DISABLED"}
+        with self._mt5_lock:
+            previous = self.execution_environment
+            self.execution_environment = requested
+            connected, reason = self._connect_mt5()
+            account = mt5.account_info() if connected and mt5 is not None else None
+            if account is None:
+                self.execution_environment = previous
+                return 503, {"error": reason if not connected else "ACCOUNT_INFO_UNAVAILABLE"}
+            actual = "DEMO" if getattr(account, "trade_mode", None) == getattr(mt5, "ACCOUNT_TRADE_MODE_DEMO", 0) else "LIVE" if getattr(account, "trade_mode", None) == getattr(mt5, "ACCOUNT_TRADE_MODE_REAL", 2) else "BLOCKED"
+            if actual != requested:
+                self.execution_environment = previous
+                return 409, {"error": "EXECUTION_ENVIRONMENT_MISMATCH", "actualEnvironment": actual}
+            if requested == "LIVE" and not self.live_enabled:
+                self.execution_environment = previous
+                return 403, {"error": "LIVE_DISABLED"}
+            return 200, {"ok": True, "environment": requested, "liveTradingEnabled": self.live_enabled}
+
     def quote(self) -> tuple[int, dict[str, Any]]:
         with self._mt5_lock:
             connected, reason = self._connect_mt5()
@@ -536,7 +561,7 @@ def create_handler(service: BridgeService):
             if not self._authorized():
                 return self._send(401, {"error": "UNAUTHORIZED"})
             route = urlparse(self.path).path
-            if route not in ("/orders", "/positions/modify", "/positions/close"):
+            if route not in ("/orders", "/positions/modify", "/positions/close", "/environment"):
                 return self._send(404, {"error": "NOT_FOUND"})
             try:
                 length = int(self.headers.get("content-length", "0"))
@@ -545,7 +570,9 @@ def create_handler(service: BridgeService):
                 payload = json.loads(self.rfile.read(length))
             except (ValueError, json.JSONDecodeError):
                 return self._send(400, {"error": "INVALID_JSON"})
-            if route == "/orders":
+            if route == "/environment":
+                status, body = service.set_environment(payload)
+            elif route == "/orders":
                 status, body = service.submit_order(payload)
             elif route == "/positions/modify":
                 status, body = service.modify_position(payload)
