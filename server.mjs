@@ -123,6 +123,8 @@ export function createAppServer(env = process.env) {
   let scannerRuns = [];
   let scannerEnabled = false;
   let autoTradingEnabled = false;
+  const liveTradingEnabled = env.LIVE_TRADING_ENABLED === "true" && env.LIVE_TRADING_CONFIRMATION === "I_UNDERSTAND_LIVE_TRADING_RISK";
+  let executionEnvironment = env.EXECUTION_ENVIRONMENT === "LIVE" && liveTradingEnabled ? "LIVE" : "DEMO";
   let aiProbePassed = false;
   let scannerTimer = null;
   let nextScheduledScanAt = null;
@@ -242,7 +244,7 @@ export function createAppServer(env = process.env) {
     if (!supabase || !bridge || !health.accountLogin) return {ok:false,reason:"POSITION_MANAGER_PREREQUISITES_MISSING"};
     try {
       const [livePositions,quote,spec] = await Promise.all([bridge.positions(),bridge.quote(),bridge.symbolSpec()]);
-      if (!livePositions.ok || !quote.ok || !spec.ok || livePositions.value.environment!=="DEMO" || livePositions.value.accountLogin!==health.accountLogin) {
+      if (!livePositions.ok || !quote.ok || !spec.ok || livePositions.value.environment!==executionEnvironment || livePositions.value.accountLogin!==health.accountLogin) {
         return {ok:false,reason:"POSITION_RECONCILIATION_UNAVAILABLE"};
       }
       if (livePositions.value.positions.some(position=>!position.ownedByBot)) return {ok:false,reason:"UNOWNED_XAUUSD_POSITION_CONFLICT"};
@@ -377,7 +379,7 @@ export function createAppServer(env = process.env) {
         return {status:409,body:{error:"SCANNER_NOT_READY",message:"لم يتم ضبط جسر MT5 مع رمز المصادقة؛ لم يتم توليد إشارة.",run:entry}};
       }
       const health = await bridge.health();
-      if (!health.ok || health.value.state !== "CONNECTED" || health.value.environment !== "DEMO") {
+      if (!health.ok || health.value.state !== "CONNECTED" || health.value.environment !== executionEnvironment) {
         const entry=record("NOT_READY",health.ok?health.value.reason:health.message);
         return {status:503,body:{error:"MT5_NOT_READY",message:"اتصال MT5 التجريبي غير مؤكد؛ تم إيقاف الفحص بأمان.",run:entry}};
       }
@@ -541,8 +543,8 @@ export function createAppServer(env = process.env) {
           return {status:409,body:{error:"ASSESSMENT_EXPIRED",message:"انتهت صلاحية الفرصة قبل حساب المخاطرة؛ لم يتم إرسال الأمر.",run:entry}};
         }
         const prepared = prepareExecutionIntent({
-          id:randomUUID(),idempotencyKey:candidateKey+":DEMO",opportunityId:candidateId,decisionId,
-          environment:"DEMO",settings:riskSettings,
+          id:randomUUID(),idempotencyKey:candidateKey+":"+executionEnvironment,opportunityId:candidateId,decisionId,
+          environment:executionEnvironment,settings:riskSettings,
           trade:{direction:decision.direction,entryPrice:decision.direction==="BUY"?liveQuote.value.ask:liveQuote.value.bid,stopLoss:evidence.stopLoss,takeProfit:evidence.takeProfit,minimumRiskRewardRatio:riskSettings.minimumRiskRewardRatio},
           spec:symbolSpec.value,now
         });
@@ -564,7 +566,7 @@ export function createAppServer(env = process.env) {
           const entry=record("EXPIRED","EVIDENCE_EXPIRED_BEFORE_SUBMISSION");
           return {status:409,body:{error:"ASSESSMENT_EXPIRED",message:"انتهت صلاحية الفرصة بعد حفظ نية التنفيذ؛ تم إلغاء الإرسال.",execution:"NOT_SUBMITTED",run:entry}};
         }
-        const submitted = await bridge.submitDemoOrder({intent:storedIntent.value.intent});
+        const submitted = await bridge.submitOrder({intent:storedIntent.value.intent});
         if (!submitted.ok) {
           const targetStatus = submitted.errorCode === "RECONCILIATION_REQUIRED" ? "RECONCILIATION_REQUIRED" : submitted.errorCode === "UNAVAILABLE" ? "UNKNOWN" : "REJECTED";
           await supabase.updateExecutionIntentStatus(prepared.intent.id,targetStatus);
@@ -586,7 +588,7 @@ export function createAppServer(env = process.env) {
             });
             orderPersisted = order.ok;
           }
-          const auditEvent = await supabase.insertRecord("trade_events",{id:randomUUID(),execution_intent_id:prepared.intent.id,event_type:"DEMO_ORDER_CONFIRMED",payload:{brokerOrderId:submitted.value.brokerOrderId,orderPersisted},occurred_at:new Date().toISOString()});
+          const auditEvent = await supabase.insertRecord("trade_events",{id:randomUUID(),execution_intent_id:prepared.intent.id,event_type:executionEnvironment+"_ORDER_CONFIRMED",payload:{brokerOrderId:submitted.value.brokerOrderId,orderPersisted},occurred_at:new Date().toISOString()});
           execution = "CONFIRMED";
           const executionAlert = await queueNotificationToEnabled("تم تأكيد أمر XAUUSD على حساب MT5 Demo. الاتجاه: "+decision.direction+"، الحجم: "+prepared.intent.volume+"، رقم الوسيط: "+submitted.value.brokerOrderId+".","EXECUTION_CONFIRMED","execution-confirmed:"+prepared.intent.id);
           executionDetail = savedStatus.ok && orderPersisted && auditEvent.ok
@@ -657,12 +659,12 @@ export function createAppServer(env = process.env) {
         database:{state:databaseState,label:databaseState==="CONNECTED"?"Supabase متصل":"Supabase غير متصل"},
         telegram:{state:telegram.configured?"CONFIGURED":"NOT_CONFIGURED",label:telegram.configured?"البوت مهيأ":"التنبيهات غير جاهزة"},
         scanner:{state:scannerEnabled?"CONNECTED":"NOT_READY",label:scannerEnabled?"السكانر مفعّل":"السكانر غير جاهز",reason:scannerEnabled?"يفحص كل 60 ثانية؛ التنفيذ يعتمد على إعدادات Demo والمخاطر.":"يتطلب اتصال MT5 Demo وتهيئة AI.",nextScanAt:nextScheduledScanAt?new Date(nextScheduledScanAt).toISOString():null},
-        execution:{state:autoTradingEnabled?"ARMED_DEMO":"DISABLED",liveTradingEnabled:false}
+        execution:{state:autoTradingEnabled?(executionEnvironment==="LIVE"?"ARMED_LIVE":"ARMED_DEMO"):"DISABLED",environment:executionEnvironment,liveTradingEnabled}
       });
     }
     if (method === "GET" && url.pathname === "/api/config") {
       await hydrateSettings();
-      return sendJson(res,200,{scannerEnabled,autoTradingEnabled,scannerIntervalSeconds:60,riskSettings,persisted:Boolean(supabase),aiProviderId:config.aiProviderId,aiModelId:config.aiModelId,environment:"DEMO",liveTradingEnabled:false});
+      return sendJson(res,200,{scannerEnabled,autoTradingEnabled,scannerIntervalSeconds:60,riskSettings,persisted:Boolean(supabase),aiProviderId:config.aiProviderId,aiModelId:config.aiModelId,environment:executionEnvironment,liveTradingEnabled});
     }
     if (method === "GET" && url.pathname === "/api/ai/providers") {
       await hydrateSettings();
@@ -772,7 +774,7 @@ export function createAppServer(env = process.env) {
       }
       if (!bridge || !aiProvider) return sendJson(res,409,{error:"DEPENDENCIES_NOT_CONFIGURED",message:"يلزم ضبط جسر MT5 ومزود AI قبل تفعيل السكانر."});
       const health=await bridge.health();
-      if (!health.ok || health.value.state!=="CONNECTED" || health.value.environment!=="DEMO") return sendJson(res,409,{error:"MT5_NOT_READY",message:"لا يمكن تفعيل السكانر دون حساب MT5 Demo متصل."});
+      if (!health.ok || health.value.state!=="CONNECTED" || health.value.environment!==executionEnvironment) return sendJson(res,409,{error:"MT5_NOT_READY",message:"اتصال MT5 غير مطابق لبيئة التنفيذ المختارة."});
       scannerEnabled=true;
       if (scannerTimer) clearInterval(scannerTimer);
       nextScheduledScanAt=Date.now()+60000;
@@ -781,15 +783,30 @@ export function createAppServer(env = process.env) {
       void runAndStoreScan("SCHEDULED");
       return sendJson(res,200,{ok:true,enabled:true,intervalSeconds:60});
     }
+    if (method === "POST" && url.pathname === "/api/trading/environment") {
+      let body;
+      try { body=await readJson(req); } catch(error) { return sendJson(res,error.status??400,{error:"INVALID_BODY",message:error.message}); }
+      if (body.environment !== "DEMO" && body.environment !== "LIVE") return sendJson(res,400,{error:"INVALID_ENVIRONMENT"});
+      if (autoTradingEnabled || scannerEnabled) return sendJson(res,409,{error:"STOP_EXECUTION_FIRST",message:"أوقف السكانر والتنفيذ الآلي قبل تغيير بيئة التنفيذ."});
+      if (body.environment === "LIVE") {
+        if (!liveTradingEnabled || body.confirmation !== "I_UNDERSTAND_LIVE_TRADING_RISK") return sendJson(res,403,{error:"LIVE_NOT_AUTHORIZED",message:"التداول الحقيقي مغلق. يلزم تفعيل LIVE_TRADING_ENABLED ومفتاح التأكيد على الخادم، ثم تأكيد المخاطر صراحة."});
+      }
+      if (!bridge) return sendJson(res,409,{error:"MT5_BRIDGE_NOT_CONFIGURED",message:"اضبط جسر MT5 المحلي على نفس بيئة التنفيذ أولًا."});
+      const health=await bridge.health();
+      if (!health.ok || health.value.state!=="CONNECTED" || health.value.environment!==body.environment || health.value.executionReady!==true) return sendJson(res,409,{error:"MT5_ENVIRONMENT_MISMATCH",message:"حساب MT5 المتصل لا يطابق البيئة المطلوبة أو غير جاهز."});
+      executionEnvironment=body.environment;
+      autoTradingEnabled=false;
+      return sendJson(res,200,{ok:true,environment:executionEnvironment,liveTradingEnabled});
+    }
     if (method === "POST" && url.pathname === "/api/trading/auto") {
       let body;
       try { body=await readJson(req); } catch(error) { return sendJson(res,error.status??400,{error:"INVALID_BODY",message:error.message}); }
       if (typeof body.enabled!=="boolean") return sendJson(res,400,{error:"INVALID_VALUE"});
-      if (!body.enabled) { autoTradingEnabled=false; return sendJson(res,200,{ok:true,enabled:false,environment:"DEMO",liveTradingEnabled:false}); }
+      if (!body.enabled) { autoTradingEnabled=false; return sendJson(res,200,{ok:true,enabled:false,environment:executionEnvironment,liveTradingEnabled}); }
       await hydrateSettings();
       if (!scannerEnabled || !bridge || !aiProvider || !supabase || !riskSettings) return sendJson(res,409,{error:"EXECUTION_PREREQUISITES_MISSING",message:"يلزم تفعيل السكانر وضبط MT5 Demo وAI والمخاطرة وSupabase قبل التنفيذ الآلي."});
       const health=await bridge.health();
-      if (!health.ok || health.value.state!=="CONNECTED" || health.value.environment!=="DEMO" || !health.value.accountLogin || health.value.executionReady!==true) return sendJson(res,409,{error:"MT5_DEMO_NOT_CONFIRMED",message:"يلزم حساب MT5 Demo من نوع Hedging مع تأكيد جاهزية التنفيذ؛ التنفيذ الآلي ما زال متوقفًا."});
+      if (!health.ok || health.value.state!=="CONNECTED" || health.value.environment!==executionEnvironment || !health.value.accountLogin || health.value.executionReady!==true) return sendJson(res,409,{error:"MT5_DEMO_NOT_CONFIRMED",message:"يلزم حساب MT5 Demo من نوع Hedging مع تأكيد جاهزية التنفيذ؛ التنفيذ الآلي ما زال متوقفًا."});
       const positions=await bridge.positions();
       if (!positions.ok || positions.value.positions.some(position=>!position.ownedByBot)) return sendJson(res,409,{error:"UNOWNED_XAUUSD_POSITION_CONFLICT",message:"يوجد مركز XAUUSD لا يمكن تأكيد ملكيته للبوت؛ أغلقه أو افحصه يدويًا قبل تفعيل التنفيذ الآلي."});
       try { await supabase.readCurrent(); } catch { return sendJson(res,503,{error:"PERSISTENCE_UNAVAILABLE",message:"قاعدة البيانات غير متاحة؛ التنفيذ الآلي مرفوض."}); }
@@ -799,17 +816,17 @@ export function createAppServer(env = process.env) {
         aiProbePassed=true;
       } catch { return sendJson(res,503,{error:"AI_PROVIDER_UNAVAILABLE",message:"اختبار اتصال AI فشل؛ التنفيذ الآلي مرفوض."}); }
       autoTradingEnabled=true;
-      return sendJson(res,200,{ok:true,enabled:true,environment:"DEMO",liveTradingEnabled:false});
+      return sendJson(res,200,{ok:true,enabled:true,environment:executionEnvironment,liveTradingEnabled});
     }
     if (method === "GET" && url.pathname === "/api/scanner/log") return sendJson(res,200,{runs:scannerRuns});
     if (method === "GET" && url.pathname === "/api/positions") {
       if (!bridge) return sendJson(res,503,{error:"MT5_NOT_CONFIGURED",positions:[]});
       const health=await bridge.health();
-      if (!health.ok || health.value.state!=="CONNECTED" || health.value.environment!=="DEMO") return sendJson(res,503,{error:"MT5_DEMO_NOT_READY",positions:[]});
+      if (!health.ok || health.value.state!=="CONNECTED" || health.value.environment!==executionEnvironment) return sendJson(res,503,{error:"MT5_ACCOUNT_NOT_READY",positions:[]});
       if (health.value.executionReady!==true) return sendJson(res,409,{error:"HEDGING_ACCOUNT_REQUIRED",message:"عرض وإدارة صفقات البوت يتطلب حساب MT5 Demo من نوع Hedging.",positions:[]});
       const result=await bridge.positions();
       if (!result.ok) return sendJson(res,503,{error:result.message,positions:[]});
-      return sendJson(res,200,{positions:result.value.positions.filter(position=>position.ownedByBot).map(({ownedByBot,...position})=>position),ownershipConflict:result.value.positions.some(position=>!position.ownedByBot),environment:"DEMO"});
+      return sendJson(res,200,{positions:result.value.positions.filter(position=>position.ownedByBot).map(({ownedByBot,...position})=>position),ownershipConflict:result.value.positions.some(position=>!position.ownedByBot),environment:executionEnvironment});
     }
     if (method === "POST" && url.pathname === "/api/positions/modify") {
       let body;
