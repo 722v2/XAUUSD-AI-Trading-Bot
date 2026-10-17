@@ -58,76 +58,36 @@ function updateRiskMode() {
   $("risk-percent").required = percent;
   $("risk-cash").required = !percent;
 }
-let aiProviders = [];
-let selectedAiModelId = null;
-function renderAIModels(preferredModelId) {
-  const provider=aiProviders.find(item=>item.id===$("ai-provider").value);
-  const select=$("ai-model");
-  const models=provider?.models||[];
-  select.innerHTML='<option value="">اختر النموذج يدويًا</option>'+models.map(model=>`<option value="${escapeHtml(model.id)}">${escapeHtml(model.label||model.id)}</option>`).join("");
-  select.disabled=!provider||models.length===0;
-  const wanted=preferredModelId&&models.some(model=>model.id===preferredModelId)?preferredModelId:"";
-  select.value=wanted;
-}
-function renderBacktestModels(preferredModelId) {
-  const provider=aiProviders.find(item=>item.id===$("backtest-provider").value&&item.configured);
-  const select=$("backtest-model");
-  const models=provider?.models||[];
-  select.innerHTML='<option value="">اختر النموذج يدويًا</option>'+models.map(model=>`<option value="${escapeHtml(model.id)}">${escapeHtml(model.label||model.id)}</option>`).join("");
-  select.disabled=!provider||models.length===0;
-  const wanted=preferredModelId&&models.some(model=>model.id===preferredModelId)?preferredModelId:"";
-  select.value=wanted;
-}
-function initializeBacktestProviders(preferredProviderId, preferredModelId) {
-  const configured=aiProviders.filter(provider=>provider.configured);
-  const select=$("backtest-provider");
-  select.innerHTML='<option value="">اختر مزود AI يدويًا</option>'+configured.map(provider=>`<option value="${escapeHtml(provider.id)}">${escapeHtml(provider.label)}</option>`).join("");
-  select.disabled=configured.length===0;
-  select.value="";
-  renderBacktestModels(null);
-  $("backtest-status").textContent=configured.length?"اختر النموذج والإعدادات":"لا يوجد مزود AI مهيأ";
-  $("backtest-status").className="status-tag "+(configured.length?"ok-tag":"warn-tag");
-}
-$("backtest-provider").addEventListener("change",()=>renderBacktestModels(null));
 async function loadAIProviders() {
   try {
     const data=await api("/api/ai/providers");
-    aiProviders=data.providers||[];
-    const select=$("ai-provider");
-    select.innerHTML='<option value="">اختر مزود AI يدويًا</option>'+aiProviders.map(provider=>`<option value="${escapeHtml(provider.id)}">${escapeHtml(provider.label)}${provider.configured?"":" — يحتاج مفتاح API على Render"}</option>`).join("");
-    select.disabled=!aiProviders.length;
-    select.value="";
-    selectedAiModelId=null;
-    renderAIModels(null);
-    initializeBacktestProviders(null,null);
-    $("ai-config-status").textContent=data.persisted?"الإعدادات الدائمة متاحة":"حفظ مؤقت";
-    $("ai-config-status").className="status-tag "+(data.persisted?"ok-tag":"warn-tag");
-    $("ai-config-feedback").textContent=aiProviders.length?"المفاتيح تبقى في بيئة الخادم؛ القائمة لا تسمح بعنوان مزود عشوائي.":"أضف AI_BASE_URL وAI_MODEL_ID أو AI_PROVIDER_CATALOG_JSON إلى بيئة الخادم.";
+    const configured=Boolean(data.configured);
+    $("ai-provider").value="";
+    $("ai-model").value="";
+    $("backtest-provider").value="";
+    $("backtest-model").value="";
+    $("ai-config-status").textContent=configured?"مزود الخادم متاح":"إعدادات API ناقصة";
+    $("ai-config-status").className="status-tag "+(configured?"ok-tag":"warn-tag");
+    $("ai-config-feedback").textContent=configured
+      ?"اكتب AI_PROVIDER_ID وModel ID. عنوان API والمفتاح يُقرآن من Environment فقط."
+      :"اضبط AI_PROVIDER_ID وAI_BASE_URL وAI_API_KEY في Render → Environment. لا تُدخل المفتاح في الداشبورد.";
     $("ai-config-form").querySelector('button[type="submit"]').disabled=false;
-    if (!aiProviders.some(provider=>provider.configured)) {
-      $("ai-config-feedback").textContent="القائمة جاهزة للاختيار، لكن يلزم إضافة OPENROUTER_API_KEY في Render → Environment لتفعيل OpenRouter.";
-      $("ai-config-status").textContent="ينقص مفتاح API";
-      $("ai-config-status").className="status-tag warn-tag";
-    }
+    $("backtest-status").textContent=configured?"أدخل المزود والنموذج للاختبار":"أكمل متغيرات API على الخادم أولًا";
+    $("backtest-status").className="status-tag "+(configured?"ok-tag":"warn-tag");
   } catch(error) {
-    $("ai-config-feedback").textContent=error.message||"تعذر تحميل قائمة مزودي AI.";
+    $("ai-config-feedback").textContent=error.message||"تعذر تحميل حالة إعدادات AI.";
     $("ai-config-form").querySelector('button[type="submit"]').disabled=true;
   }
 }
-$("ai-provider").addEventListener("change",()=>renderAIModels(null));
 $("ai-config-form").addEventListener("submit",async event=>{
   event.preventDefault();
   const feedback=$("ai-config-feedback");
-  if (!$("ai-provider").value || !$("ai-model").value) {
-    feedback.textContent="اختَر مزود الذكاء الاصطناعي والنموذج بنفسك قبل الحفظ.";
-    return;
-  }
-  feedback.textContent="جارٍ حفظ اختيار AI…";
+  const providerId=$("ai-provider").value.trim(), modelId=$("ai-model").value.trim();
+  if(!providerId||!modelId){feedback.textContent="اكتب معرّف المزود ومعرّف النموذج قبل الحفظ.";return;}
+  feedback.textContent="جارٍ التحقق من اختيار AI وحفظه…";
   try {
-    const result=await api("/api/ai/config",{method:"POST",body:JSON.stringify({providerId:$("ai-provider").value,modelId:$("ai-model").value})});
+    const result=await api("/api/ai/config",{method:"POST",body:JSON.stringify({providerId,modelId})});
     feedback.textContent=result.message;
-    selectedAiModelId=result.modelId;
-    await loadAIProviders();
     await refreshHealth();
   } catch(error) { feedback.textContent=error.data?.message||error.message; }
 });
@@ -309,8 +269,8 @@ function renderBacktestResult(result) {
 $("backtest-form").addEventListener("submit",async event=>{
   event.preventDefault();
   const button=$("backtest-run"),feedback=$("backtest-feedback");
-  const providerId=$("backtest-provider").value,modelId=$("backtest-model").value;
-  if(!providerId||!modelId){feedback.textContent="اختر مزود AI ونموذجًا مضبوطًا على الخادم.";return;}
+  const providerId=$("backtest-provider").value.trim(),modelId=$("backtest-model").value.trim();
+  if(!providerId||!modelId){feedback.textContent="اكتب معرّف المزود ومعرّف النموذج للاختبار.";return;}
   const spreadText=$("backtest-spread").value.trim();
   const request={
     providerId,modelId,barsCount:Number($("backtest-bars").value),lots:Number($("backtest-lots").value),
