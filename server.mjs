@@ -654,7 +654,7 @@ export function createAppServer(env = process.env) {
       if (bridge) { const result=await bridge.health(); if (result.ok) bridgeHealth=result.value; }
       const marketState = !bridge ? "NOT_CONFIGURED" : bridgeHealth?.state === "CONNECTED" ? "CONNECTED" : bridgeHealth?.state === "BLOCKED" ? "DISCONNECTED" : "NOT_READY";
       return sendJson(res,200,{
-        marketData:{state:marketState,label:marketState==="CONNECTED"?"MT5 Demo متصل":"MT5 غير متصل",reason:marketState==="CONNECTED"?(bridgeHealth?.executionReady?"تم تأكيد حساب Demo من نوع Hedging.":"بيانات السوق متاحة؛ التنفيذ الآلي يتطلب حساب Demo من نوع Hedging."):(bridgeHealth?.reason??"لم يتم ضبط جسر MT5؛ لا توجد بيانات سوق فعلية.")},
+        marketData:{state:marketState,label:marketState==="CONNECTED"?"MT5 "+executionEnvironment+" متصل":"MT5 غير متصل",reason:marketState==="CONNECTED"?(bridgeHealth?.executionReady?"تم تأكيد حساب "+executionEnvironment+" من نوع Hedging.":"بيانات السوق متاحة؛ التنفيذ الآلي يتطلب حسابًا مطابقًا من نوع Hedging."):(bridgeHealth?.reason??"لم يتم ضبط جسر MT5؛ لا توجد بيانات سوق فعلية.")},
         ai:{state:!aiConfigured?"NOT_CONFIGURED":aiProbePassed?"CONNECTED":"CONFIGURED_NOT_TESTED",label:!aiConfigured?"لم يتم الاتصال":aiProbePassed?"AI متصل":"إعدادات موجودة · الاتصال يحتاج اختبارًا"},
         database:{state:databaseState,label:databaseState==="CONNECTED"?"Supabase متصل":"Supabase غير متصل"},
         telegram:{state:telegram.configured?"CONFIGURED":"NOT_CONFIGURED",label:telegram.configured?"البوت مهيأ":"التنبيهات غير جاهزة"},
@@ -823,9 +823,9 @@ export function createAppServer(env = process.env) {
       if (typeof body.enabled!=="boolean") return sendJson(res,400,{error:"INVALID_VALUE"});
       if (!body.enabled) { autoTradingEnabled=false; return sendJson(res,200,{ok:true,enabled:false,environment:executionEnvironment,liveTradingEnabled}); }
       await hydrateSettings();
-      if (!scannerEnabled || !bridge || !aiProvider || !supabase || !riskSettings) return sendJson(res,409,{error:"EXECUTION_PREREQUISITES_MISSING",message:"يلزم تفعيل السكانر وضبط MT5 Demo وAI والمخاطرة وSupabase قبل التنفيذ الآلي."});
+      if (!scannerEnabled || !bridge || !aiProvider || !supabase || !riskSettings) return sendJson(res,409,{error:"EXECUTION_PREREQUISITES_MISSING",message:"يلزم تفعيل السكانر وضبط MT5 وAI والمخاطرة وSupabase قبل التنفيذ الآلي."});
       const health=await bridge.health();
-      if (!health.ok || health.value.state!=="CONNECTED" || health.value.environment!==executionEnvironment || !health.value.accountLogin || health.value.executionReady!==true) return sendJson(res,409,{error:"MT5_DEMO_NOT_CONFIRMED",message:"يلزم حساب MT5 Demo من نوع Hedging مع تأكيد جاهزية التنفيذ؛ التنفيذ الآلي ما زال متوقفًا."});
+      if (!health.ok || health.value.state!=="CONNECTED" || health.value.environment!==executionEnvironment || !health.value.accountLogin || health.value.executionReady!==true) return sendJson(res,409,{error:"MT5_ACCOUNT_NOT_CONFIRMED",message:"يلزم حساب MT5 مطابق لبيئة التنفيذ ومن نوع Hedging مع تأكيد الجاهزية؛ التنفيذ الآلي ما زال متوقفًا."});
       const positions=await bridge.positions();
       if (!positions.ok || positions.value.positions.some(position=>!position.ownedByBot)) return sendJson(res,409,{error:"UNOWNED_XAUUSD_POSITION_CONFLICT",message:"يوجد مركز XAUUSD لا يمكن تأكيد ملكيته للبوت؛ أغلقه أو افحصه يدويًا قبل تفعيل التنفيذ الآلي."});
       try { await supabase.readCurrent(); } catch { return sendJson(res,503,{error:"PERSISTENCE_UNAVAILABLE",message:"قاعدة البيانات غير متاحة؛ التنفيذ الآلي مرفوض."}); }
