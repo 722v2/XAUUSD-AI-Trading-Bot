@@ -78,6 +78,16 @@ function aiProviderCatalogFromEnv(env) {
     const models=[...new Set(ids)].map(id=>({id,label:id}));
     catalog.push({id:env.AI_PROVIDER_ID||"openai-compatible",label:env.AI_PROVIDER_LABEL||env.AI_PROVIDER_ID||"OpenAI-compatible",baseUrl:env.AI_BASE_URL,apiKeyEnv:"AI_API_KEY",models});
   }
+  if (!catalog.length) {
+    catalog.push({
+      id:"openrouter",label:"OpenRouter",baseUrl:"https://openrouter.ai/api/v1",apiKeyEnv:"OPENROUTER_API_KEY",
+      models:[
+        {id:"openai/gpt-oss-20b:free",label:"GPT-OSS 20B · Free"},
+        {id:"deepseek/deepseek-r1-0528:free",label:"DeepSeek R1 · Free"},
+        {id:"qwen/qwen3-30b-a3b:free",label:"Qwen3 30B A3B · Free"}
+      ]
+    });
+  }
   return catalog;
 }
 function configuredAI(env, catalog, providerId, modelId) {
