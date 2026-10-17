@@ -99,3 +99,12 @@ test('positions API never invents positions when MT5 bridge is absent', async ()
     assert.deepEqual(data.positions,[]);
   });
 });
+
+test('Live environment cannot be selected without explicit server-side gates', async () => {
+  await withServer(async base => {
+    const response=await fetch(base+'/api/trading/environment',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({environment:'LIVE',confirmation:'I_UNDERSTAND_LIVE_TRADING_RISK'})});
+    const data=await response.json();
+    assert.equal(response.status,403);
+    assert.equal(data.error,'LIVE_NOT_AUTHORIZED');
+  });
+});
