@@ -124,7 +124,7 @@ export function createAppServer(env = process.env) {
   let scannerEnabled = false;
   let autoTradingEnabled = false;
   const liveTradingEnabled = env.LIVE_TRADING_ENABLED === "true" && env.LIVE_TRADING_CONFIRMATION === "I_UNDERSTAND_LIVE_TRADING_RISK";
-  let executionEnvironment = env.EXECUTION_ENVIRONMENT === "LIVE" && liveTradingEnabled ? "LIVE" : "DEMO";
+  let executionEnvironment = "DEMO";
   let aiProbePassed = false;
   let scannerTimer = null;
   let nextScheduledScanAt = null;
@@ -791,9 +791,14 @@ export function createAppServer(env = process.env) {
       if (body.environment === "LIVE") {
         if (!liveTradingEnabled || body.confirmation !== "I_UNDERSTAND_LIVE_TRADING_RISK") return sendJson(res,403,{error:"LIVE_NOT_AUTHORIZED",message:"التداول الحقيقي مغلق. يلزم تفعيل LIVE_TRADING_ENABLED ومفتاح التأكيد على الخادم، ثم تأكيد المخاطر صراحة."});
       }
-      if (!bridge) return sendJson(res,409,{error:"MT5_BRIDGE_NOT_CONFIGURED",message:"اضبط جسر MT5 المحلي على نفس بيئة التنفيذ أولًا."});
+      if (!bridge) return sendJson(res,409,{error:"MT5_BRIDGE_NOT_CONFIGURED",message:"اضبط جسر MT5 على جهاز MT5 واتصال HTTPS آمنًا من Render."});
+      const switched=await bridge.setEnvironment(body.environment,body.confirmation);
+      if (!switched.ok) return sendJson(res,switched.status===403?403:409,{error:"MT5_ENVIRONMENT_SWITCH_FAILED",message:"رفض جسر MT5 تغيير البيئة. تحقق من الحساب المتصل وإعدادات LIVE على جهاز MT5."});
       const health=await bridge.health();
-      if (!health.ok || health.value.state!=="CONNECTED" || health.value.environment!==body.environment || health.value.executionReady!==true) return sendJson(res,409,{error:"MT5_ENVIRONMENT_MISMATCH",message:"حساب MT5 المتصل لا يطابق البيئة المطلوبة أو غير جاهز."});
+      if (!health.ok || health.value.state!=="CONNECTED" || health.value.environment!==body.environment || health.value.executionReady!==true) {
+        await bridge.setEnvironment("DEMO");
+        return sendJson(res,409,{error:"MT5_ENVIRONMENT_MISMATCH",message:"حساب MT5 المتصل لا يطابق البيئة المطلوبة أو غير جاهز؛ أُعيد الجسر إلى Demo."});
+      }
       executionEnvironment=body.environment;
       autoTradingEnabled=false;
       return sendJson(res,200,{ok:true,environment:executionEnvironment,liveTradingEnabled});
