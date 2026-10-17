@@ -64,28 +64,27 @@ function renderAIModels(preferredModelId) {
   const provider=aiProviders.find(item=>item.id===$("ai-provider").value);
   const select=$("ai-model");
   const models=provider?.models||[];
-  select.innerHTML=models.map(model=>`<option value="${escapeHtml(model.id)}">${escapeHtml(model.label||model.id)}</option>`).join("");
-  select.disabled=models.length===0;
-  const wanted=preferredModelId&&models.some(model=>model.id===preferredModelId)?preferredModelId:models[0]?.id;
-  if(wanted) select.value=wanted;
+  select.innerHTML='<option value="">اختر النموذج يدويًا</option>'+models.map(model=>`<option value="${escapeHtml(model.id)}">${escapeHtml(model.label||model.id)}</option>`).join("");
+  select.disabled=!provider||models.length===0;
+  const wanted=preferredModelId&&models.some(model=>model.id===preferredModelId)?preferredModelId:"";
+  select.value=wanted;
 }
 function renderBacktestModels(preferredModelId) {
   const provider=aiProviders.find(item=>item.id===$("backtest-provider").value&&item.configured);
   const select=$("backtest-model");
   const models=provider?.models||[];
-  select.innerHTML=models.map(model=>`<option value="${escapeHtml(model.id)}">${escapeHtml(model.label||model.id)}</option>`).join("");
-  select.disabled=models.length===0;
-  const wanted=preferredModelId&&models.some(model=>model.id===preferredModelId)?preferredModelId:models[0]?.id;
-  if(wanted) select.value=wanted;
+  select.innerHTML='<option value="">اختر النموذج يدويًا</option>'+models.map(model=>`<option value="${escapeHtml(model.id)}">${escapeHtml(model.label||model.id)}</option>`).join("");
+  select.disabled=!provider||models.length===0;
+  const wanted=preferredModelId&&models.some(model=>model.id===preferredModelId)?preferredModelId:"";
+  select.value=wanted;
 }
 function initializeBacktestProviders(preferredProviderId, preferredModelId) {
   const configured=aiProviders.filter(provider=>provider.configured);
   const select=$("backtest-provider");
-  select.innerHTML=configured.map(provider=>`<option value="${escapeHtml(provider.id)}">${escapeHtml(provider.label)}</option>`).join("");
+  select.innerHTML='<option value="">اختر مزود AI يدويًا</option>'+configured.map(provider=>`<option value="${escapeHtml(provider.id)}">${escapeHtml(provider.label)}</option>`).join("");
   select.disabled=configured.length===0;
-  const selected=configured.find(provider=>provider.id===preferredProviderId)||configured[0];
-  if(selected) select.value=selected.id;
-  renderBacktestModels(selected?.id===preferredProviderId?preferredModelId:null);
+  select.value="";
+  renderBacktestModels(null);
   $("backtest-status").textContent=configured.length?"اختر النموذج والإعدادات":"لا يوجد مزود AI مهيأ";
   $("backtest-status").className="status-tag "+(configured.length?"ok-tag":"warn-tag");
 }
@@ -95,13 +94,12 @@ async function loadAIProviders() {
     const data=await api("/api/ai/providers");
     aiProviders=data.providers||[];
     const select=$("ai-provider");
-    select.innerHTML=aiProviders.map(provider=>`<option value="${escapeHtml(provider.id)}" >${escapeHtml(provider.label)}${provider.configured?"":" — يحتاج مفتاح API على Render"}</option>`).join("");
+    select.innerHTML='<option value="">اختر مزود AI يدويًا</option>'+aiProviders.map(provider=>`<option value="${escapeHtml(provider.id)}">${escapeHtml(provider.label)}${provider.configured?"":" — يحتاج مفتاح API على Render"}</option>`).join("");
     select.disabled=!aiProviders.length;
-    const selected=aiProviders.find(provider=>provider.id===data.selectedProviderId&&provider.configured)||aiProviders.find(provider=>provider.configured)||aiProviders[0];
-    if(selected) select.value=selected.id;
-    selectedAiModelId=data.selectedModelId||null;
-    renderAIModels(selected?.id===data.selectedProviderId?selectedAiModelId:null);
-    initializeBacktestProviders(data.selectedProviderId,selectedAiModelId);
+    select.value="";
+    selectedAiModelId=null;
+    renderAIModels(null);
+    initializeBacktestProviders(null,null);
     $("ai-config-status").textContent=data.persisted?"الإعدادات الدائمة متاحة":"حفظ مؤقت";
     $("ai-config-status").className="status-tag "+(data.persisted?"ok-tag":"warn-tag");
     $("ai-config-feedback").textContent=aiProviders.length?"المفاتيح تبقى في بيئة الخادم؛ القائمة لا تسمح بعنوان مزود عشوائي.":"أضف AI_BASE_URL وAI_MODEL_ID أو AI_PROVIDER_CATALOG_JSON إلى بيئة الخادم.";
@@ -120,6 +118,10 @@ $("ai-provider").addEventListener("change",()=>renderAIModels(null));
 $("ai-config-form").addEventListener("submit",async event=>{
   event.preventDefault();
   const feedback=$("ai-config-feedback");
+  if (!$("ai-provider").value || !$("ai-model").value) {
+    feedback.textContent="اختَر مزود الذكاء الاصطناعي والنموذج بنفسك قبل الحفظ.";
+    return;
+  }
   feedback.textContent="جارٍ حفظ اختيار AI…";
   try {
     const result=await api("/api/ai/config",{method:"POST",body:JSON.stringify({providerId:$("ai-provider").value,modelId:$("ai-model").value})});
