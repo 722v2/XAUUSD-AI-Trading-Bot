@@ -53,10 +53,10 @@
       </section>
 
       <section id="ai-config" class="section panel">
-        <div class="section-heading"><div><h2>مزود الذكاء الاصطناعي والنموذج</h2><p>اختر المزود والنموذج من القوائم. المفتاح السري يبقى على الخادم ولا يُكتب في هذه الصفحة.</p></div><span id="ai-config-status" class="status-tag muted-tag">غير مضبوط</span></div>
+        <div class="section-heading"><div><h2>مزود الذكاء الاصطناعي والنموذج</h2><p>عنوان API والمفتاح السري يُضبطان في Environment على Render. اكتب معرّف المزود والنموذج هنا فقط.</p></div><span id="ai-config-status" class="status-tag muted-tag">غير مضبوط</span></div>
         <form id="ai-config-form" class="risk-form ai-config-form">
-          <label>مزود AI<select id="ai-provider" required><option value="">جارٍ تحميل المزودين…</option></select></label>
-          <label>النموذج<select id="ai-model" required><option value="">اختر مزودًا أولًا</option></select></label>
+          <label>معرّف المزود<input id="ai-provider" type="text" autocomplete="off" placeholder="مثال: openai-compatible" required></label>
+          <label>معرّف النموذج<input id="ai-model" type="text" autocomplete="off" placeholder="اكتب Model ID كما يقدمه المزود" required></label>
           <div class="form-actions"><button class="primary-button" type="submit">حفظ اختيار AI</button><span id="ai-config-feedback" role="status" class="muted">اختر المزود والنموذج. لتشغيله، أضف مفتاح API في Environment على Render.</span></div>
         </form>
       </section>
@@ -64,8 +64,8 @@
       <section id="backtest" class="section panel">
         <div class="section-heading"><div><h2>الاختبار التاريخي · AI Backtesting</h2><p>يسحب شموعًا مغلقة من جسر MT5 ويختبر النموذج المختار دون إرسال أوامر تداول</p></div><span id="backtest-status" class="status-tag muted-tag">جاهز للإعداد</span></div>
         <form id="backtest-form" class="risk-form backtest-form">
-          <label>مزود AI للاختبار<select id="backtest-provider" required><option value="">حمّل قائمة المزودين أولًا</option></select></label>
-          <label>النموذج المراد اختباره<select id="backtest-model" required><option value="">اختر مزودًا أولًا</option></select></label>
+          <label>معرّف مزود AI للاختبار<input id="backtest-provider" type="text" autocomplete="off" placeholder="نفس AI_PROVIDER_ID في Environment" required></label>
+          <label>معرّف النموذج المراد اختباره<input id="backtest-model" type="text" autocomplete="off" placeholder="اكتب Model ID المراد اختباره" required></label>
           <label>شموع M1 المغلقة<select id="backtest-bars"><option value="100">100 شمعة · نحو 1 ساعة و40 دقيقة</option><option value="500">500 شمعة · نحو 8 ساعات و20 دقيقة</option><option value="1000">1000 شمعة · نحو 16 ساعة و40 دقيقة</option><option value="2500">2500 شمعة · نحو 1 يوم و17 ساعة</option><option value="5000" selected>5000 شمعة · نحو 3 أيام و11 ساعة</option></select></label>
           <label>حجم الصفقة الافتراضي (Lots)<input id="backtest-lots" type="number" min="0.001" max="100" step="0.001" value="0.01" required></label>
           <label>السبريد بالسعر<input id="backtest-spread" type="number" min="0" max="100" step="any" placeholder="فارغ = السبريد الحالي من MT5"></label>
