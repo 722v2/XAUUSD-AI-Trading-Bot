@@ -95,7 +95,7 @@ async function loadAIProviders() {
     const data=await api("/api/ai/providers");
     aiProviders=data.providers||[];
     const select=$("ai-provider");
-    select.innerHTML=aiProviders.map(provider=>`<option value="${escapeHtml(provider.id)}" ${provider.configured?"":"disabled"}>${escapeHtml(provider.label)}${provider.configured?"":" — المفتاح غير مضبوط على الخادم"}</option>`).join("");
+    select.innerHTML=aiProviders.map(provider=>`<option value="${escapeHtml(provider.id)}" >${escapeHtml(provider.label)}${provider.configured?"":" — يحتاج مفتاح API على Render"}</option>`).join("");
     select.disabled=!aiProviders.length;
     const selected=aiProviders.find(provider=>provider.id===data.selectedProviderId&&provider.configured)||aiProviders.find(provider=>provider.configured)||aiProviders[0];
     if(selected) select.value=selected.id;
@@ -105,7 +105,12 @@ async function loadAIProviders() {
     $("ai-config-status").textContent=data.persisted?"الإعدادات الدائمة متاحة":"حفظ مؤقت";
     $("ai-config-status").className="status-tag "+(data.persisted?"ok-tag":"warn-tag");
     $("ai-config-feedback").textContent=aiProviders.length?"المفاتيح تبقى في بيئة الخادم؛ القائمة لا تسمح بعنوان مزود عشوائي.":"أضف AI_BASE_URL وAI_MODEL_ID أو AI_PROVIDER_CATALOG_JSON إلى بيئة الخادم.";
-    $("ai-config-form").querySelector('button[type="submit"]').disabled=!aiProviders.some(provider=>provider.configured);
+    $("ai-config-form").querySelector('button[type="submit"]').disabled=false;
+    if (!aiProviders.some(provider=>provider.configured)) {
+      $("ai-config-feedback").textContent="القائمة جاهزة للاختيار، لكن يلزم إضافة OPENROUTER_API_KEY في Render → Environment لتفعيل OpenRouter.";
+      $("ai-config-status").textContent="ينقص مفتاح API";
+      $("ai-config-status").className="status-tag warn-tag";
+    }
   } catch(error) {
     $("ai-config-feedback").textContent=error.message||"تعذر تحميل قائمة مزودي AI.";
     $("ai-config-form").querySelector('button[type="submit"]').disabled=true;
