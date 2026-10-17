@@ -4,7 +4,7 @@ export type BrokerOperationState = "NOT_SUBMITTED" | "SUBMITTED" | "CONFIRMED" |
 export interface BrokerSubmission {
   readonly intentId: ExecutionIntent["id"];
   readonly idempotencyKey: ExecutionIntent["idempotencyKey"];
-  readonly environment: "DEMO";
+  readonly environment: "DEMO" | "LIVE";
   readonly symbol: "XAUUSD";
   readonly direction: ExecutionIntent["direction"];
   readonly volume: number;
@@ -17,7 +17,7 @@ export interface BrokerAcknowledgement {
   readonly brokerCode?: string;
   readonly message?: string;
 }
-export interface MT5DemoPort {
+export interface MT5ExecutionPort {
   submit(request: BrokerSubmission): Promise<BrokerAcknowledgement>;
   findByIdempotencyKey(key: ExecutionIntent["idempotencyKey"]): Promise<BrokerAcknowledgement | null>;
   getConnectionState(): Promise<"CONNECTED" | "DISCONNECTED">;
@@ -28,15 +28,15 @@ export type SafeSubmissionResult =
   | { readonly state: "UNKNOWN" | "RECONCILIATION_REQUIRED"; readonly reason: string };
 
 /**
- * Safe orchestration contract. A durable repository and a real MT5 adapter are required before use.
+ * Safe orchestration contract for explicitly selected Demo or Live environments. A durable repository and a real MT5 adapter are required before use.
  * An ambiguous submission is reconciled by idempotency key and never blindly retried.
  */
-export async function submitDemoIntentSafely(
+export async function submitIntentSafely(
   intent: ExecutionIntent,
-  port: MT5DemoPort,
+  port: MT5ExecutionPort,
   persistState: (state: BrokerOperationState, detail: string) => Promise<void>
 ): Promise<SafeSubmissionResult> {
-  if (intent.environment !== "DEMO") return { state: "REJECTED", brokerCode: "LIVE_DISABLED" };
+  if (intent.environment !== "DEMO" && intent.environment !== "LIVE") return { state: "REJECTED", brokerCode: "INVALID_ENVIRONMENT" };
   const connection = await port.getConnectionState().catch(() => "DISCONNECTED" as const);
   if (connection !== "CONNECTED") {
     await persistState("NOT_SUBMITTED", "MT5_DISCONNECTED");
@@ -46,7 +46,7 @@ export async function submitDemoIntentSafely(
   let acknowledgement: BrokerAcknowledgement;
   try {
     acknowledgement = await port.submit({
-      intentId: intent.id, idempotencyKey: intent.idempotencyKey, environment: "DEMO",
+      intentId: intent.id, idempotencyKey: intent.idempotencyKey, environment: intent.environment,
       symbol: "XAUUSD", direction: intent.direction, volume: intent.volume,
       stopLoss: intent.stopLoss, takeProfit: intent.takeProfit
     });
