@@ -20,7 +20,7 @@ function simulateTrade(candidate, bars, baseSpreadPrice, slippagePrice, lots, ti
   let stopLoss = signal.direction === "BUY" ? entryPrice - stopDistance - entrySpread : entryPrice + stopDistance + entrySpread;
   const takeProfit = signal.direction === "BUY" ? entryPrice + targetDistance : entryPrice - targetDistance;
   const riskDistance = Math.abs(entryPrice - stopLoss);
-  const breakEvenTrigger = riskDistance;
+  const breakEvenTrigger = riskDistance * 1.2;
   const trailingTrigger = riskDistance * 1.5;
   const trailingDistance = stopDistance * 0.8; // Live manager uses 1.2 ATR; signal stop is 1.5 ATR.
   let breakEvenMoved = false, trailingStarted = false;
@@ -194,7 +194,7 @@ export async function runHistoricalBacktest(input) {
     },
     assumptions: {
       lots, spreadPrice, slippagePrice, spreadSource: request.spreadSource || "USER_INPUT", spreadModel: "UTC_SESSION_APPROXIMATION_NOT_TICK_HISTORY",
-      breakEvenAtR: 1, trailingStartsAtR: 1.5, trailingDistanceApproximation: "0.8x initial stop distance",
+      breakEvenAtR: 1.2, trailingStartsAtR: 1.5, trailingDistanceApproximation: "0.8x initial stop distance",
       commissionPerLotRoundTurn: commissionPerLot, tickSize, tickValuePerLot,
       entry: "next M1 candle open; buy entry includes configured spread",
       sameCandleStopAndTarget: "stop loss first (conservative)",
