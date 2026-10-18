@@ -92,6 +92,22 @@ function configuredAI(env, catalog, providerId, modelId) {
     });
   } catch { return null; }
 }
+function tradingTimeBlock(env, nowMs=Date.now()) {
+  const date=new Date(nowMs);
+  const minute=date.getUTCHours()*60+date.getUTCMinutes();
+  // Conservative UTC rollover window; broker server timezone may differ and must be verified.
+  if (minute>=21*60+55 || minute<22*60+10 && minute>=0) {
+    if (minute>=21*60+55 || minute<10) return "ROLLOVER_BLACKOUT";
+  }
+  const configured=(env.HIGH_IMPACT_NEWS_BLACKOUTS_UTC||"").split(",").map(item=>item.trim()).filter(Boolean);
+  for (const range of configured) {
+    const parts=range.split("/");
+    if (parts.length!==2) continue;
+    const start=Date.parse(parts[0]),end=Date.parse(parts[1]);
+    if (Number.isFinite(start)&&Number.isFinite(end)&&end>start&&nowMs>=start&&nowMs<=end) return "HIGH_IMPACT_NEWS_BLACKOUT";
+  }
+  return null;
+}
 function validRiskSettings(value) {
   return value && typeof value === "object" && validateRiskSettings(value) === null;
 }
@@ -541,6 +557,11 @@ export function createAppServer(env = process.env) {
         if (Date.parse(evidence.expiresAt) <= Date.now()) {
           const entry=record("EXPIRED","EVIDENCE_EXPIRED_BEFORE_RISK");
           return {status:409,body:{error:"ASSESSMENT_EXPIRED",message:"انتهت صلاحية الفرصة قبل حساب المخاطرة؛ لم يتم إرسال الأمر.",run:entry}};
+        }
+        const timeBlock=tradingTimeBlock(env);
+        if (timeBlock) {
+          const entry=record("RISK_REJECTED",timeBlock);
+          return {status:409,body:{status:"RISK_REJECTED",message:timeBlock==="ROLLOVER_BLACKOUT"?"فترة إغلاق/تبديل جلسة السوق؛ تم منع الدخول الجديد.":"فترة أخبار عالية التأثير مُعدّة على الخادم؛ تم منع الدخول الجديد.",execution:"NOT_SUBMITTED",run:entry}};
         }
         const entryPrice=decision.direction==="BUY"?liveQuote.value.ask:liveQuote.value.bid;
         const spreadPrice=liveQuote.value.ask-liveQuote.value.bid;
