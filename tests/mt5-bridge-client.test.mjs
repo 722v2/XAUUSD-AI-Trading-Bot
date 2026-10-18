@@ -21,7 +21,7 @@ test('MT5 bridge client requests closed historical candles with an extended data
   });
   const result=await client.candles('M1',50000);
   assert.equal(result.ok,true);
-  assert.match(captured.url,/\/market\/candles\?timeframe=M1&count=5000$/);
+  assert.match(captured.url,/\/market\/candles\?timeframe=M1&count=50000$/);
   assert.equal(captured.token,'bridge-test-token');
   assert.ok(captured.signal);
 });
