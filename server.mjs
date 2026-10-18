@@ -290,7 +290,7 @@ export function createAppServer(env = process.env) {
         if (!saved.ok) return {ok:false,reason:"OPEN_POSITION_PERSIST_FAILED"};
         const currentPrice=position.direction==="BUY"?quote.value.bid:quote.value.ask;
         const management=managePositionStop({...position,initialStopLoss},currentPrice,atrValue,{
-          breakEvenAtR:1,trailingStartsAtR:1.5,trailingAtrMultiplier:1.2,
+          breakEvenAtR:1.2,trailingStartsAtR:1.5,trailingAtrMultiplier:1.2,
           priceDigits:spec.value.priceDigits,tickSize:spec.value.tickSize,
           minimumStopDistance:spec.value.point*spec.value.stopsLevelPoints
         });
