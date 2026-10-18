@@ -243,7 +243,7 @@ class BridgeService:
             }
 
     def candles(self, timeframe: str, count: int) -> tuple[int, dict[str, Any]]:
-        if timeframe not in TIMEFRAME_MAP or isinstance(count, bool) or not isinstance(count, int) or count < 35 or count > 5000:
+        if timeframe not in TIMEFRAME_MAP or isinstance(count, bool) or not isinstance(count, int) or count < 35 or count > 50000:
             return 400, {"error": "INVALID_CANDLE_REQUEST"}
         with self._mt5_lock:
             connected, reason = self._connect_mt5()
