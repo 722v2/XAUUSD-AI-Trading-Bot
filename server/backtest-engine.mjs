@@ -168,6 +168,7 @@ export async function runHistoricalBacktest(input) {
     if (!trade) continue;
     lastExitIndex = trade._exitIndex;
     delete trade._exitIndex;
+    trade.sampleSegment = candidate.index < bars.length * 0.7 ? "IN_SAMPLE" : "OUT_OF_SAMPLE";
     trades.push(trade);
   }
   const skippedByLimit = useAI ? Math.max(0, candidates.length - aiCalls - skippedOverlap) : 0;
@@ -183,6 +184,16 @@ export async function runHistoricalBacktest(input) {
   }
   const wins = trades.filter(trade => trade.netPnl > 0).length;
   const losses = trades.filter(trade => trade.netPnl < 0).length;
+  const summarizeTrades=items=>{
+    const profit=items.filter(trade=>trade.netPnl>0).reduce((sum,trade)=>sum+trade.netPnl,0);
+    const loss=items.filter(trade=>trade.netPnl<0).reduce((sum,trade)=>sum+trade.netPnl,0);
+    return {trades:items.length,wins:items.filter(trade=>trade.netPnl>0).length,losses:items.filter(trade=>trade.netPnl<0).length,
+      winRatePercent:items.length?round(items.filter(trade=>trade.netPnl>0).length/items.length*100,2):0,
+      netPnl:round(items.reduce((sum,trade)=>sum+trade.netPnl,0),2),profitFactor:loss<0?round(profit/Math.abs(loss),3):null,
+      expectancyPerTrade:items.length?round(items.reduce((sum,trade)=>sum+trade.netPnl,0)/items.length,2):0};
+  };
+  const strategyBreakdown=Object.fromEntries([...new Set(trades.map(trade=>trade.strategyId))].map(id=>[id,summarizeTrades(trades.filter(trade=>trade.strategyId===id))]));
+  const sampleBreakdown={inSample:summarizeTrades(trades.filter(trade=>trade.sampleSegment==="IN_SAMPLE")),outOfSample:summarizeTrades(trades.filter(trade=>trade.sampleSegment==="OUT_OF_SAMPLE"))};
   return {
     ok: true, mode: useAI ? "HISTORICAL_AI_BACKTEST" : "HISTORICAL_TECHNICAL_BACKTEST", symbol: "XAUUSD",
     ai: useAI ? { providerId: aiProviderId, modelId: aiModelId } : { used: false },
@@ -199,6 +210,7 @@ export async function runHistoricalBacktest(input) {
       entry: "next M1 candle open; buy entry includes configured spread",
       sameCandleStopAndTarget: "stop loss first (conservative)",
       dataEnd: "remaining positions marked to last close",
+      chronologicalSplit: "70% in-sample / 30% out-of-sample by signal time; no parameter fitting performed",
       noLookahead: true, liveOrdersSent: false
     },
     metrics: {
@@ -209,7 +221,8 @@ export async function runHistoricalBacktest(input) {
       grossProfit: round(grossProfit, 2), grossLoss: round(grossLoss, 2),
       netPnl: round(netPnl, 2), maxDrawdown: round(maxDrawdown, 2),
       profitFactor: grossLoss < 0 ? round(grossProfit / Math.abs(grossLoss), 3) : null,
-      expectancyPerTrade: trades.length ? round(netPnl / trades.length, 2) : 0
+      expectancyPerTrade: trades.length ? round(netPnl / trades.length, 2) : 0,
+      strategyBreakdown, sampleBreakdown
     },
     equityCurve, trades: trades.slice(-100), aiErrorDetails: aiErrors.slice(0, 20)
   };
