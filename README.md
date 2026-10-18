@@ -80,7 +80,7 @@ See `docs/DEMO_RUNBOOK.md`, `docs/PROJECT_SPEC.md`, `docs/ARCHITECTURE.md`, `doc
 
 ## Demo and Live execution modes
 
-The bridge and dashboard support an explicit execution environment selection. **Demo is the default and Live remains blocked unless independently enabled on both the dashboard host and the machine running MT5.** Selecting Live does not itself arm automated trading; the separate automated-execution action is still required. Automated execution is reset to off after a server restart.
+The bridge and dashboard expose both Demo and Live environment selection. **Demo is the default; Live is implemented but blocked unless independently enabled on both the dashboard host and the machine running MT5.** Selecting Live does not itself arm automated trading; the separate automated-execution action is still required. Automated execution is reset to off after a server restart.
 
 Dashboard host environment variables:
 - `LIVE_TRADING_ENABLED=true`
@@ -93,3 +93,14 @@ MT5 bridge machine environment variables (set separately on the Windows machine 
 The bridge starts in Demo mode by default. Keep it bound to loopback; do not expose its port directly to the internet. Render can reach a locally hosted bridge only through an authenticated, encrypted tunnel or a secure private network. Configure `MT5_BRIDGE_URL` to that HTTPS endpoint and retain the matching `MT5_BRIDGE_TOKEN`. The dashboard refuses to switch modes unless the bridge confirms that the actual connected MT5 account matches the requested environment and is execution-ready.
 
 Live mode is not enabled by this code change alone. The two environment gates, matching MT5 real account, a secure bridge route, successful regression tests, and a deliberate confirmation in the dashboard are all required. Historical backtests remain simulations and never submit broker orders.
+
+
+## Historical backtest scope and limitations
+
+- The dashboard can request up to 50,000 closed M1 bars (subject to MT5 terminal history availability). This is roughly five trading weeks, not several months; do not label it a multi-month test unless the bridge returns that history.
+- Run the technical-only baseline first by leaving **AI filter** unchecked. Enable AI only for a comparison run using the server-allowlisted model.
+- Spread is an approximation that widens around UTC rollover and changes by session. It is not tick-level historical spread from the broker; treat results as exploratory, not broker-accurate.
+- Backtest simulation includes break-even at 1R and trailing from 1.5R, with a conservative same-candle stop-first rule. The trailing distance is approximated from initial stop distance, so this is not yet a tick-for-tick replica of live management.
+- The live scanner blocks new entries during 21:55–22:10 UTC. Broker server timezone must be checked before relying on this window. Optional high-impact news blackout intervals can be supplied as comma-separated UTC ISO-8601 ranges in `HIGH_IMPACT_NEWS_BLACKOUTS_UTC`, formatted `2026-10-18T12:00:00Z/2026-10-18T13:00:00Z`.
+- A daily realized-loss and consecutive-loss circuit breaker is not yet claimed as implemented; it needs an authoritative, persistent closed-deal PnL feed from the MT5 bridge. Do not enable unattended Live trading without that control.
+- Test counts are intentionally not hardcoded here; use the latest GitHub Actions run for the authoritative totals.
