@@ -121,7 +121,8 @@
       <section id="mt5" class="section panel">
         <div class="section-heading"><div><h2>اتصال MT5</h2><p>إرسال الأوامر يتطلب حساب Hedging مطابقًا للبيئة المختارة. Live يبقى محجوبًا ما لم يُفعّل صراحةً على الخادم والجسر.</p></div><span id="execution-status" class="status-tag muted-tag">معطّل</span></div>
         <div class="connection-row"><div class="connection-symbol">MT5</div><div class="connection-copy"><b id="mt5-title">جسر MT5 غير متصل</b><p id="mt5-detail">لم يتم تأكيد حساب تجريبي أو مواصفات الرمز XAUUSD.</p></div><span id="mt5-environment-badge" class="status-tag muted-tag">Demo</span></div>
-        <div class="safety-strip"><span>⛨</span><p><b>حماية التنفيذ مفعّلة</b><br>التداول الحقيقي غير متاح. أي نتيجة تنفيذ غامضة يجب أن تدخل المصالحة بدل إعادة الإرسال التلقائي.</p></div>
+        <div class="safety-strip"><span>⛨</span><p><b>حماية التنفيذ مفعّلة</b><br>Demo وLive مدعومان في الجسر. Live يبقى محجوبًا حتى تفعيله صراحةً على Render وجهاز MT5، مع مطابقة نوع الحساب والتأكيد قبل التشغيل.</p></div>
+         <div class="environment-control"><div><b>بيئة التداول</b><p>اختر Demo أو Live. التغيير لا يفعّل التنفيذ الآلي وحده، ويُرفض إذا لم يطابق الحساب الفعلي البيئة المطلوبة.</p></div><label for="execution-environment">البيئة<select id="execution-environment" aria-label="بيئة التنفيذ"><option value="DEMO" selected>Demo — تجريبي</option><option value="LIVE">Live — حقيقي (يتطلب تفعيلًا وتأكيدًا)</option></select></label><span id="environment-feedback" class="muted" role="status">Live محجوب افتراضيًا حتى تهيئة الخادم والجسر.</span></div>
         <div class="auto-trading-row"><div><b id="auto-trading-title">التنفيذ الآلي</b><p>لا يتفعّل إلا بعد اتصال MT5 وAI وSupabase وحفظ إعدادات المخاطرة. يتطلب Live تفعيلًا منفصلًا وتأكيدًا صريحًا، ويبقى التنفيذ متوقفًا بعد إعادة تشغيل الخادم.</p></div><button id="auto-trading-toggle" class="secondary-button" type="button">تفعيل التنفيذ الآلي (Demo)</button></div>
       </section>
 
