@@ -95,9 +95,9 @@ export async function runHistoricalBacktest(input) {
     throw Object.assign(new Error("يجب اتصال جسر MT5 بحساب Demo قبل سحب البيانات التاريخية."), { status: 409, code: "MT5_DEMO_NOT_READY" });
   }
   const contextCounts = {
-    M5: Math.min(1000, Math.max(35, Math.ceil(barsCount / 5) + 50)),
-    M15: Math.min(1000, Math.max(35, Math.ceil(barsCount / 15) + 50)),
-    H1: Math.min(1000, Math.max(35, Math.ceil(barsCount / 60) + 50))
+    M5: Math.min(50000, Math.max(35, Math.ceil(barsCount / 5) + 50)),
+    M15: Math.min(50000, Math.max(35, Math.ceil(barsCount / 15) + 50)),
+    H1: Math.min(50000, Math.max(35, Math.ceil(barsCount / 60) + 50))
   };
   const [m1Result, m5Result, m15Result, h1Result, specResult] = await Promise.all([
     bridge.candles("M1", barsCount), bridge.candles("M5", contextCounts.M5),
@@ -132,10 +132,10 @@ export async function runHistoricalBacktest(input) {
     const current = bars[i];
     const asOfMs = Date.parse(current.closeTime);
     const candles = {
-      M1: bars.slice(0, i + 1),
-      M5: closedBefore(normalized.M5, asOfMs),
-      M15: closedBefore(normalized.M15, asOfMs),
-      H1: closedBefore(normalized.H1, asOfMs)
+      M1: bars.slice(Math.max(0, i + 1 - 500), i + 1),
+      M5: closedBefore(normalized.M5, asOfMs).slice(-1000),
+      M15: closedBefore(normalized.M15, asOfMs).slice(-1000),
+      H1: closedBefore(normalized.H1, asOfMs).slice(-1000)
     };
     const analysis = analyzeClosedMarket({
       symbol: "XAUUSD", candles, now: new Date(asOfMs + 1).toISOString(),
