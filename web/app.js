@@ -47,7 +47,8 @@ async function refreshHealth() {
     if ($("execution-environment")) $("execution-environment").value=envMode;
     if ($("mt5-environment-badge")) { $("mt5-environment-badge").textContent=envMode; $("mt5-environment-badge").className="status-tag "+(envMode==="LIVE"?"error-tag":"muted-tag"); }
     if ($("auto-trading-title")) $("auto-trading-title").textContent="التنفيذ الآلي على "+envMode;
-    if ($("live-trading-status")) { $("live-trading-status").textContent=health.execution.liveTradingEnabled?"مسموح بالخادم والجسر، مع بقاء التأكيد مطلوبًا":"محجوب افتراضيًا"; $("live-trading-status").className=health.execution.liveTradingEnabled?"warn-tag":"danger-text"; }
+    if ($("live-trading-status")) { $("live-trading-status").textContent=health.execution.liveTradingEnabled?"مفعّل في إعدادات الخادم والجسر؛ يلزم حساب LIVE مطابق":"محجوب افتراضيًا"; $("live-trading-status").className=health.execution.liveTradingEnabled?"warn-tag":"danger-text"; }
+    if ($("environment-feedback")) $("environment-feedback").textContent=envMode==="LIVE"?(health.execution.liveTradingEnabled?"الوضع LIVE مختار؛ تأكد أن الحساب الحقيقي متصل والتنفيذ الآلي متوقف حتى تفعيله يدويًا.":"الوضع الحقيقي غير مهيأ بالكامل؛ لن تُرسل أوامر."):"الوضع Demo مختار. يمكنك اختيار Live بعد تفعيل متغيرات الخادم والجسر وتأكيد المخاطر.";
     $("last-updated").textContent = "آخر تحديث " + timeNow();
     $("persistence-label").textContent = health.database.state === "CONNECTED" ? "التخزين الدائم متصل" : "تخزين مؤقت داخل الخادم";
     $("persistence-label").className = "status-tag " + (health.database.state === "CONNECTED" ? "ok-tag" : "warn-tag");
@@ -156,11 +157,13 @@ $("execution-environment").addEventListener("change",async () => {
     if(!window.confirm("هذا يختار حسابًا حقيقيًا وقد يؤدي إلى خسارة أموال حقيقية. هل تؤكد تغيير البيئة إلى LIVE؟")) { select.value="DEMO"; return; }
     try {
       const result=await api("/api/trading/environment",{method:"POST",body:JSON.stringify({environment:"LIVE",confirmation})});
-      $("system-notice").querySelector("p").textContent="تم اختيار LIVE. التنفيذ الآلي ما زال متوقفًا حتى تفعيله منفصلًا.";
+      $("system-notice").querySelector("p").textContent="تم تأكيد حساب LIVE من الجسر. التنفيذ الآلي ما زال متوقفًا حتى تفعيله منفصلًا.";
+      if ($("environment-feedback")) $("environment-feedback").textContent="تم تأكيد حساب LIVE من الجسر؛ لم يتم تفعيل التنفيذ الآلي.";
       await refreshHealth();
     } catch(error) {
       select.value="DEMO";
       $("system-notice").querySelector("p").textContent=error.data?.message||error.message;
+      if ($("environment-feedback")) $("environment-feedback").textContent=error.data?.message||error.message;
     }
   } else {
     try {
@@ -177,7 +180,8 @@ $("auto-trading-toggle").addEventListener("click",async () => {
   $("auto-trading-toggle").disabled = true;
   try {
     await api("/api/trading/auto",{method:"POST",body:JSON.stringify({enabled})});
-    $("scan-result").textContent = enabled ? "تم تفعيل التنفيذ الآلي على Demo. التداول الحقيقي ما زال معطّلًا." : "تم إيقاف التنفيذ الآلي.";
+    const activeEnvironment = $("execution-environment")?.value || "DEMO";
+    $("scan-result").textContent = enabled ? `تم تفعيل التنفيذ الآلي على ${activeEnvironment} بعد اجتياز فحوصات الحساب.` : "تم إيقاف التنفيذ الآلي.";
     await refreshHealth(); await loadConfig();
   } catch(error) { $("scan-result").textContent = error.data?.message || error.message; }
   finally { $("auto-trading-toggle").disabled = false; }
