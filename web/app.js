@@ -295,7 +295,7 @@ function renderBacktestResult(result) {
   const start=data.startTime?new Date(data.startTime).toLocaleString():"—";
   const end=data.endTime?new Date(data.endTime).toLocaleString():"—";
   const assumptions=result.assumptions||{};
-  $("backtest-data-note").textContent=`مصدر البيانات: MT5 Bridge · ${start} — ${end} · السبريد ${assumptions.spreadPrice??"—"} · الانزلاق ${assumptions.slippagePrice??"—"} · العمولة لكل Lot ${assumptions.commissionPerLotRoundTurn??"—"} · لا توجد أوامر تداول.`;
+  $("backtest-data-note").textContent=`مصدر البيانات: MT5 Bridge · ${start} — ${end} · السبريد الأساسي ${assumptions.spreadPrice??"—"} (${assumptions.spreadModel??"—"}) · الانزلاق ${assumptions.slippagePrice??"—"} · العمولة لكل Lot ${assumptions.commissionPerLotRoundTurn??"—"} · ${result.ai?.used===false?"بدون AI":"AI مفعّل"} · لا توجد أوامر تداول.`;
   const trades=Array.isArray(result.trades)?result.trades:[];
   $("backtest-trades").innerHTML=trades.length?trades.slice().reverse().map(trade=>`<tr><td>${escapeHtml(new Date(trade.signalTime).toLocaleString())}</td><td>${trade.direction==="BUY"?"شراء":"بيع"}</td><td>${escapeHtml(trade.strategyId)}</td><td>${escapeHtml(trade.entryPrice)}</td><td>${escapeHtml(trade.exitPrice)}</td><td>${escapeHtml(trade.exitReason)}</td><td class="${trade.netPnl>=0?"profit-text":"loss-text"}">${escapeHtml(money(trade.netPnl))}</td><td>${escapeHtml(trade.rMultiple)}</td></tr>`).join(""):'<tr><td colspan="8" class="empty">لم ينتج الاختبار صفقات متوافقة مع قرار AI ضمن الإعدادات الحالية.</td></tr>';
   $("backtest-results").hidden=false;
@@ -303,11 +303,12 @@ function renderBacktestResult(result) {
 $("backtest-form").addEventListener("submit",async event=>{
   event.preventDefault();
   const button=$("backtest-run"),feedback=$("backtest-feedback");
+  const useAI=$("backtest-use-ai")?.checked===true;
   const providerId=$("backtest-provider").value.trim(),modelId=$("backtest-model").value.trim();
-  if(!providerId||!modelId){feedback.textContent="اكتب معرّف المزود ومعرّف النموذج للاختبار.";return;}
+  if(useAI&&(!providerId||!modelId)){feedback.textContent="أدخل معرّف المزود والنموذج أو أوقف خيار AI لاختبار الاستراتيجية وحدها.";return;}
   const spreadText=$("backtest-spread").value.trim();
   const request={
-    providerId,modelId,barsCount:Number($("backtest-bars").value),lots:Number($("backtest-lots").value),
+    useAI,providerId,modelId,barsCount:Number($("backtest-bars").value),lots:Number($("backtest-lots").value),
     spreadPrice:spreadText===""?null:Number(spreadText),
     slippagePrice:Number($("backtest-slippage").value),commissionPerLot:Number($("backtest-commission").value),maxAiCalls:Number($("backtest-max-ai").value)
   };
@@ -315,12 +316,12 @@ $("backtest-form").addEventListener("submit",async event=>{
   $("backtest-results").hidden=true;
   $("backtest-status").textContent="جارٍ الاختبار";
   $("backtest-status").className="status-tag warn-tag";
-  feedback.textContent="جارٍ سحب الشموع المغلقة من MT5 ثم اختبار المرشحين على النموذج المختار. قد يستغرق ذلك وقتًا بحسب عدد طلبات AI.";
+  feedback.textContent=useAI?"جارٍ سحب الشموع المغلقة واختبار المرشحين مع AI. قد يستغرق ذلك وقتًا.":"جارٍ اختبار الاستراتيجية الفنية دون AI على الشموع المغلقة. قد يستغرق ذلك وقتًا.";
   try{
     const result=await api("/api/backtest",{method:"POST",body:JSON.stringify(request)});
     renderBacktestResult(result);
     const m=result.metrics||{};
-    feedback.textContent=`اكتمل الاختبار. ${m.trades??0} صفقة، ${m.aiCalls??0} تقييم AI، وصافي النتيجة ${m.netPnl??0}.`;
+    feedback.textContent=`اكتمل الاختبار ${result.ai?.used===false?"دون AI":"مع AI"}. ${m.trades??0} صفقة، ${m.aiCalls??0} تقييم AI، وصافي النتيجة ${m.netPnl??0}.`;
     $("backtest-status").textContent="اكتمل الاختبار";
     $("backtest-status").className="status-tag ok-tag";
   }catch(error){
