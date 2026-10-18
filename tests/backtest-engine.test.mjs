@@ -29,7 +29,7 @@ test("historical backtest uses closed MT5 candles, AI agreement, costs, and neve
   const aiProvider = { assess: async ({evidence,now}) => { calls++; return {providerId:"test",modelId:"test-model",outcome:evidence[0].direction,rationale:"aligned",rationaleCodes:[],assessedAt:now,expiresAt:now}; } };
   const result = await runHistoricalBacktest({
     bridge, aiProvider, aiProviderId:"test", aiModelId:"test-model",
-    request:{barsCount:100,lots:0.01,spreadPrice:0.2,slippagePrice:0.05,commissionPerLot:1,maxAiCalls:5},
+    request:{barsCount:100,lots:0.01,spreadPrice:0.2,slippagePrice:0.05,commissionPerLot:1,maxAiCalls:5,useAI:true},
     normalizeClosedCandles:(raw,tf,min)=>({ok:true,value:raw.slice(-min)}),
     analyzeClosedMarket:({candles,now}) => {
       const nowMs=Date.parse(now);
@@ -47,6 +47,9 @@ test("historical backtest uses closed MT5 candles, AI agreement, costs, and neve
   assert.equal(result.assumptions.liveOrdersSent,false);
   assert.equal(result.assumptions.slippagePrice,0.05);
   assert.equal(result.assumptions.spreadPrice,0.2);
+  assert.equal(result.assumptions.spreadModel,"UTC_SESSION_APPROXIMATION_NOT_TICK_HISTORY");
+  assert.equal(result.assumptions.breakEvenAtR,1);
+  assert.equal(result.assumptions.trailingStartsAtR,1.5);
   assert.equal(result.metrics.aiCalls,calls);
   assert.ok(result.data.receivedBars >= 100);
   assert.ok(Array.isArray(result.trades));
