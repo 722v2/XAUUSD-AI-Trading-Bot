@@ -125,7 +125,7 @@ class BridgeUnitTests(unittest.TestCase):
             self.assertTrue(healthy["executionReady"])
             bridge_module.mt5 = FakeMT5(trade_mode=0, margin_mode=0)
             netting = self.service.health()
-            self.assertEqual(netting["state"],"CONNECTED")
+            self.assertEqual(netting["state"],"BLOCKED")
             self.assertFalse(netting["executionReady"])
             self.assertEqual(netting["reason"],"HEDGING_ACCOUNT_REQUIRED")
         finally:
@@ -139,8 +139,8 @@ class BridgeUnitTests(unittest.TestCase):
         try:
             payload = {"environment":"DEMO","symbol":"XAUUSD","direction":"BUY","idempotencyKey":"real-account-test","volume":0.1,"stopLoss":1990,"takeProfit":2020}
             status, result = self.service.submit_order(payload)
-            self.assertEqual(status,403)
-            self.assertEqual(result["error"],"NON_DEMO_ACCOUNT_BLOCKED")
+            self.assertEqual(status,503)
+            self.assertEqual(result["error"],"EXECUTION_ENVIRONMENT_MISMATCH")
             self.assertEqual(fake.order_send_calls,0)
             self.assertIsNone(self.store.get("real-account-test"))
         finally:
