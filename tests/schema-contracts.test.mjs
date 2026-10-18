@@ -2,8 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 
-test('foundation migration creates core tables with RLS and no public policies', async () => {
-  const sql = await readFile(new URL('../supabase/migrations/202610160001_phase1_foundation.sql', import.meta.url), 'utf8');
+test('canonical Supabase schema creates core tables with RLS and no public policies', async () => {
+  const sql = await readFile(new URL('../supabase/schema.sql', import.meta.url), 'utf8');
   const expectedTables = [
     'app_settings', 'risk_settings', 'ai_provider_configs', 'market_quotes', 'market_bars',
     'scanner_runs', 'strategy_candidates', 'ai_assessments', 'trade_decisions',
@@ -22,13 +22,13 @@ test('foundation migration creates core tables with RLS and no public policies',
   assert.doesNotMatch(sql, /service_role_key\s*=/i);
 });
 
-test('risk-mode database constraint requires exactly the selected risk value', async () => {
-  const sql = await readFile(new URL('../supabase/migrations/202610160001_phase1_foundation.sql', import.meta.url), 'utf8');
+test('canonical schema risk-mode constraint requires exactly the selected risk value', async () => {
+  const sql = await readFile(new URL('../supabase/schema.sql', import.meta.url), 'utf8');
   assert.match(sql, /risk_percent is not null and risk_percent > 0 and risk_cash is null/i);
   assert.match(sql, /risk_cash is not null and risk_cash > 0 and risk_percent is null/i);
 });
 
-test('additive position migration preserves original stop for trailing recovery', async () => {
-  const sql = await readFile(new URL('../supabase/migrations/202610160002_position_initial_stop.sql', import.meta.url), 'utf8');
-  assert.match(sql, /alter table public\.positions add column if not exists initial_stop_loss/i);
+test('canonical schema stores original stop for trailing recovery', async () => {
+  const sql = await readFile(new URL('../supabase/schema.sql', import.meta.url), 'utf8');
+  assert.match(sql, /initial_stop_loss numeric\(24, 8\)/i);
 });
