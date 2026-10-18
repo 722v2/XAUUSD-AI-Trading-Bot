@@ -64,14 +64,15 @@
       <section id="backtest" class="section panel">
         <div class="section-heading"><div><h2>الاختبار التاريخي · AI Backtesting</h2><p>يسحب شموعًا مغلقة من جسر MT5 ويختبر النموذج المختار دون إرسال أوامر تداول</p></div><span id="backtest-status" class="status-tag muted-tag">جاهز للإعداد</span></div>
         <form id="backtest-form" class="risk-form backtest-form">
-          <label>معرّف مزود AI للاختبار<input id="backtest-provider" type="text" autocomplete="off" placeholder="نفس AI_PROVIDER_ID في Environment" required></label>
-          <label>معرّف النموذج المراد اختباره<input id="backtest-model" type="text" autocomplete="off" placeholder="اكتب Model ID المراد اختباره" required></label>
-          <label>شموع M1 المغلقة<select id="backtest-bars"><option value="100">100 شمعة · نحو 1 ساعة و40 دقيقة</option><option value="500">500 شمعة · نحو 8 ساعات و20 دقيقة</option><option value="1000">1000 شمعة · نحو 16 ساعة و40 دقيقة</option><option value="2500">2500 شمعة · نحو 1 يوم و17 ساعة</option><option value="5000" selected>5000 شمعة · نحو 3 أيام و11 ساعة</option></select></label>
+          <label>معرّف مزود AI للاختبار<input id="backtest-provider" type="text" autocomplete="off" placeholder="نفس AI_PROVIDER_ID في Environment"></label>
+          <label>معرّف النموذج المراد اختباره<input id="backtest-model" type="text" autocomplete="off" placeholder="اكتب Model ID المراد اختباره"></label>
+          <label>شموع M1 المغلقة<select id="backtest-bars"><option value="1000">1,000 شمعة · أقل من يوم</option><option value="5000">5,000 شمعة · نحو 3.5 أيام</option><option value="20000">20,000 شمعة · نحو أسبوعين</option><option value="50000" selected>50,000 شمعة · نحو 5 أسابيع تداول</option></select></label>
           <label>حجم الصفقة الافتراضي (Lots)<input id="backtest-lots" type="number" min="0.001" max="100" step="0.001" value="0.01" required></label>
           <label>السبريد بالسعر<input id="backtest-spread" type="number" min="0" max="100" step="any" placeholder="فارغ = السبريد الحالي من MT5"></label>
           <label>الانزلاق السعري لكل تنفيذ<input id="backtest-slippage" type="number" min="0" max="100" step="any" value="0" required></label>
           <label>العمولة النقدية لكل Lot ذهابًا وإيابًا<input id="backtest-commission" type="number" min="0" max="10000" step="any" value="0" required></label>
-          <label>الحد الأقصى لطلبات AI<select id="backtest-max-ai"><option value="5">5 تقييمات</option><option value="10">10 تقييمات</option><option value="25" selected>25 تقييمًا</option><option value="50">50 تقييمًا</option></select></label>
+          <label>الحد الأقصى لطلبات AI<select id="backtest-max-ai"><option value="50">50 تقييمًا</option><option value="250" selected>250 تقييمًا</option><option value="1000">1,000 تقييم</option><option value="5000">5,000 تقييم</option></select></label>
+           <label class="checkbox-label"><input id="backtest-use-ai" type="checkbox"> فلترة الإشارات بواسطة AI (أوقفه أولًا لاختبار الاستراتيجية وحدها)</label>
           <div class="form-actions"><button id="backtest-run" class="primary-button" type="submit">▶ تشغيل الاختبار التاريخي</button><span class="muted">النموذج يُستدعى فقط عند ظهور مرشح فني؛ كل المفاتيح تبقى على الخادم.</span></div>
         </form>
         <p class="footnote">الدخول عند افتتاح الشمعة التالية للإشارة. إذا لمس SL وTP داخل الشمعة نفسها، يُحتسب وقف الخسارة أولًا بشكل محافظ. تُعرض نتائج الاختبار فقط؛ لا توجد أوامر MT5 أو تداول حقيقي.</p>
