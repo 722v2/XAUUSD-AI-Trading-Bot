@@ -51,7 +51,7 @@ test('health API reports not-ready services honestly and keeps live disabled', a
 test('historical backtest rejects arbitrary AI providers and never defaults to a model', async () => {
   await withServer(async base => {
     const response = await fetch(base+'/api/backtest',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({
-      providerId:'untrusted-provider',modelId:'untrusted-model',barsCount:100,lots:0.01,
+      useAI:true,providerId:'untrusted-provider',modelId:'untrusted-model',barsCount:100,lots:0.01,
       spreadPrice:0.2,slippagePrice:0,commissionPerLot:0,maxAiCalls:5
     })});
     const data = await response.json();
