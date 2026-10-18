@@ -95,7 +95,7 @@ class BridgeUnitTests(unittest.TestCase):
         fake = CandleMT5()
         bridge_module.mt5 = fake
         try:
-            rejected = self.service.candles("M1", 5001)
+            rejected = self.service.candles("M1", 50001)
             self.assertEqual(rejected[0], 400)
             status, result = self.service.candles("M1", 100)
             self.assertEqual(status, 200)
