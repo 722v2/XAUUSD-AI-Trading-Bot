@@ -6,10 +6,10 @@ Independent XAUUSD trading system, built from scratch. It does not import or mod
 
 - Strict TypeScript domain contracts, explicit opportunity lifecycle, risk sizing and execution-state contracts.
 - Closed-candle market normalization and deterministic EMA, RSI, MACD and ATR calculations.
-- Authenticated local MT5 bridge in Python, with Demo-account enforcement and SQLite idempotency ledger.
+- Authenticated local MT5 bridge in Python, with explicit Demo/Live account matching, independent Live safety gates, and SQLite idempotency ledger.
 - Configurable OpenAI-compatible AI assessment adapter; AI responses are analysis only and cannot directly place orders.
 - Supabase REST persistence adapters and a single complete schema file with RLS and atomic versioned settings RPC.
-- Arabic RTL dashboard with scanner countdown, M1 candlestick chart, technical metrics/evidence, risk settings, Demo position monitoring/modification/closure, and Telegram multi-chat discovery with a persistent notification outbox when Supabase is configured.
+- Arabic RTL dashboard with scanner countdown, M1 candlestick chart, technical metrics/evidence, risk settings, Demo/Live environment selection, bot-owned position monitoring/modification/closure, and Telegram multi-chat discovery with a persistent notification outbox when Supabase is configured.
 - Historical AI backtesting panel: retrieves closed XAUUSD candles from the authenticated MT5 bridge (up to 5,000 M1 bars plus M5/M15/H1 context), tests the selected allowlisted AI model, models bid/ask spread, slippage and round-turn commission, and reports win rate, net P/L, profit factor, drawdown and individual trades. Backtests never submit orders.
 - GitHub Actions runs TypeScript tests and Python bridge safety tests.
 
@@ -52,7 +52,7 @@ $env:AI_API_KEY = "your-secret-key"
 npm start
 ```
 
-The AI key and bridge token are server-side environment variables; never commit them or place them in dashboard code. Keep MetaTrader logged into a Demo hedging account. The bridge rejects non-Demo accounts, blocks automated execution on ambiguous netting accounts, and refuses Live orders. It manages only bot-owned positions.
+The AI key and bridge token are server-side environment variables; never commit them or place them in dashboard code. Keep MetaTrader logged into the account matching the selected environment. The bridge blocks execution unless the connected account matches Demo/Live selection, requires Hedging mode, and applies separate server-side Live gates. It manages only bot-owned positions.
 
 ## Database configuration
 
@@ -68,10 +68,10 @@ python -m unittest discover -s tests_python -v
 
 ## Safety boundaries
 
-- Live trading is disabled and not exposed as a dashboard option.
-- The scanner can run only after MT5 Demo and AI are configured and health checks pass.
-- Auto-execution starts disabled and can only be armed for Demo after scanner, AI probe, risk settings, Supabase persistence and Demo-account checks pass. Netting accounts or any unowned XAUUSD position block automation. Stopping the scanner disarms it.
-- Analysis decisions are not execution authorization. Execution requires separate risk validation, durable intent persistence, Demo verification and broker reconciliation.
+- Live mode is exposed in the MT5 connection section and settings, but remains locked unless both Render and the MT5 bridge have independent Live gates enabled and the bridge confirms the connected real Hedging account.
+- The scanner requires a matching MT5 environment, AI configuration and successful health checks.
+- Auto-execution starts disabled and can only be armed after scanner, AI probe, risk settings, Supabase persistence and matching account checks pass. Netting accounts or any unowned XAUUSD position block automation. Stopping the scanner disarms it.
+- Analysis decisions are not execution authorization. Execution requires separate risk validation, durable intent persistence, account-environment verification and broker reconciliation.
 - Ambiguous MT5 order results are not blindly retried.
 - Do not infer profitability from unit tests or architecture completeness.
 
