@@ -1,7 +1,13 @@
 function finite(value) { return typeof value === "number" && Number.isFinite(value); }
 function round(value, digits = 2) { const scale = 10 ** digits; return Math.round((value + Number.EPSILON) * scale) / scale; }
 function closedBefore(candles, timeMs) { return candles.filter(bar => Date.parse(bar.closeTime) <= timeMs); }
-function simulateTrade(candidate, bars, spreadPrice, slippagePrice, lots, tickSize, tickValuePerLot, commissionPerLot) {
+function sessionSpread(baseSpread, timeValue) {
+  const hour = new Date(timeValue).getUTCHours();
+  // Approximate wider spreads around rollover and thinner liquidity; this is not broker tick history.
+  const multiplier = hour >= 21 || hour < 1 ? 2.0 : hour >= 12 && hour < 16 ? 0.85 : hour >= 6 && hour < 20 ? 1.0 : 1.25;
+  return baseSpread * multiplier;
+}
+function simulateTrade(candidate, bars, baseSpreadPrice, slippagePrice, lots, tickSize, tickValuePerLot, commissionPerLot) {
   const entryIndex = candidate.index + 1;
   if (entryIndex >= bars.length) return null;
   const signal = candidate.evidence;
@@ -9,24 +15,40 @@ function simulateTrade(candidate, bars, spreadPrice, slippagePrice, lots, tickSi
   const targetDistance = signal.direction === "BUY" ? signal.takeProfit - signal.entryPrice : signal.entryPrice - signal.takeProfit;
   if (!(stopDistance > 0 && targetDistance > 0)) return null;
   const entryBar = bars[entryIndex];
-  const entryPrice = signal.direction === "BUY" ? entryBar.open + spreadPrice + slippagePrice : entryBar.open - slippagePrice;
-  // MT5 chart OHLC is bid-based: BUY exits are checked on bid; SELL exits on ask.
-  const stopLoss = signal.direction === "BUY" ? entryBar.open - stopDistance : entryBar.open + spreadPrice + stopDistance;
-  const takeProfit = signal.direction === "BUY" ? entryBar.open + targetDistance : entryBar.open + spreadPrice - targetDistance;
+  const entrySpread = sessionSpread(baseSpreadPrice, entryBar.openTime);
+  const entryPrice = signal.direction === "BUY" ? entryBar.open + entrySpread + slippagePrice : entryBar.open - slippagePrice;
+  let stopLoss = signal.direction === "BUY" ? entryPrice - stopDistance - entrySpread : entryPrice + stopDistance + entrySpread;
+  const takeProfit = signal.direction === "BUY" ? entryPrice + targetDistance : entryPrice - targetDistance;
+  const riskDistance = Math.abs(entryPrice - stopLoss);
+  const breakEvenTrigger = riskDistance;
+  const trailingTrigger = riskDistance * 1.5;
+  const trailingDistance = stopDistance * 0.8; // Live manager uses 1.2 ATR; signal stop is 1.5 ATR.
+  let breakEvenMoved = false, trailingStarted = false;
   let exitPrice = null, exitReason = "DATA_END", exitIndex = bars.length - 1;
   for (let i = entryIndex; i < bars.length; i++) {
     const bar = bars[i];
-    const high = signal.direction === "SELL" ? bar.high + spreadPrice : bar.high;
-    const low = signal.direction === "SELL" ? bar.low + spreadPrice : bar.low;
+    const spread = sessionSpread(baseSpreadPrice, bar.openTime);
+    const high = signal.direction === "SELL" ? bar.high + spread : bar.high;
+    const low = signal.direction === "SELL" ? bar.low + spread : bar.low;
+    const favorable = signal.direction === "BUY" ? high - entryPrice : entryPrice - low;
+    if (!breakEvenMoved && favorable >= breakEvenTrigger) {
+      stopLoss = signal.direction === "BUY" ? Math.max(stopLoss, entryPrice + slippagePrice) : Math.min(stopLoss, entryPrice - slippagePrice);
+      breakEvenMoved = true;
+    }
+    if (favorable >= trailingTrigger) {
+      trailingStarted = true;
+      const trail = signal.direction === "BUY" ? bar.close - trailingDistance : bar.close + trailingDistance;
+      stopLoss = signal.direction === "BUY" ? Math.max(stopLoss, trail) : Math.min(stopLoss, trail);
+    }
     const stopHit = signal.direction === "BUY" ? low <= stopLoss : high >= stopLoss;
     const targetHit = signal.direction === "BUY" ? high >= takeProfit : low <= takeProfit;
-    // If both levels fall inside one candle, assume the adverse stop was hit first.
-    if (stopHit) { exitPrice = stopLoss; exitReason = targetHit ? "SL_AND_TP_SAME_BAR_SL_FIRST" : "STOP_LOSS"; exitIndex = i; break; }
+    if (stopHit) { exitPrice = stopLoss; exitReason = targetHit ? "SL_AND_TP_SAME_BAR_SL_FIRST" : trailingStarted ? "TRAILING_STOP" : breakEvenMoved ? "BREAK_EVEN_STOP" : "STOP_LOSS"; exitIndex = i; break; }
     if (targetHit) { exitPrice = takeProfit; exitReason = "TAKE_PROFIT"; exitIndex = i; break; }
   }
   if (exitPrice === null) {
     const last = bars[bars.length - 1];
-    exitPrice = signal.direction === "BUY" ? last.close : last.close + spreadPrice;
+    const spread = sessionSpread(baseSpreadPrice, last.closeTime);
+    exitPrice = signal.direction === "BUY" ? last.close : last.close + spread;
   }
   exitPrice += signal.direction === "BUY" ? -slippagePrice : slippagePrice;
   const signedMove = signal.direction === "BUY" ? exitPrice - entryPrice : entryPrice - exitPrice;
@@ -35,11 +57,11 @@ function simulateTrade(candidate, bars, spreadPrice, slippagePrice, lots, tickSi
   const netPnl = grossPnl - commission;
   return {
     signalTime: signal.createdAt, entryTime: entryBar.openTime, exitTime: bars[exitIndex].closeTime,
-    direction: signal.direction, strategyId: signal.strategyId, aiOutcome: candidate.aiOutcome,
+    direction: signal.direction, strategyId: signal.strategyId, aiOutcome: candidate.aiOutcome ?? "NOT_USED",
     entryPrice: round(entryPrice, 3), stopLoss: round(stopLoss, 3), takeProfit: round(takeProfit, 3),
     exitPrice: round(exitPrice, 3), exitReason, lots: round(lots, 4),
     grossPnl: round(grossPnl, 2), commission: round(commission, 2), netPnl: round(netPnl, 2),
-    rMultiple: round(netPnl / (((stopDistance + spreadPrice + 2 * slippagePrice) / tickSize * tickValuePerLot * lots + commission) || 1), 3),
+    rMultiple: round(netPnl / (((riskDistance + 2 * slippagePrice) / tickSize * tickValuePerLot * lots + commission) || 1), 3),
     _exitIndex: exitIndex
   };
 }
@@ -52,20 +74,21 @@ function simulateTrade(candidate, bars, spreadPrice, slippagePrice, lots, tickSi
 export async function runHistoricalBacktest(input) {
   const { bridge, aiProvider, aiProviderId, aiModelId, request, normalizeClosedCandles, analyzeClosedMarket, coordinateTechnicalAndAI } = input;
   if (!bridge) throw Object.assign(new Error("جسر MT5 غير مضبوط على الخادم."), { status: 409, code: "MT5_NOT_CONFIGURED" });
-  if (!aiProvider) throw Object.assign(new Error("اختر نموذج AI مضبوطًا على الخادم أولًا."), { status: 409, code: "AI_NOT_CONFIGURED" });
+  const useAI = request.useAI === true;
+  if (useAI && !aiProvider) throw Object.assign(new Error("اختر نموذج AI مضبوطًا على الخادم أولًا."), { status: 409, code: "AI_NOT_CONFIGURED" });
   const barsCount = request.barsCount;
   const lots = request.lots;
   const spreadPrice = request.spreadPrice;
   const slippagePrice = request.slippagePrice ?? 0;
   const commissionPerLot = request.commissionPerLot;
   const maxAiCalls = request.maxAiCalls;
-  if (!Number.isInteger(barsCount) || barsCount < 100 || barsCount > 5000 ||
+  if (!Number.isInteger(barsCount) || barsCount < 100 || barsCount > 50000 ||
       !finite(lots) || lots <= 0 || lots > 100 ||
       !finite(spreadPrice) || spreadPrice < 0 || spreadPrice > 100 ||
       !finite(slippagePrice) || slippagePrice < 0 || slippagePrice > 100 ||
       !finite(commissionPerLot) || commissionPerLot < 0 || commissionPerLot > 10000 ||
-      !Number.isInteger(maxAiCalls) || maxAiCalls < 1 || maxAiCalls > 50) {
-    throw Object.assign(new Error("إعدادات الاختبار غير صالحة. الشموع 100–5000، والانزلاق غير سالب، وعدد تقييمات AI من 1 إلى 50."), { status: 400, code: "INVALID_BACKTEST_CONFIG" });
+      !Number.isInteger(maxAiCalls) || maxAiCalls < 1 || maxAiCalls > 5000) {
+    throw Object.assign(new Error("إعدادات الاختبار غير صالحة. الشموع 100–50000، والانزلاق غير سالب، وعدد تقييمات AI من 1 إلى 5000."), { status: 400, code: "INVALID_BACKTEST_CONFIG" });
   }
   const health = await bridge.health();
   if (!health.ok || health.value.state !== "CONNECTED" || health.value.environment !== "DEMO") {
@@ -116,7 +139,7 @@ export async function runHistoricalBacktest(input) {
     };
     const analysis = analyzeClosedMarket({
       symbol: "XAUUSD", candles, now: new Date(asOfMs + 1).toISOString(),
-      maxM1AgeMs: 120000, minimumM1Bars: 35
+      maxM1AgeMs: 20000, minimumM1Bars: 35
     });
     const evidence = analysis.status === "READY" ? analysis.evidence[0] : undefined;
     if (evidence) candidates.push({ index: i, evidence });
@@ -126,24 +149,28 @@ export async function runHistoricalBacktest(input) {
   let aiCalls = 0, aiRejected = 0, skippedOverlap = 0, lastExitIndex = -1;
   for (const candidate of candidates) {
     if (candidate.index <= lastExitIndex) { skippedOverlap++; continue; }
-    if (aiCalls >= maxAiCalls) break;
-    aiCalls++;
-    let assessment;
-    try {
-      assessment = await aiProvider.assess({ symbol: "XAUUSD", evidence: [candidate.evidence], now: candidate.evidence.createdAt });
-    } catch (error) {
-      aiErrors.push({ signalTime: candidate.evidence.createdAt, code: typeof error?.code === "string" ? error.code : "AI_ERROR" });
-      continue;
+    let aiOutcome = "NOT_USED";
+    if (useAI) {
+      if (aiCalls >= maxAiCalls) break;
+      aiCalls++;
+      let assessment;
+      try {
+        assessment = await aiProvider.assess({ symbol: "XAUUSD", evidence: [candidate.evidence], now: candidate.evidence.createdAt });
+      } catch (error) {
+        aiErrors.push({ signalTime: candidate.evidence.createdAt, code: typeof error?.code === "string" ? error.code : "AI_ERROR" });
+        continue;
+      }
+      const decision = coordinateTechnicalAndAI([candidate.evidence], assessment);
+      if (decision.outcome !== candidate.evidence.direction) { aiRejected++; continue; }
+      aiOutcome = assessment.outcome;
     }
-    const decision = coordinateTechnicalAndAI([candidate.evidence], assessment);
-    if (decision.outcome !== candidate.evidence.direction) { aiRejected++; continue; }
-    const trade = simulateTrade({ ...candidate, aiOutcome: assessment.outcome }, bars, spreadPrice, slippagePrice, lots, tickSize, tickValuePerLot, commissionPerLot);
+    const trade = simulateTrade({ ...candidate, aiOutcome }, bars, spreadPrice, slippagePrice, lots, tickSize, tickValuePerLot, commissionPerLot);
     if (!trade) continue;
     lastExitIndex = trade._exitIndex;
     delete trade._exitIndex;
     trades.push(trade);
   }
-  const skippedByLimit = Math.max(0, candidates.length - aiCalls - skippedOverlap);
+  const skippedByLimit = useAI ? Math.max(0, candidates.length - aiCalls - skippedOverlap) : 0;
   let netPnl = 0, grossProfit = 0, grossLoss = 0, peak = 0, maxDrawdown = 0;
   const equityCurve = [];
   for (const trade of trades) {
@@ -157,8 +184,8 @@ export async function runHistoricalBacktest(input) {
   const wins = trades.filter(trade => trade.netPnl > 0).length;
   const losses = trades.filter(trade => trade.netPnl < 0).length;
   return {
-    ok: true, mode: "HISTORICAL_AI_BACKTEST", symbol: "XAUUSD",
-    ai: { providerId: aiProviderId, modelId: aiModelId },
+    ok: true, mode: useAI ? "HISTORICAL_AI_BACKTEST" : "HISTORICAL_TECHNICAL_BACKTEST", symbol: "XAUUSD",
+    ai: useAI ? { providerId: aiProviderId, modelId: aiModelId } : { used: false },
     data: {
       timeframe: "M1", requestedBars: barsCount, receivedBars: bars.length,
       startTime: bars[0].openTime, endTime: bars[bars.length - 1].closeTime,
@@ -166,7 +193,8 @@ export async function runHistoricalBacktest(input) {
       source: "MT5_BRIDGE_CLOSED_CANDLES"
     },
     assumptions: {
-      lots, spreadPrice, slippagePrice, spreadSource: request.spreadSource || "USER_INPUT",
+      lots, spreadPrice, slippagePrice, spreadSource: request.spreadSource || "USER_INPUT", spreadModel: "UTC_SESSION_APPROXIMATION_NOT_TICK_HISTORY",
+      breakEvenAtR: 1, trailingStartsAtR: 1.5, trailingDistanceApproximation: "0.8x initial stop distance",
       commissionPerLotRoundTurn: commissionPerLot, tickSize, tickValuePerLot,
       entry: "next M1 candle open; buy entry includes configured spread",
       sameCandleStopAndTarget: "stop loss first (conservative)",
@@ -174,7 +202,7 @@ export async function runHistoricalBacktest(input) {
       noLookahead: true, liveOrdersSent: false
     },
     metrics: {
-      candidateSignals: candidates.length, aiCalls, aiRejected, aiErrors: aiErrors.length,
+      candidateSignals: candidates.length, aiUsed: useAI, aiCalls, aiRejected, aiErrors: aiErrors.length,
       aiCallsSkippedByLimit: skippedByLimit, overlappingSignalsSkipped: skippedOverlap,
       trades: trades.length, wins, losses, breakeven: trades.length - wins - losses,
       winRatePercent: trades.length ? round(wins / trades.length * 100, 2) : 0,
