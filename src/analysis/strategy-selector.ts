@@ -44,17 +44,11 @@ export function selectAdaptiveStrategy(input: StrategySelectionInput): StrategyS
         continuationBuy?{strategyId:"M1_TREND_CONTINUATION_V1",direction:"BUY" as const,codes:["TREND_CONTINUATION","EMA_TREND_CONFIRMED","MACD_MOMENTUM_CONFIRMED"]}:null,
         continuationSell?{strategyId:"M1_TREND_CONTINUATION_V1",direction:"SELL" as const,codes:["TREND_CONTINUATION","EMA_TREND_CONFIRMED","MACD_MOMENTUM_CONFIRMED"]}:null,
         pullbackBuy?{strategyId:"M1_PULLBACK_RECLAIM_V1",direction:"BUY" as const,codes:["PULLBACK_RECLAIM","TREND_SLOPE_CONFIRMED","EMA9_RECLAIM"]}:null,
-        pullbackSell?{strategyId:"M1_PULLBACK_RECLAIM_V1",direction:"SELL" as const,codes:["PULLBACK_RECLAIM","TREND_SLOPE_CONFIRMED","EMA9_REJECTION"]}:null,
-        breakoutBuy?{strategyId:"M1_RANGE_BREAKOUT_V1",direction:"BUY" as const,codes:["RANGE_BREAKOUT","CLOSED_BAR_RANGE_HIGH_BROKEN"]}:null,
-        breakoutSell?{strategyId:"M1_RANGE_BREAKOUT_V1",direction:"SELL" as const,codes:["RANGE_BREAKOUT","CLOSED_BAR_RANGE_LOW_BROKEN"]}:null
+        pullbackSell?{strategyId:"M1_PULLBACK_RECLAIM_V1",direction:"SELL" as const,codes:["PULLBACK_RECLAIM","TREND_SLOPE_CONFIRMED","EMA9_REJECTION"]}:null
       ]
     : [
         breakoutBuy?{strategyId:"M1_RANGE_BREAKOUT_V1",direction:"BUY" as const,codes:["RANGE_BREAKOUT","CLOSED_BAR_RANGE_HIGH_BROKEN"]}:null,
-        breakoutSell?{strategyId:"M1_RANGE_BREAKOUT_V1",direction:"SELL" as const,codes:["RANGE_BREAKOUT","CLOSED_BAR_RANGE_LOW_BROKEN"]}:null,
-        pullbackBuy?{strategyId:"M1_PULLBACK_RECLAIM_V1",direction:"BUY" as const,codes:["PULLBACK_RECLAIM","TREND_SLOPE_CONFIRMED","EMA9_RECLAIM"]}:null,
-        pullbackSell?{strategyId:"M1_PULLBACK_RECLAIM_V1",direction:"SELL" as const,codes:["PULLBACK_RECLAIM","TREND_SLOPE_CONFIRMED","EMA9_REJECTION"]}:null,
-        continuationBuy?{strategyId:"M1_TREND_CONTINUATION_V1",direction:"BUY" as const,codes:["TREND_CONTINUATION","EMA_TREND_CONFIRMED","MACD_MOMENTUM_CONFIRMED"]}:null,
-        continuationSell?{strategyId:"M1_TREND_CONTINUATION_V1",direction:"SELL" as const,codes:["TREND_CONTINUATION","EMA_TREND_CONFIRMED","MACD_MOMENTUM_CONFIRMED"]}:null
+        breakoutSell?{strategyId:"M1_RANGE_BREAKOUT_V1",direction:"SELL" as const,codes:["RANGE_BREAKOUT","CLOSED_BAR_RANGE_LOW_BROKEN"]}:null
       ];
   const selected=candidates.find(candidate=>candidate!==null);
   if (!selected) return null;
