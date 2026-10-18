@@ -1,6 +1,14 @@
 function finite(value) { return typeof value === "number" && Number.isFinite(value); }
 function round(value, digits = 2) { const scale = 10 ** digits; return Math.round((value + Number.EPSILON) * scale) / scale; }
-function closedBefore(candles, timeMs) { return candles.filter(bar => Date.parse(bar.closeTime) <= timeMs); }
+function closedBefore(candles, timeMs) {
+  let low=0, high=candles.length;
+  while(low<high) {
+    const mid=(low+high)>>>1;
+    if(Date.parse(candles[mid].closeTime)<=timeMs) low=mid+1;
+    else high=mid;
+  }
+  return candles.slice(Math.max(0,low-1000),low);
+}
 function sessionSpread(baseSpread, timeValue) {
   const hour = new Date(timeValue).getUTCHours();
   // Approximate wider spreads around rollover and thinner liquidity; this is not broker tick history.
