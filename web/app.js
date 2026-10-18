@@ -291,6 +291,9 @@ function renderBacktestResult(result) {
     ["متوسط الصفقة",money(metrics.expectancyPerTrade)],["رفض AI",String(metrics.aiRejected??0)],
     ["أخطاء AI",String(metrics.aiErrors??0)],["تقييمات لم تُنفذ بسبب الحد",String(metrics.aiCallsSkippedByLimit??0)]
   ];
+  const holdout=metrics.sampleBreakdown?.outOfSample;
+  if(holdout) stats.push(["خارج العينة · الصفقات / صافي الربح",""+holdout.trades+" / "+money(holdout.netPnl)]);
+  for(const [strategy,values] of Object.entries(metrics.strategyBreakdown||{})) stats.push(["استراتيجية "+strategy,values.trades+" صفقة · "+money(values.netPnl)+" · PF "+(values.profitFactor??"—")]);
   $("backtest-summary").innerHTML=stats.map(([label,value])=>`<div class="backtest-stat"><span>${escapeHtml(label)}</span><b class="${label==="صافي الربح / الخسارة"?(Number(metrics.netPnl)>=0?"profit-text":"loss-text"):""}">${escapeHtml(value)}</b></div>`).join("");
   const start=data.startTime?new Date(data.startTime).toLocaleString():"—";
   const end=data.endTime?new Date(data.endTime).toLocaleString():"—";
