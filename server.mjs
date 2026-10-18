@@ -96,9 +96,7 @@ function tradingTimeBlock(env, nowMs=Date.now()) {
   const date=new Date(nowMs);
   const minute=date.getUTCHours()*60+date.getUTCMinutes();
   // Conservative UTC rollover window; broker server timezone may differ and must be verified.
-  if (minute>=21*60+55 || minute<22*60+10 && minute>=0) {
-    if (minute>=21*60+55 || minute<10) return "ROLLOVER_BLACKOUT";
-  }
+  if (minute>=21*60+55 && minute<22*60+10) return "ROLLOVER_BLACKOUT";
   const configured=(env.HIGH_IMPACT_NEWS_BLACKOUTS_UTC||"").split(",").map(item=>item.trim()).filter(Boolean);
   for (const range of configured) {
     const parts=range.split("/");
