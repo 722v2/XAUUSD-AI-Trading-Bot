@@ -415,7 +415,7 @@ export function createAppServer(env = process.env) {
         managedOpenPositionCount=management.openPositionCount;
       }
       const now = new Date().toISOString();
-      const analysis = analyzeClosedMarket({symbol:"XAUUSD",candles:normalized,now,maxM1AgeMs:120000,minimumM1Bars:35});
+      const analysis = analyzeClosedMarket({symbol:"XAUUSD",candles:normalized,now,maxM1AgeMs:20000,minimumM1Bars:35});
       if (analysis.status === "NO_ANALYSIS") {
         const entry=record("NO_ANALYSIS",analysis.reason,{latestClosedBarTime:analysis.latestClosedBarTime});
         return {status:409,body:{error:analysis.reason,message:"البيانات غير كافية أو قديمة؛ لا توجد إشارة.",analysis,chartCandles:normalized.M1.slice(-60),run:entry}};
@@ -542,10 +542,34 @@ export function createAppServer(env = process.env) {
           const entry=record("EXPIRED","EVIDENCE_EXPIRED_BEFORE_RISK");
           return {status:409,body:{error:"ASSESSMENT_EXPIRED",message:"انتهت صلاحية الفرصة قبل حساب المخاطرة؛ لم يتم إرسال الأمر.",run:entry}};
         }
+        const entryPrice=decision.direction==="BUY"?liveQuote.value.ask:liveQuote.value.bid;
+        const spreadPrice=liveQuote.value.ask-liveQuote.value.bid;
+        if (!Number.isFinite(spreadPrice) || spreadPrice<0) {
+          const entry=record("RISK_REJECTED","INVALID_LIVE_SPREAD");
+          return {status:409,body:{status:"RISK_REJECTED",message:"قيمة السبريد من MT5 غير صالحة؛ تم منع التنفيذ.",execution:"NOT_SUBMITTED",run:entry}};
+        }
+        const m1=normalized.M1;
+        const atrValues=atr(m1.map(bar=>bar.high),m1.map(bar=>bar.low),m1.map(bar=>bar.close),14);
+        const currentAtr=atrValues[atrValues.length-1];
+        if (!Number.isFinite(currentAtr) || currentAtr<=0) {
+          const entry=record("RISK_REJECTED","ATR_UNAVAILABLE_AT_EXECUTION");
+          return {status:409,body:{status:"RISK_REJECTED",message:"تعذر حساب ATR حديث؛ تم منع التنفيذ.",execution:"NOT_SUBMITTED",run:entry}};
+        }
+        // Rebuild protection from the executable quote, not the earlier candle close.
+        const stopDistance=1.5*currentAtr+spreadPrice;
+        const targetDistance=3*currentAtr;
+        if (spreadPrice>stopDistance*0.125 || currentAtr<spreadPrice*2) {
+          const entry=record("RISK_REJECTED","SPREAD_TOO_WIDE_FOR_ATR");
+          return {status:409,body:{status:"RISK_REJECTED",message:"السبريد مرتفع نسبةً إلى ATR ووقف الخسارة؛ تم منع الدخول.",spreadPrice,atr:currentAtr,stopDistance,execution:"NOT_SUBMITTED",run:entry}};
+        }
+        const digits=symbolSpec.value.priceDigits;
+        const roundPrice=value=>Number(value.toFixed(digits));
+        const stopLoss=roundPrice(decision.direction==="BUY"?entryPrice-stopDistance:entryPrice+stopDistance);
+        const takeProfit=roundPrice(decision.direction==="BUY"?entryPrice+targetDistance:entryPrice-targetDistance);
         const prepared = prepareExecutionIntent({
           id:randomUUID(),idempotencyKey:candidateKey+":"+executionEnvironment,opportunityId:candidateId,decisionId,
           environment:executionEnvironment,settings:riskSettings,
-          trade:{direction:decision.direction,entryPrice:decision.direction==="BUY"?liveQuote.value.ask:liveQuote.value.bid,stopLoss:evidence.stopLoss,takeProfit:evidence.takeProfit,minimumRiskRewardRatio:riskSettings.minimumRiskRewardRatio},
+          trade:{direction:decision.direction,entryPrice,stopLoss,takeProfit,minimumRiskRewardRatio:riskSettings.minimumRiskRewardRatio},
           spec:symbolSpec.value,now
         });
         if (!prepared.accepted) {
@@ -792,9 +816,8 @@ export function createAppServer(env = process.env) {
       scannerEnabled=true;
       if (scannerTimer) clearInterval(scannerTimer);
       nextScheduledScanAt=Date.now()+60000;
-      scannerTimer=setInterval(()=>{ nextScheduledScanAt=Date.now()+60000; void runAndStoreScan("SCHEDULED"); },60000);
-      scannerTimer.unref?.();
-      void runAndStoreScan("SCHEDULED");
+      const scheduleAtNextClosedM1=()=>{ if (!scannerEnabled) return; const nowMs=Date.now(); const delay=60000-(nowMs%60000)+2000; nextScheduledScanAt=nowMs+delay; scannerTimer=setTimeout(async()=>{ if (!scannerEnabled) return; try { await runAndStoreScan("SCHEDULED"); } finally { scheduleAtNextClosedM1(); } },delay); scannerTimer.unref?.(); };
+      void runAndStoreScan("SCHEDULED").finally(()=>scheduleAtNextClosedM1());
       return sendJson(res,200,{ok:true,enabled:true,intervalSeconds:60});
     }
     if (method === "POST" && url.pathname === "/api/trading/environment") {
