@@ -733,18 +733,20 @@ export function createAppServer(env = process.env) {
     if (method === "POST" && url.pathname === "/api/backtest") {
       let body;
       try { body=await readJson(req,8192); } catch(error) { return sendJson(res,error.status??400,{error:"INVALID_BODY",message:error.message}); }
-      if (typeof body.providerId!=="string" || typeof body.modelId!=="string") {
-        return sendJson(res,400,{error:"AI_MODEL_REQUIRED",message:"اختر مزود AI والنموذج المراد اختباره."});
+      const useAI=body.useAI===true;
+      let testProvider=null;
+      const requestedProvider=typeof body.providerId==="string"?body.providerId.trim():"";
+      const requestedModel=typeof body.modelId==="string"?body.modelId.trim():"";
+      if (useAI) {
+        const allowedModels=(env.AI_ALLOWED_MODELS||"").split(",").map(value=>value.trim()).filter(Boolean);
+        if (!requestedProvider || !requestedModel || requestedProvider!==(env.AI_PROVIDER_ID||"openai-compatible") ||
+            !/^[A-Za-z0-9][A-Za-z0-9._:/-]{0,199}$/.test(requestedModel) ||
+            (allowedModels.length>0 && !allowedModels.includes(requestedModel))) {
+          return sendJson(res,400,{error:"AI_MODEL_NOT_ALLOWLISTED",message:"معرّف المزود أو النموذج غير مسموح وفق إعدادات Environment على الخادم."});
+        }
+        testProvider=buildConfiguredAI(requestedProvider,requestedModel);
+        if (!testProvider) return sendJson(res,409,{error:"AI_ENV_OR_MODEL_INVALID",message:"تحقق من متغيرات AI في Environment. لم يبدأ الاختبار."});
       }
-      const requestedProvider=body.providerId.trim(), requestedModel=body.modelId.trim();
-      const allowedModels=(env.AI_ALLOWED_MODELS||"").split(",").map(value=>value.trim()).filter(Boolean);
-      if (requestedProvider !== (env.AI_PROVIDER_ID||"openai-compatible") ||
-          !/^[A-Za-z0-9][A-Za-z0-9._:/-]{0,199}$/.test(requestedModel) ||
-          (allowedModels.length>0 && !allowedModels.includes(requestedModel))) {
-        return sendJson(res,400,{error:"AI_MODEL_NOT_ALLOWLISTED",message:"معرّف المزود أو النموذج غير مسموح وفق إعدادات Environment على الخادم."});
-      }
-      const testProvider=buildConfiguredAI(requestedProvider,requestedModel);
-      if (!testProvider) return sendJson(res,409,{error:"AI_ENV_OR_MODEL_INVALID",message:"تحقق من AI_PROVIDER_ID وAI_BASE_URL وAI_API_KEY في Environment. لم يبدأ الاختبار."});
       const health=bridge ? await bridge.health() : null;
       if (!health?.ok || health.value.state!=="CONNECTED" || health.value.environment!=="DEMO") {
         return sendJson(res,409,{error:"MT5_DEMO_NOT_READY",message:"اتصل بجسر MT5 على حساب Demo قبل الاختبار التاريخي."});
@@ -764,7 +766,7 @@ export function createAppServer(env = process.env) {
       try {
         const result=await runHistoricalBacktest({
           bridge,aiProvider:testProvider,aiProviderId:body.providerId.trim(),aiModelId:body.modelId.trim(),
-          request:{barsCount:body.barsCount,lots:body.lots,spreadPrice,spreadSource,commissionPerLot:body.commissionPerLot,maxAiCalls:body.maxAiCalls},
+          request:{barsCount:body.barsCount,lots:body.lots,spreadPrice,spreadSource,commissionPerLot:body.commissionPerLot,maxAiCalls:body.maxAiCalls,useAI},
           normalizeClosedCandles,analyzeClosedMarket,coordinateTechnicalAndAI
         });
         return sendJson(res,200,result);
