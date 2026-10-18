@@ -66,7 +66,7 @@
         <form id="backtest-form" class="risk-form backtest-form">
           <label>معرّف مزود AI للاختبار<input id="backtest-provider" type="text" autocomplete="off" placeholder="نفس AI_PROVIDER_ID في Environment"></label>
           <label>معرّف النموذج المراد اختباره<input id="backtest-model" type="text" autocomplete="off" placeholder="اكتب Model ID المراد اختباره"></label>
-          <label>شموع M1 المغلقة<select id="backtest-bars"><option value="1000">1,000 شمعة · أقل من يوم</option><option value="5000">5,000 شمعة · نحو 3.5 أيام</option><option value="20000">20,000 شمعة · نحو أسبوعين</option><option value="50000" selected>50,000 شمعة · نحو 5 أسابيع تداول</option></select></label>
+          <label>شموع M1 المغلقة<select id="backtest-bars"><option value="1000">1,000 شمعة · أقل من يوم</option><option value="5000">5,000 شمعة · نحو 3.5 أيام</option><option value="20000">20,000 شمعة · نحو أسبوعين</option><option value="50000" selected>50,000 شمعة · عدة أسابيع حسب سجل الوسيط</option></select></label>
           <label>حجم الصفقة الافتراضي (Lots)<input id="backtest-lots" type="number" min="0.001" max="100" step="0.001" value="0.01" required></label>
           <label>السبريد بالسعر<input id="backtest-spread" type="number" min="0" max="100" step="any" placeholder="فارغ = السبريد الحالي من MT5"></label>
           <label>الانزلاق السعري لكل تنفيذ<input id="backtest-slippage" type="number" min="0" max="100" step="any" value="0" required></label>
