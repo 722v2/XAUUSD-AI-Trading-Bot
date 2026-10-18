@@ -576,7 +576,7 @@ export function createAppServer(env = process.env) {
         }
         // Rebuild protection from the executable quote, not the earlier candle close.
         const stopDistance=1.5*currentAtr+spreadPrice;
-        const targetDistance=3*currentAtr;
+        const targetDistance=Math.max(3*currentAtr,stopDistance*riskSettings.minimumRiskRewardRatio);
         if (spreadPrice>stopDistance*0.125 || currentAtr<spreadPrice*2) {
           const entry=record("RISK_REJECTED","SPREAD_TOO_WIDE_FOR_ATR");
           return {status:409,body:{status:"RISK_REJECTED",message:"السبريد مرتفع نسبةً إلى ATR ووقف الخسارة؛ تم منع الدخول.",spreadPrice,atr:currentAtr,stopDistance,execution:"NOT_SUBMITTED",run:entry}};
@@ -626,7 +626,7 @@ export function createAppServer(env = process.env) {
             const order = await supabase.insertRecord("broker_orders",{
               id:randomUUID(),execution_intent_id:prepared.intent.id,account_login:String(accountLogin),
               broker_order_id:submitted.value.brokerOrderId,status:"CONFIRMED",
-              request_payload:{symbol:"XAUUSD",direction:decision.direction,volume:prepared.intent.volume,stopLoss:evidence.stopLoss,takeProfit:evidence.takeProfit},
+              request_payload:{symbol:"XAUUSD",direction:decision.direction,volume:prepared.intent.volume,stopLoss:prepared.intent.stopLoss,takeProfit:prepared.intent.takeProfit},
               response_payload:submitted.value,created_at:new Date().toISOString(),updated_at:new Date().toISOString()
             });
             orderPersisted = order.ok;
