@@ -8,7 +8,7 @@ Independent XAUUSD trading system, built from scratch. It does not import or mod
 - Closed-candle market normalization and deterministic EMA, RSI, MACD and ATR calculations.
 - Authenticated local MT5 bridge in Python, with Demo-account enforcement and SQLite idempotency ledger.
 - Configurable OpenAI-compatible AI assessment adapter; AI responses are analysis only and cannot directly place orders.
-- Supabase REST persistence adapters and initial schema migration with RLS and atomic versioned settings RPC.
+- Supabase REST persistence adapters and a single complete schema file with RLS and atomic versioned settings RPC.
 - Arabic RTL dashboard with scanner countdown, M1 candlestick chart, technical metrics/evidence, risk settings, Demo position monitoring/modification/closure, and Telegram multi-chat discovery with a persistent notification outbox when Supabase is configured.
 - Historical AI backtesting panel: retrieves closed XAUUSD candles from the authenticated MT5 bridge (up to 5,000 M1 bars plus M5/M15/H1 context), tests the selected allowlisted AI model, models bid/ask spread, slippage and round-turn commission, and reports win rate, net P/L, profit factor, drawdown and individual trades. Backtests never submit orders.
 - GitHub Actions runs TypeScript tests and Python bridge safety tests.
@@ -56,7 +56,7 @@ The AI key and bridge token are server-side environment variables; never commit 
 
 ## Database configuration
 
-Set `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` on the server only. Apply the SQL migration in `supabase/migrations/` to a dedicated Supabase project before expecting durable settings. RLS is enabled and no browser-facing table policies are created by this migration.
+Set `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` on the server only. In Supabase SQL Editor, run the complete `supabase/schema.sql` file once on the dedicated project before expecting durable settings. This is the single canonical SQL setup file. RLS is enabled and no browser-facing table policies are created. Never put the service-role key in browser code.
 
 ## Validation
 
