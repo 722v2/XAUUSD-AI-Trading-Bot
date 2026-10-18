@@ -19,7 +19,7 @@ test('MT5 bridge client requests closed historical candles with an extended data
     captured={url:String(url),token:init.headers['X-Bridge-Token'],signal:init.signal};
     return new Response(JSON.stringify({symbol:'XAUUSD',timeframe:'M1',candles:[]}),{status:200});
   });
-  const result=await client.candles('M1',5000);
+  const result=await client.candles('M1',50000);
   assert.equal(result.ok,true);
   assert.match(captured.url,/\/market\/candles\?timeframe=M1&count=5000$/);
   assert.equal(captured.token,'bridge-test-token');
