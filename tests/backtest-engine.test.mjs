@@ -54,6 +54,9 @@ test("historical backtest uses closed MT5 candles, AI agreement, costs, and neve
   assert.ok(result.data.receivedBars >= 100);
   assert.ok(Array.isArray(result.trades));
   assert.ok(result.metrics.trades >= 1);
+  assert.ok(result.metrics.sampleBreakdown.inSample);
+  assert.ok(result.metrics.sampleBreakdown.outOfSample);
+  assert.ok(result.metrics.strategyBreakdown.TEST);
 });
 
 test("technical-only backtest runs without an AI provider across all candidates", async () => {
