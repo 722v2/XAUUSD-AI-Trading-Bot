@@ -921,7 +921,7 @@ export function createAppServer(env = process.env) {
       try {
         const result=await runHistoricalBacktest({
           bridge,aiProvider:testProvider,aiProviderId:body.providerId.trim(),aiModelId:body.modelId.trim(),
-          request:{barsCount:body.barsCount,lots:body.lots,spreadPrice,spreadSource,commissionPerLot:body.commissionPerLot,maxAiCalls:body.maxAiCalls,useAI},
+          request:{barsCount:body.barsCount,lots:body.lots,spreadPrice,spreadSource,commissionPerLot:body.commissionPerLot,maxAiCalls:body.maxAiCalls,useAI,minimumRiskRewardRatio:riskSettings?.minimumRiskRewardRatio},
           normalizeClosedCandles,analyzeClosedMarket,coordinateTechnicalAndAI
         });
         return sendJson(res,200,result);
