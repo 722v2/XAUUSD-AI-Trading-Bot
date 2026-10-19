@@ -415,12 +415,12 @@ export function createAppServer(env = process.env) {
       const timeframes = ["M1","M5","M15","H1"];
       const fetched = await Promise.all(timeframes.map(async timeframe => [timeframe,await bridge.candles(timeframe, timeframe==="M1"?120:60)]));
       const normalized = {};
+      const freshness=scanFreshnessPolicy(triggerType);
       for (const [timeframe,result] of fetched) {
         if (!result.ok) {
           const entry=record("NO_ANALYSIS","MARKET_DATA_UNAVAILABLE",{timeframe,error:result.message});
           return {status:503,body:{error:"MARKET_DATA_UNAVAILABLE",message:"تعذر جلب بيانات الشموع المغلقة؛ لم يتم إنشاء إشارة.",run:entry}};
         }
-        const freshness=scanFreshnessPolicy(triggerType);
         const bars = normalizeClosedCandles(result.value.candles,timeframe,timeframe==="M1"?freshness.maxAgeSeconds:1);
         if (!bars.ok) {
           const entry=record("NO_ANALYSIS",bars.error,{timeframe});
