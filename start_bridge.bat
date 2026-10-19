@@ -1,44 +1,19 @@
 @echo off
 setlocal EnableExtensions EnableDelayedExpansion
-title XAUUSD MT5 Bridge - Demo and Live
+title XAUUSD MT5 Bridge - Demo Only
 
 cd /d "%~dp0"
 
 echo ==========================================
-echo   XAUUSD MT5 BRIDGE
+echo   XAUUSD MT5 BRIDGE - DEMO ONLY
 echo ==========================================
 echo.
-echo   1. Demo account
-echo   2. Live account (real-money trading)
-echo   3. Exit
+echo This launcher is locked to DEMO mode.
+echo Live trading is not enabled by this launcher.
 echo.
-choice /c 123 /n /m "Choose mode [1-3]: "
-if errorlevel 3 exit /b 0
-if errorlevel 2 goto LIVE
-if errorlevel 1 goto DEMO
-
-:DEMO
 set "MT5_EXECUTION_ENVIRONMENT=DEMO"
 set "MT5_LIVE_TRADING_ENABLED=false"
 set "MT5_LIVE_CONFIRMATION="
-goto PREPARE
-
-:LIVE
-echo.
-echo WARNING: LIVE mode can place orders using real money.
-echo Only continue if you intentionally want to connect to a real account.
-echo.
-set "LIVE_CONFIRM="
-set /p "LIVE_CONFIRM=Type ENABLE LIVE TRADING to continue: "
-if /i not "!LIVE_CONFIRM!"=="ENABLE LIVE TRADING" (
-  echo Live mode cancelled. No real-trading authorization was enabled.
-  pause
-  exit /b 1
-)
-set "MT5_EXECUTION_ENVIRONMENT=LIVE"
-set "MT5_LIVE_TRADING_ENABLED=true"
-set "MT5_LIVE_CONFIRMATION=I_UNDERSTAND_LIVE_TRADING_RISK"
-goto PREPARE
 
 :PREPARE
 echo.
@@ -58,10 +33,13 @@ if errorlevel 1 (
 
 py -3.12 -m pip show MetaTrader5 >nul 2>&1
 if errorlevel 1 (
-  echo ERROR: MetaTrader5 is not installed for Python 3.12.
-  echo Install requirements first.
-  pause
-  exit /b 1
+  echo Installing the required MT5 Python package...
+  py -3.12 -m pip install -r "mt5_bridge\requirements.txt"
+  if errorlevel 1 (
+    echo ERROR: Could not install the MT5 Python package.
+    pause
+    exit /b 1
+  )
 )
 
 set "TOKEN_FILE=%USERPROFILE%\.xauusd-mt5-bridge-token"
