@@ -55,8 +55,8 @@ $env:AI_API_KEY = "your-provider-secret"
 $env:SUPABASE_URL = "https://your-project.supabase.co"
 $env:SUPABASE_SERVICE_ROLE_KEY = "your-server-only-service-role-key"
 # Required before auto-execution can be armed; choose limits appropriate for the account.
-$env:MAX_DAILY_LOSS_PERCENT = "3"
-$env:MAX_CONSECUTIVE_LOSSES = "3"
+$env:MAX_DAILY_LOSS_PERCENT = "<choose-account-limit-percent>"
+$env:MAX_CONSECUTIVE_LOSSES = "<choose-consecutive-loss-limit>"
 # Required automated economic calendar provider key; keep it server-side.
 $env:FINNHUB_API_KEY = "your-finnhub-api-key"
 npm start
