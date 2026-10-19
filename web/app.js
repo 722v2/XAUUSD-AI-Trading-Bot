@@ -97,6 +97,22 @@ $("ai-config-form").addEventListener("submit",async event=>{
     await refreshHealth();
   } catch(error) { feedback.textContent=error.data?.message||error.message; }
 });
+$("ai-test").addEventListener("click",async()=>{
+  const button=$("ai-test"),feedback=$("ai-config-feedback");
+  button.disabled=true; feedback.textContent="جارٍ اختبار الاتصال الفعلي مع مزود AI…";
+  try {
+    const result=await api("/api/ai/test",{method:"POST",body:"{}"});
+    feedback.textContent=result.message+" النموذج: "+result.modelId+"؛ نتيجة الاختبار: "+result.outcome+".";
+    $("ai-config-status").textContent="AI متصل ومختبر";
+    $("ai-config-status").className="status-tag ok-tag";
+    await refreshHealth();
+  } catch(error) {
+    feedback.textContent=error.data?.message||error.message||"فشل اختبار AI.";
+    $("ai-config-status").textContent="فشل الاختبار";
+    $("ai-config-status").className="status-tag error-tag";
+    await refreshHealth();
+  } finally { button.disabled=false; }
+});
 async function loadConfig() {
   try {
     const config = await api("/api/config");
@@ -333,6 +349,17 @@ $("backtest-form").addEventListener("submit",async event=>{
     $("backtest-status").className="status-tag error-tag";
   }finally{button.disabled=false;}
 });
+$("telegram-test-all").addEventListener("click",async()=>{
+  const button=$("telegram-test-all"); button.disabled=true;
+  $("telegram-feedback").textContent="جارٍ إرسال إشعار الاختبار إلى المحادثات المكتشفة…";
+  try {
+    const result=await api("/api/telegram/test-all",{method:"POST",body:"{}"});
+    $("telegram-feedback").textContent=result.message+" نجح: "+result.sent+"؛ فشل: "+result.failed+".";
+    await loadTelegramChats(); await refreshHealth();
+  } catch(error) {
+    $("telegram-feedback").textContent=error.data?.message||error.message||"فشل اختبار إشعارات Telegram.";
+  } finally { button.disabled=false; }
+});
 async function loadTelegramChats() {
   try {
     const data = await api("/api/telegram/chats");
@@ -404,7 +431,7 @@ document.querySelectorAll(".nav-link").forEach(link => link.addEventListener("cl
 }));
 updateRiskMode();
 refreshHealth(); loadConfig(); loadTelegramChats(); loadScanLog(); loadPositions(); loadLatestScan();
-setInterval(()=>{void refreshHealth();},10000);
+setInterval(()=>{void refreshHealth();void loadTelegramChats();},10000);
 setInterval(updateCountdown,1000);
 setInterval(()=>{void loadLatestScan();void loadScanLog();void loadPositions();},15000);
 

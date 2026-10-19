@@ -57,7 +57,7 @@
         <form id="ai-config-form" class="risk-form ai-config-form">
           <label>معرّف المزود<input id="ai-provider" type="text" autocomplete="off" placeholder="مثال: openai-compatible" required></label>
           <label>معرّف النموذج<input id="ai-model" type="text" autocomplete="off" placeholder="اكتب Model ID كما يقدمه المزود" required></label>
-          <div class="form-actions"><button class="primary-button" type="submit">حفظ اختيار AI</button><span id="ai-config-feedback" role="status" class="muted">اختر المزود والنموذج. لتشغيله، أضف مفتاح API في Environment على Render.</span></div>
+          <div class="form-actions"><button class="primary-button" type="submit">حفظ اختيار AI</button><button id="ai-test" class="secondary-button" type="button">اختبار اتصال AI</button><span id="ai-config-feedback" role="status" class="muted">احفظ المزود والنموذج ثم اختبر الاتصال. الاختبار لا يرسل أوامر تداول.</span></div>
         </form>
       </section>
 
@@ -135,7 +135,7 @@
 
       <section id="telegram" class="section panel">
         <div class="section-heading"><div><h2>Telegram</h2><p>اكتشاف المحادثات يتطلب أن يبدأ المستخدم المحادثة مع البوت أو يرسل رسالة إليه.</p></div><span id="telegram-chat-count" class="status-tag muted-tag">0 محادثات</span></div>
-        <div class="telegram-controls"><button id="discover-chats" class="secondary-button">اكتشاف المحادثات</button><span id="telegram-feedback" role="status" class="muted">لن يظهر رمز البوت أو أي مفتاح داخل المتصفح.</span></div>
+        <div class="telegram-controls"><button id="discover-chats" class="secondary-button">تحديث المحادثات</button><button id="telegram-test-all" class="primary-button" type="button">اختبار إرسال إشعارات Telegram</button><span id="telegram-feedback" role="status" class="muted">يتم اكتشاف المحادثة تلقائيًا بعد Start؛ يمكنك أيضًا تحديثها يدويًا.</span></div>
         <div id="telegram-chats" class="chat-list"><p class="empty">لم يتم اكتشاف محادثات.</p></div>
       </section>
 

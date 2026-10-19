@@ -67,6 +67,18 @@ export class TelegramBotClient {
         const update = item[key];
         if (isRecord(update)) candidates.push(update.chat);
       }
+      const message = item.message;
+      if (isRecord(message) && typeof message.text === "string" && /^\/start(?:@\w+)?(?:\s|$)/i.test(message.text)) {
+        const startChat = normalizeChat(message.chat, now);
+        if (startChat) {
+          this.#chats.set(startChat.chatId, startChat);
+          try {
+            await this.sendMessage(startChat.chatId, "تم الاتصال بنجاح مع XAUUSD AI Trading Bot. تم اكتشاف هذه المحادثة تلقائيًا، ويمكنك إدارة الإشعارات من لوحة التحكم.");
+          } catch {
+            // Keep discovery useful if Telegram temporarily rejects the welcome message.
+          }
+        }
+      }
       const callback = item.callback_query;
       if (isRecord(callback) && isRecord(callback.message)) candidates.push(callback.message.chat);
       for (const rawChat of candidates) {

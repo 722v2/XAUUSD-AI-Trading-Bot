@@ -814,6 +814,25 @@ export function createAppServer(env = process.env) {
   }
   const outboxTimer = supabase && telegram.configured ? setInterval(()=>{ void drainOutbox(); },15000) : null;
   outboxTimer?.unref?.();
+  let telegramPollingInFlight=false;
+  async function pollTelegramUpdates() {
+    if (!telegram.configured || telegramPollingInFlight) return;
+    telegramPollingInFlight=true;
+    try {
+      const chats=await telegram.discoverChats();
+      if (supabase) {
+        for (const chat of chats) {
+          try { await supabase.upsertTelegramChat({chatId:chat.chatId,displayName:chat.title,discoveredAt:chat.lastSeenAt}); }
+          catch { /* Continue polling; storage errors remain visible in dashboard actions. */ }
+        }
+      }
+    } catch {
+      // Explicit discover/test actions provide visible error details without crashing the server.
+    } finally { telegramPollingInFlight=false; }
+  }
+  const telegramPollTimer=telegram.configured?setInterval(()=>{void pollTelegramUpdates();},5000):null;
+  telegramPollTimer?.unref?.();
+  if (telegram.configured) setTimeout(()=>{void pollTelegramUpdates();},250).unref?.();
   const dashboardUsername=typeof env.DASHBOARD_USERNAME==="string"?env.DASHBOARD_USERNAME:"";
   const dashboardPassword=typeof env.DASHBOARD_PASSWORD==="string"?env.DASHBOARD_PASSWORD:"";
   const dashboardAuthEnabled=Boolean(dashboardUsername && dashboardPassword);
@@ -918,6 +937,26 @@ export function createAppServer(env = process.env) {
       aiProbePassed=false;
       autoTradingEnabled=false;
       return sendJson(res,200,{ok:true,providerId:config.aiProviderId,modelId:config.aiModelId,persisted,message:persisted?"تم حفظ اختيار AI دائمًا.":"تم تغيير AI لهذه الجلسة فقط؛ لا يوجد تخزين دائم."});
+    }
+    if (method === "POST" && url.pathname === "/api/ai/test") {
+      await hydrateSettings();
+      if (!aiConfigured || !aiProvider) {
+        aiProbePassed=false;
+        return sendJson(res,409,{ok:false,error:"AI_NOT_CONFIGURED",message:"احفظ اختيار AI أولًا وتأكد من وجود AI_BASE_URL وAI_API_KEY واسم النموذج المسموح على الخادم."});
+      }
+      try {
+        const assessment=await aiProvider.assess({symbol:"XAUUSD",evidence:[],now:new Date().toISOString(),marketContext:{recentClosedM1:[]}});
+        if (assessment.outcome!=="WAIT" && assessment.outcome!=="REJECT") {
+          aiProbePassed=false;
+          return sendJson(res,502,{ok:false,error:"AI_TEST_UNSAFE_RESPONSE",message:"وصل الرد من AI لكنه أعاد اتجاه تداول دون أدلة. فشل اختبار السلامة؛ لم يتم إرسال أي أمر."});
+        }
+        aiProbePassed=true;
+        return sendJson(res,200,{ok:true,state:"CONNECTED",providerId:assessment.providerId,modelId:assessment.modelId,outcome:assessment.outcome,message:"نجح اختبار الاتصال والرد المنظم من AI. الاختبار لا يستخدم بيانات سوق ولا يرسل أوامر تداول."});
+      } catch(error) {
+        aiProbePassed=false;
+        const code=error && typeof error.code==="string"?error.code:"AI_PROVIDER_UNAVAILABLE";
+        return sendJson(res,502,{ok:false,error:code,message:"فشل اتصال AI أو كان الرد غير صالح. راجع عنوان API ومفتاحه وModel ID في إعدادات الخادم."});
+      }
     }
     if (method === "POST" && url.pathname === "/api/backtest") {
       let body;
@@ -1157,6 +1196,24 @@ export function createAppServer(env = process.env) {
       if (!telegram.listDiscoveredChats().some(chat=>chat.chatId===body.chatId)) return sendJson(res,400,{error:"UNKNOWN_CHAT",message:"اكتشف المحادثة أولًا."});
       if (body.enabled) enabledChats.add(body.chatId); else enabledChats.delete(body.chatId);
       return sendJson(res,200,{ok:true,enabled:enabledChats.has(body.chatId),persisted:false});
+    }
+    if (method === "POST" && url.pathname === "/api/telegram/test-all") {
+      if (!telegram.configured) return sendJson(res,409,{error:"NOT_CONFIGURED",message:"أضف TELEGRAM_BOT_TOKEN إلى Environment على الخادم."});
+      let chats=[];
+      try {
+        if (supabase) chats=(await supabase.listTelegramChats()).map(chat=>({chatId:String(chat.chat_id),title:String(chat.display_name??chat.chat_id)}));
+        else chats=telegram.listDiscoveredChats().map(chat=>({chatId:chat.chatId,title:chat.title}));
+      } catch {
+        return sendJson(res,503,{error:"CHAT_STORAGE_UNAVAILABLE",message:"تعذر قراءة المحادثات المكتشفة."});
+      }
+      if (!chats.length) return sendJson(res,409,{error:"NO_TELEGRAM_CHATS",message:"لم تُكتشف محادثة بعد. افتح محادثة البوت واضغط Start؛ سيكتشفها النظام تلقائيًا."});
+      const results=[];
+      for (const chat of chats) {
+        const result=await sendWithOutbox(chat.chatId,"اختبار إشعارات Telegram من XAUUSD AI Trading Bot. الاتصال يعمل إذا وصلتك هذه الرسالة.","MANUAL_TEST","manual-test-all:"+chat.chatId+":"+randomUUID());
+        results.push({chatId:chat.chatId,title:chat.title,ok:result.ok,errorCode:result.ok?undefined:result.errorCode});
+      }
+      const sent=results.filter(item=>item.ok).length, failed=results.length-sent;
+      return sendJson(res,failed?502:200,{ok:failed===0,sent,failed,results,message:failed===0?"تم إرسال إشعار الاختبار إلى جميع المحادثات المكتشفة.":"تم إرسال بعض الإشعارات فقط؛ راجع حالة كل محادثة."});
     }
     if (method === "POST" && url.pathname === "/api/telegram/test") {
       let body;
