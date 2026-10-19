@@ -31,7 +31,7 @@ export class MT5BridgeClient {
     if (!config.token.trim()) throw new Error("MT5 bridge authentication token is required");
     this.#baseUrl = url.toString().replace(/\/$/, "");
     this.#token = config.token;
-    this.#timeoutMs = config.timeoutMs ?? 2500;
+    this.#timeoutMs = config.timeoutMs ?? 10000;
     this.#fetch = fetchImpl;
   }
   async #request<T>(path: string, init: RequestInit = {}, timeoutMs = this.#timeoutMs): Promise<BridgeResult<T>> {
