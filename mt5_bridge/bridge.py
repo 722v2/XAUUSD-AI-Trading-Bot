@@ -301,23 +301,43 @@ class BridgeService:
             constant = getattr(mt5, constant_name, None)
             if constant is None:
                 return 503, {"error": "TIMEFRAME_UNAVAILABLE"}
-            # Start at position 1: position 0 is the currently forming candle.
+            # MT5 rates use Unix timestamps (UTC). Position 0 is forming, but
+            # additionally filter by close time to guard against terminal edge cases.
             rates = mt5.copy_rates_from_pos(self.symbol, constant, 1, count)
-            if rates is None or len(rates) < 35:
-                return 503, {"error": "INSUFFICIENT_CLOSED_HISTORY", "available": 0 if rates is None else len(rates)}
-            result = []
+            if rates is None:
+                return 503, {"error": "INSUFFICIENT_CLOSED_HISTORY", "available": 0}
+            now_seconds = time.time()
+            closed_rows = []
             for row in rates:
-                prices = [float(row[name]) for name in ("open", "high", "low", "close")]
+                try:
+                    opened = int(row["time"])
+                    if opened + seconds <= now_seconds:
+                        closed_rows.append((opened, row))
+                except (KeyError, TypeError, ValueError, OverflowError):
+                    return 503, {"error": "INVALID_CANDLE_DATA"}
+            closed_rows.sort(key=lambda item: item[0])
+            if len(closed_rows) < 35:
+                return 503, {"error": "INSUFFICIENT_CLOSED_HISTORY", "available": len(closed_rows)}
+            result = []
+            seen_open_times = set()
+            for opened, row in closed_rows:
+                if opened in seen_open_times:
+                    return 503, {"error": "DUPLICATE_CANDLE_TIME"}
+                seen_open_times.add(opened)
+                try:
+                    prices = [float(row[name]) for name in ("open", "high", "low", "close")]
+                    tick_volume = int(row["tick_volume"])
+                except (KeyError, TypeError, ValueError, OverflowError):
+                    return 503, {"error": "INVALID_CANDLE_DATA"}
                 if not all(math.isfinite(price) and price > 0 for price in prices):
                     return 503, {"error": "INVALID_CANDLE_DATA"}
-                opened = int(row["time"])
                 if prices[1] < max(prices[0], prices[3], prices[2]) or prices[2] > min(prices[0], prices[3], prices[1]):
                     return 503, {"error": "INVALID_CANDLE_DATA"}
                 result.append({
                     "symbol": "XAUUSD", "timeframe": timeframe, "openTime": utc_iso(opened),
                     "closeTime": utc_iso(opened + seconds), "open": float(row["open"]),
                     "high": float(row["high"]), "low": float(row["low"]), "close": float(row["close"]),
-                    "tickVolume": int(row["tick_volume"]), "isClosed": True,
+                    "tickVolume": tick_volume, "isClosed": True,
                 })
             return 200, {"symbol": "XAUUSD", "brokerSymbol": self.symbol, "brokerTimeZone": "UTC+03:00", "timeframe": timeframe, "candles": result}
 
