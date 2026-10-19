@@ -31,6 +31,11 @@ test('automatic news filter fails closed when its provider is not configured', a
   assert.equal(await economicCalendarBlock({}, Date.now(), async () => { throw new Error('must not fetch'); }), 'NEWS_CALENDAR_NOT_CONFIGURED');
 });
 
+test('automatic news filter fails closed on provider authentication errors', async () => {
+  const result=await economicCalendarBlock({FINNHUB_API_KEY:'invalid-provider-key'},Date.now()+48*60*60*1000,async () => new Response('unauthorized',{status:401}));
+  assert.equal(result,'NEWS_CALENDAR_UNAVAILABLE');
+});
+
 test('automatic news filter blocks high-impact US events inside the 15-minute window', async () => {
   const now=Date.now();
   const fetchImpl=async (url,init) => {
