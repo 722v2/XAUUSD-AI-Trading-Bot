@@ -92,6 +92,10 @@ function configuredAI(env, catalog, providerId, modelId) {
     });
   } catch { return null; }
 }
+export function scanFreshnessPolicy(triggerType) {
+  const manual=triggerType==="MANUAL";
+  return {maxAgeSeconds:manual?70:35,maxM1AgeMs:manual?70000:20000};
+}
 export function tradingTimeBlock(env, nowMs=Date.now()) {
   // Most XAUUSD brokers widen spreads around the New York 17:00 close.
   // America/New_York handles EST/EDT transitions without a hard-coded UTC offset.
@@ -416,7 +420,8 @@ export function createAppServer(env = process.env) {
           const entry=record("NO_ANALYSIS","MARKET_DATA_UNAVAILABLE",{timeframe,error:result.message});
           return {status:503,body:{error:"MARKET_DATA_UNAVAILABLE",message:"تعذر جلب بيانات الشموع المغلقة؛ لم يتم إنشاء إشارة.",run:entry}};
         }
-        const bars = normalizeClosedCandles(result.value.candles,timeframe,timeframe==="M1"?(triggerType==="MANUAL"?70:35):1);
+        const freshness=scanFreshnessPolicy(triggerType);
+        const bars = normalizeClosedCandles(result.value.candles,timeframe,timeframe==="M1"?freshness.maxAgeSeconds:1);
         if (!bars.ok) {
           const entry=record("NO_ANALYSIS",bars.error,{timeframe});
           return {status:409,body:{error:bars.error,message:"بيانات السوق غير صالحة للتحليل.",run:entry}};
@@ -434,7 +439,7 @@ export function createAppServer(env = process.env) {
         managedOpenPositionCount=management.openPositionCount;
       }
       const now = new Date().toISOString();
-      const analysis = analyzeClosedMarket({symbol:"XAUUSD",candles:normalized,now,maxM1AgeMs:triggerType==="MANUAL"?70000:20000,minimumM1Bars:35});
+      const analysis = analyzeClosedMarket({symbol:"XAUUSD",candles:normalized,now,maxM1AgeMs:freshness.maxM1AgeMs,minimumM1Bars:35});
       if (analysis.status === "NO_ANALYSIS") {
         const entry=record("NO_ANALYSIS",analysis.reason,{latestClosedBarTime:analysis.latestClosedBarTime});
         return {status:409,body:{error:analysis.reason,message:"البيانات غير كافية أو قديمة؛ لا توجد إشارة.",analysis,chartCandles:normalized.M1.slice(-60),run:entry}};
