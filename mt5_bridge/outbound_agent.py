@@ -23,7 +23,7 @@ load_dotenv()
 RAW_SERVER_URL = os.environ.get("MT5_RELAY_SERVER_URL", "").strip()
 TOKEN = os.environ.get("MT5_BRIDGE_TOKEN", "").strip()
 LOCAL_BRIDGE_URL = os.environ.get("MT5_LOCAL_BRIDGE_URL", "http://127.0.0.1:8765").strip().rstrip("/")
-POLL_SECONDS = max(0.5, min(5.0, float(os.environ.get("MT5_RELAY_POLL_SECONDS", "1.0")))
+POLL_SECONDS = max(0.5, min(5.0, float(os.environ.get("MT5_RELAY_POLL_SECONDS", "1.0"))))
 WORKERS = max(1, min(4, int(os.environ.get("MT5_RELAY_WORKERS", "2"))))
 POLL_TIMEOUT = 15
 # Local bridge calls may need longer than the server's former 12-second window.
