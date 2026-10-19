@@ -43,3 +43,18 @@ test('automatic news filter blocks high-impact US events inside the 15-minute wi
   };
   assert.equal(await economicCalendarBlock({FINNHUB_API_KEY:'test-key'},now,fetchImpl),'HIGH_IMPACT_NEWS_BLACKOUT');
 });
+
+test('economic calendar cache is isolated by API key', async () => {
+  const now=Date.now();
+  let calls=0;
+  const provider=async (_url,_init) => {
+    calls++;
+    return new Response(JSON.stringify({economicCalendar:[
+      {country:'US',impact:'low',time:new Date(now).toISOString(),event:'Low impact'}
+    ]}),{status:200});
+  };
+  assert.equal(await economicCalendarBlock({FINNHUB_API_KEY:'cache-key-a'},now,provider),null);
+  const second=await economicCalendarBlock({FINNHUB_API_KEY:'cache-key-b'},now,provider);
+  assert.equal(second,null);
+  assert.equal(calls,2);
+});
