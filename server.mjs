@@ -102,9 +102,9 @@ export async function economicCalendarBlock(env, nowMs=Date.now(), fetchImpl=fet
   if (!apiKey) return "NEWS_CALENDAR_NOT_CONFIGURED";
   const from=new Date(nowMs-24*60*60*1000).toISOString().slice(0,10);
   const to=new Date(nowMs+24*60*60*1000).toISOString().slice(0,10);
-  let events=economicCalendarCache.expiresAt>Date.now() &&
-    economicCalendarCache.apiKey===apiKey && economicCalendarCache.from===from &&
-    economicCalendarCache.to===to ? economicCalendarCache.events : null;
+  const sameCacheKey=economicCalendarCache.apiKey===apiKey && economicCalendarCache.from===from && economicCalendarCache.to===to;
+  const staleCachedEvents=sameCacheKey ? economicCalendarCache.events : null;
+  let events=economicCalendarCache.expiresAt>Date.now() && sameCacheKey ? economicCalendarCache.events : null;
   if (!events) {
     const endpoint=new URL("https://finnhub.io/api/v1/calendar/economic");
     endpoint.searchParams.set("from",from);
@@ -114,12 +114,13 @@ export async function economicCalendarBlock(env, nowMs=Date.now(), fetchImpl=fet
     const timeout=setTimeout(()=>controller.abort(),4000);
     try {
       const response=await fetchImpl(endpoint,{signal:controller.signal,headers:{accept:"application/json"}});
-      if (!response.ok) return "NEWS_CALENDAR_UNAVAILABLE";
-      const body=await response.json();
-      if (!body || !Array.isArray(body.economicCalendar)) return "NEWS_CALENDAR_UNAVAILABLE";
-      events=body.economicCalendar;
-      economicCalendarCache={expiresAt:Date.now()+60_000,events,apiKey,from,to};
-    } catch { return "NEWS_CALENDAR_UNAVAILABLE"; }
+      if (!response.ok) { events=staleCachedEvents; if (!events) return "NEWS_CALENDAR_UNAVAILABLE"; }
+      if (response.ok) {
+        const body=await response.json();
+        if (!body || !Array.isArray(body.economicCalendar)) { events=staleCachedEvents; if (!events) return "NEWS_CALENDAR_UNAVAILABLE"; }
+        else { events=body.economicCalendar; economicCalendarCache={expiresAt:Date.now()+60_000,events,apiKey,from,to}; }
+      }
+    } catch { events=staleCachedEvents; if (!events) return "NEWS_CALENDAR_UNAVAILABLE"; }
     finally { clearTimeout(timeout); }
   }
   const highImpact=events.filter(event=>event && (event.country==="US" || event.country==="USD") &&
@@ -131,7 +132,8 @@ export async function economicCalendarBlock(env, nowMs=Date.now(), fetchImpl=fet
       ? rawTime
       : rawTime.replace(" ","T")+"Z";
     const eventMs=Date.parse(normalizedTime);
-    if (Number.isFinite(eventMs) && Math.abs(nowMs-eventMs)<=15*60*1000) return "HIGH_IMPACT_NEWS_BLACKOUT";
+    // Wider post-release protection: 15 minutes before, 45 minutes after.
+    if (Number.isFinite(eventMs) && eventMs>=nowMs-45*60*1000 && eventMs<=nowMs+15*60*1000) return "HIGH_IMPACT_NEWS_BLACKOUT";
   }
   return null;
 }
@@ -480,7 +482,8 @@ export function createAppServer(env = process.env) {
           const entry=record("NO_ANALYSIS","MARKET_DATA_UNAVAILABLE",{timeframe,error:result.message});
           return {status:503,body:{error:"MARKET_DATA_UNAVAILABLE",message:"تعذر جلب بيانات الشموع المغلقة؛ لم يتم إنشاء إشارة.",run:entry}};
         }
-        const bars = normalizeClosedCandles(result.value.candles,timeframe,timeframe==="M1"?freshness.maxAgeSeconds:1);
+        // Third argument is minimumBars, not candle age. Freshness is enforced below by analyzeClosedMarket.
+        const bars = normalizeClosedCandles(result.value.candles,timeframe,timeframe==="M1"?35:35);
         if (!bars.ok) {
           const entry=record("NO_ANALYSIS",bars.error,{timeframe});
           return {status:409,body:{error:bars.error,message:"بيانات السوق غير صالحة للتحليل.",run:entry}};
@@ -624,6 +627,12 @@ export function createAppServer(env = process.env) {
         if (Date.parse(evidence.expiresAt) <= Date.now()) {
           const entry=record("EXPIRED","EVIDENCE_EXPIRED_BEFORE_RISK");
           return {status:409,body:{error:"ASSESSMENT_EXPIRED",message:"انتهت صلاحية الفرصة قبل حساب المخاطرة؛ لم يتم إرسال الأمر.",run:entry}};
+        }
+        // Manual analysis may use a 70-second closed candle, but execution always requires a <=20-second signal.
+        const evidenceAgeMs=Date.now()-Date.parse(evidence.createdAt);
+        if (triggerType==="MANUAL" && (!Number.isFinite(evidenceAgeMs) || evidenceAgeMs<0 || evidenceAgeMs>20000)) {
+          const entry=record("RISK_REJECTED","MANUAL_SIGNAL_TOO_OLD_FOR_EXECUTION",{evidenceAgeMs});
+          return {status:409,body:{status:"RISK_REJECTED",message:"يمكن تحليل الشمعة يدويًا حتى 70 ثانية، لكن التنفيذ يتطلب إشارة أحدث من 20 ثانية. لم يُرسل أمر.",execution:"NOT_SUBMITTED",run:entry}};
         }
         const timeBlock=tradingTimeBlock(env);
         if (timeBlock) {
