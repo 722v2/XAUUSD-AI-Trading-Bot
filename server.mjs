@@ -138,15 +138,11 @@ export async function economicCalendarBlock(env, nowMs=Date.now(), fetchImpl=fet
   return null;
 }
 export function tradingTimeBlock(env, nowMs=Date.now()) {
-  // Most XAUUSD brokers widen spreads around the New York 17:00 close.
-  // America/New_York handles EST/EDT transitions without a hard-coded UTC offset.
-  const parts=new Intl.DateTimeFormat("en-US",{
-    timeZone:"America/New_York",hour:"2-digit",minute:"2-digit",hourCycle:"h23"
-  }).formatToParts(new Date(nowMs));
-  const localHour=Number(parts.find(part=>part.type==="hour")?.value);
-  const localMinute=Number(parts.find(part=>part.type==="minute")?.value);
-  const minute=localHour*60+localMinute;
-  if (minute>=16*60+55 && minute<17*60+10) return "ROLLOVER_BLACKOUT";
+  // JustMarkets metals server time is GMT+3; the published daily break is 23:58–01:01.
+  // Block new entries slightly around the break; timestamps remain UTC internally.
+  const brokerDate=new Date(nowMs+3*60*60*1000);
+  const minute=brokerDate.getUTCHours()*60+brokerDate.getUTCMinutes();
+  if (minute>=23*60+55 || minute<65) return "ROLLOVER_BLACKOUT";
   const configured=(env.HIGH_IMPACT_NEWS_BLACKOUTS_UTC||"").split(",").map(item=>item.trim()).filter(Boolean);
   for (const range of configured) {
     const parts=range.split("/");
