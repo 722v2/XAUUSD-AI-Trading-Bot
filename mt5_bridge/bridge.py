@@ -671,6 +671,10 @@ def create_handler(service: BridgeService):
                 return self._send(200, service.health())
             if parsed.path == "/market/quote":
                 status, body = service.quote()
+                if status == 200:
+                    print(f"[MARKET] quote OK | symbol={body.get('brokerSymbol')} | bid={body.get('bid')} | ask={body.get('ask')}", flush=True)
+                else:
+                    print(f"[MARKET] quote FAILED | HTTP {status} | reason={body.get('error', 'UNKNOWN')}", flush=True)
                 return self._send(status, body)
             if parsed.path == "/market/spec":
                 status, body = service.symbol_spec()
@@ -687,6 +691,12 @@ def create_handler(service: BridgeService):
                 try: count = int(query.get("count", ["200"])[0])
                 except ValueError: count = 0
                 status, body = service.candles(timeframe, count)
+                if status == 200:
+                    candles = body.get("candles", [])
+                    latest = candles[-1].get("closeTime") if candles else "NONE"
+                    print(f"[CANDLES] {timeframe} OK | count={len(candles)} | latest_closed={latest}", flush=True)
+                else:
+                    print(f"[CANDLES] {timeframe} FAILED | HTTP {status} | reason={body.get('error', 'UNKNOWN')}", flush=True)
                 return self._send(status, body)
             if parsed.path == "/orders/lookup":
                 key = parse_qs(parsed.query).get("idempotencyKey", [""])[0]
