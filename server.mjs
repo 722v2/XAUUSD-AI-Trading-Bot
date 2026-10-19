@@ -990,6 +990,8 @@ export function createAppServer(env = process.env) {
       await hydrateSettings();
       if (!dailyLossGuardConfig(env)) return sendJson(res,409,{error:"DAILY_RISK_LIMITS_NOT_CONFIGURED",message:"اضبط MAX_DAILY_LOSS_PERCENT وMAX_CONSECUTIVE_LOSSES على الخادم قبل تفعيل التنفيذ الآلي."});
       if (!env.FINNHUB_API_KEY?.trim()) return sendJson(res,409,{error:"NEWS_CALENDAR_NOT_CONFIGURED",message:"اضبط FINNHUB_API_KEY لتفعيل فلتر الأخبار الآلي قبل التنفيذ الآلي."});
+      const calendarStatus=await economicCalendarBlock(env);
+      if (calendarStatus) return sendJson(res,calendarStatus==="HIGH_IMPACT_NEWS_BLACKOUT"?409:503,{error:calendarStatus,message:calendarStatus==="HIGH_IMPACT_NEWS_BLACKOUT"?"يوجد خبر أمريكي عالي التأثير ضمن نافذة الحظر؛ لا يمكن تسليح التنفيذ الآن.":"تعذر التحقق من تقويم الأخبار الاقتصادي؛ التنفيذ الآلي مغلق."});
       if (!scannerEnabled || !bridge || !aiProvider || !supabase || !riskSettings) return sendJson(res,409,{error:"EXECUTION_PREREQUISITES_MISSING",message:"يلزم تفعيل السكانر وضبط MT5 وAI والمخاطرة وSupabase قبل التنفيذ الآلي."});
       const health=await bridge.health();
       if (!health.ok || health.value.state!=="CONNECTED" || health.value.environment!==executionEnvironment || !health.value.accountLogin || health.value.executionReady!==true) return sendJson(res,409,{error:"MT5_ACCOUNT_NOT_CONFIRMED",message:"يلزم حساب MT5 مطابق لبيئة التنفيذ ومن نوع Hedging مع تأكيد الجاهزية؛ التنفيذ الآلي ما زال متوقفًا."});
