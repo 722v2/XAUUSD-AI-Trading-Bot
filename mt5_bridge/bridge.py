@@ -513,8 +513,9 @@ class BridgeService:
                 return 503, {"error": "ACCOUNT_INFO_UNAVAILABLE"}
             now = datetime.now(timezone.utc)
             start = datetime(now.year, now.month, now.day, tzinfo=timezone.utc)
-            # Include enough history to calculate the consecutive-loss streak, not just today's deals.
-            history = mt5.history_deals_get(datetime(2000, 1, 1, tzinfo=timezone.utc), now)
+            # Query only the UTC day: both the daily loss and the consecutive-loss guard reset at 00:00 UTC.
+            # This also avoids scanning the account's entire lifetime on every risk check.
+            history = mt5.history_deals_get(start, now)
             if history is None:
                 return 503, {"error": "DEAL_HISTORY_UNAVAILABLE"}
             entry_out = getattr(mt5, "DEAL_ENTRY_OUT", 1)
@@ -536,6 +537,7 @@ class BridgeService:
             closing.sort(key=lambda item: item[0])
             today_start = int(start.timestamp())
             today_pnl = sum(pnl for stamp, pnl in daily_deals if stamp >= today_start)
+            # Because history starts at UTC midnight, prior-day losses cannot lock today's guard.
             streak = 0
             for _, pnl in reversed(closing):
                 if pnl < -0.000001:
