@@ -8,6 +8,8 @@ export interface StrategySelectionInput {
   readonly ema21FiveBarsAgo: number;
   readonly previousEma9: number;
   readonly previousClose: number;
+  readonly previousHigh: number;
+  readonly previousLow: number;
   readonly currentOpen: number;
   readonly currentClose: number;
   readonly priorRangeHigh: number;
@@ -32,8 +34,10 @@ export function selectAdaptiveStrategy(input: StrategySelectionInput): StrategyS
   const trendDown=input.ema9<input.ema21 && input.ema21<input.ema21FiveBarsAgo;
   const bullishCandle=input.currentClose>input.currentOpen;
   const bearishCandle=input.currentClose<input.currentOpen;
-  const continuationBuy=input.ema9>input.ema21 && input.macdHistogram>0 && input.rsi14>=50 && input.rsi14<75;
-  const continuationSell=input.ema9<input.ema21 && input.macdHistogram<0 && input.rsi14<=50 && input.rsi14>25;
+  // Continuation is an event, not a persistent trend state: require the latest closed
+  // candle to break the previous candle's extreme in the direction of momentum.
+  const continuationBuy=input.currentClose>input.previousHigh && bullishCandle && input.ema9>input.ema21 && input.macdHistogram>0 && input.rsi14>=50 && input.rsi14<75;
+  const continuationSell=input.currentClose<input.previousLow && bearishCandle && input.ema9<input.ema21 && input.macdHistogram<0 && input.rsi14<=50 && input.rsi14>25;
   const pullbackBuy=trendUp && input.previousClose<=input.previousEma9 && input.currentClose>input.ema9 && bullishCandle && input.macdHistogram>0 && input.rsi14>=45 && input.rsi14<75;
   const pullbackSell=trendDown && input.previousClose>=input.previousEma9 && input.currentClose<input.ema9 && bearishCandle && input.macdHistogram<0 && input.rsi14<=55 && input.rsi14>25;
   const breakoutBuy=input.currentClose>input.priorRangeHigh+0.1*input.atr14 && bullishCandle && input.macdHistogram>0 && input.rsi14>=55 && input.rsi14<80;

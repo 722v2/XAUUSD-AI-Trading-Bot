@@ -36,3 +36,17 @@ test('MT5 bridge client passes the explicitly selected execution environment to 
   assert.equal(result.ok,true);
   assert.equal(calls,1);
 });
+
+test('MT5 bridge client fetches authenticated daily closed-deal risk telemetry', async () => {
+  let captured;
+  const client=new MT5BridgeClient({baseUrl:'http://127.0.0.1:8765',token:'bridge-test-token'},async(url,init)=>{
+    captured={url:String(url),token:init.headers['X-Bridge-Token'],signal:init.signal};
+    return new Response(JSON.stringify({accountLogin:'123',currency:'USD',balance:1000,dailyNetPnl:-10,consecutiveLosses:2,asOf:'2026-10-19T10:00:00Z',dayStartUtc:'2026-10-19T00:00:00Z',source:'MT5_CLOSED_DEALS_BOT_MAGIC'}),{status:200});
+  });
+  const result=await client.dailyRisk();
+  assert.equal(result.ok,true);
+  assert.equal(captured.url,'http://127.0.0.1:8765/risk/daily');
+  assert.equal(captured.token,'bridge-test-token');
+  assert.equal(result.value.dailyNetPnl,-10);
+  assert.equal(result.value.consecutiveLosses,2);
+});

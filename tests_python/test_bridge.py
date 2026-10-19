@@ -23,6 +23,9 @@ class FakeMT5:
     TRADE_RETCODE_PLACED = 10008
     TRADE_RETCODE_DONE_PARTIAL = 10010
     POSITION_TYPE_BUY = 0
+    DEAL_ENTRY_OUT = 1
+    DEAL_ENTRY_OUT_BY = 3
+    DEAL_ENTRY_INOUT = 2
 
     def __init__(self, trade_mode=0, margin_mode=2):
         self.trade_mode = trade_mode
@@ -41,6 +44,9 @@ class FakeMT5:
     def order_send(self, request):
         self.order_send_calls += 1
         return SimpleNamespace(retcode=10009, order=9876, deal=9877)
+    def history_deals_get(self, start, end):
+        return tuple(getattr(self, "deals", ()))
+
     def positions_get(self, **kwargs):
         if kwargs.get("ticket") and kwargs["ticket"] != self.position.ticket: return ()
         return (self.position,)
@@ -101,6 +107,28 @@ class BridgeUnitTests(unittest.TestCase):
             self.assertEqual(status, 200)
             self.assertEqual(len(result["candles"]), 40)
             self.assertTrue(all(item["isClosed"] for item in result["candles"]))
+        finally:
+            bridge_module.mt5 = previous
+
+    def test_daily_risk_uses_only_closed_bot_deals_and_counts_consecutive_losses(self):
+        import mt5_bridge.bridge as bridge_module
+        from datetime import datetime, timezone
+        previous = bridge_module.mt5
+        now = int(datetime.now(timezone.utc).timestamp())
+        fake = FakeMT5()
+        fake.deals = [
+            SimpleNamespace(symbol="XAUUSD", magic=61016001, entry=FakeMT5.DEAL_ENTRY_OUT, time=now-300, profit=-3.0, commission=-0.2, swap=0.0, fee=0.0),
+            SimpleNamespace(symbol="XAUUSD", magic=61016001, entry=FakeMT5.DEAL_ENTRY_OUT, time=now-200, profit=-2.0, commission=-0.2, swap=0.0, fee=0.0),
+            SimpleNamespace(symbol="XAUUSD", magic=61016001, entry=0, time=now-100, profit=0.0, commission=-1.0, swap=0.0, fee=0.0),
+            SimpleNamespace(symbol="XAUUSD", magic=42, entry=FakeMT5.DEAL_ENTRY_OUT, time=now-50, profit=-99.0, commission=0.0, swap=0.0, fee=0.0),
+        ]
+        bridge_module.mt5 = fake
+        try:
+            status, result = self.service.daily_risk()
+            self.assertEqual(status, 200)
+            self.assertAlmostEqual(result["dailyNetPnl"], -6.4)
+            self.assertEqual(result["consecutiveLosses"], 2)
+            self.assertEqual(result["source"], "MT5_CLOSED_DEALS_BOT_MAGIC")
         finally:
             bridge_module.mt5 = previous
 

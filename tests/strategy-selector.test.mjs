@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { selectAdaptiveStrategy } from '../dist/index.js';
 
-const base={trendStrength:0.5,ema9:101,ema21:100,ema21FiveBarsAgo:99,previousEma9:100,previousClose:99,currentOpen:101,currentClose:102,priorRangeHigh:103,priorRangeLow:98,rsi14:60,macdHistogram:0.5,atr14:2};
+const base={trendStrength:0.5,ema9:101,ema21:100,ema21FiveBarsAgo:99,previousEma9:100,previousClose:99,previousHigh:101,previousLow:98,currentOpen:101,currentClose:102,priorRangeHigh:103,priorRangeLow:98,rsi14:60,macdHistogram:0.5,atr14:2};
 test('adaptive selector chooses continuation in a strong directional regime',()=>{
   const selected=selectAdaptiveStrategy(base);
   assert.equal(selected.strategyId,'M1_TREND_CONTINUATION_V1');
@@ -21,7 +21,7 @@ test('adaptive selector prioritizes a closed-bar range breakout in a weak-trend 
   assert.ok(selected.evidenceCodes.includes('CLOSED_BAR_RANGE_HIGH_BROKEN'));
 });
 test('adaptive selector is directionally symmetric for sell setups',()=>{
-  const selected=selectAdaptiveStrategy({...base,trendStrength:0.5,ema9:99,ema21:100,ema21FiveBarsAgo:101,previousEma9:100,previousClose:101,currentOpen:99,currentClose:98,priorRangeHigh:102,priorRangeLow:97,rsi14:40,macdHistogram:-0.5});
+  const selected=selectAdaptiveStrategy({...base,trendStrength:0.5,ema9:99,ema21:100,ema21FiveBarsAgo:101,previousEma9:100,previousClose:101,previousHigh:99,previousLow:99,currentOpen:99,currentClose:98,priorRangeHigh:102,priorRangeLow:97,rsi14:40,macdHistogram:-0.5});
   assert.equal(selected.strategyId,'M1_TREND_CONTINUATION_V1');
   assert.equal(selected.direction,'SELL');
 });
@@ -35,6 +35,12 @@ test('ranging regime does not fall back to trend continuation without a breakout
   assert.equal(selected,null);
 });
 test('trending regime does not admit a range-breakout-only candidate',()=>{
-  const selected=selectAdaptiveStrategy({...base,trendStrength:0.5,ema9:99,ema21:100,ema21FiveBarsAgo:101,previousEma9:100,previousClose:101,currentOpen:99,currentClose:98,priorRangeLow:90,priorRangeHigh:110,rsi14:40,macdHistogram:-0.5});
+  const selected=selectAdaptiveStrategy({...base,trendStrength:0.5,ema9:99,ema21:100,ema21FiveBarsAgo:101,previousEma9:100,previousClose:101,previousHigh:99,previousLow:99,currentOpen:99,currentClose:98,priorRangeLow:90,priorRangeHigh:110,rsi14:40,macdHistogram:-0.5});
   assert.equal(selected.strategyId,'M1_TREND_CONTINUATION_V1');
+});
+
+test('continuation requires a fresh break of the previous candle extreme, not trend state alone',()=>{
+  const selected=selectAdaptiveStrategy({...base,previousHigh:102.5});
+  assert.equal(selected.strategyId,'M1_PULLBACK_RECLAIM_V1');
+  assert.ok(!selected.evidenceCodes.includes('TREND_CONTINUATION'));
 });

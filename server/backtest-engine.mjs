@@ -163,7 +163,7 @@ export async function runHistoricalBacktest(input) {
       aiCalls++;
       let assessment;
       try {
-        assessment = await aiProvider.assess({ symbol: "XAUUSD", evidence: [candidate.evidence], now: candidate.evidence.createdAt });
+        assessment = await aiProvider.assess({ symbol: "XAUUSD", evidence: [candidate.evidence], now: candidate.evidence.createdAt, marketContext: { recentClosedM1: bars.slice(Math.max(0, candidate.index + 1 - 20), candidate.index + 1).map(bar => ({ time: bar.closeTime, open: bar.open, high: bar.high, low: bar.low, close: bar.close })) } });
       } catch (error) {
         aiErrors.push({ signalTime: candidate.evidence.createdAt, code: typeof error?.code === "string" ? error.code : "AI_ERROR" });
         continue;
@@ -176,7 +176,6 @@ export async function runHistoricalBacktest(input) {
     if (!trade) continue;
     lastExitIndex = trade._exitIndex;
     delete trade._exitIndex;
-    trade.sampleSegment = candidate.index < bars.length * 0.7 ? "IN_SAMPLE" : "OUT_OF_SAMPLE";
     trades.push(trade);
   }
   const skippedByLimit = useAI ? Math.max(0, candidates.length - aiCalls - skippedOverlap) : 0;
@@ -201,7 +200,27 @@ export async function runHistoricalBacktest(input) {
       expectancyPerTrade:items.length?round(items.reduce((sum,trade)=>sum+trade.netPnl,0)/items.length,2):0};
   };
   const strategyBreakdown=Object.fromEntries([...new Set(trades.map(trade=>trade.strategyId))].map(id=>[id,summarizeTrades(trades.filter(trade=>trade.strategyId===id))]));
-  const sampleBreakdown={inSample:summarizeTrades(trades.filter(trade=>trade.sampleSegment==="IN_SAMPLE")),outOfSample:summarizeTrades(trades.filter(trade=>trade.sampleSegment==="OUT_OF_SAMPLE"))};
+  const splitIndex=Math.floor(bars.length*0.7);
+  const splitTime=bars[Math.min(splitIndex,bars.length-1)].openTime;
+  const sampleBreakdown={
+    chronologicalFirst70Percent:summarizeTrades(trades.filter(trade=>Date.parse(trade.signalTime)<Date.parse(splitTime))),
+    chronologicalLast30Percent:summarizeTrades(trades.filter(trade=>Date.parse(trade.signalTime)>=Date.parse(splitTime)))
+  };
+  // Expanding-window forward evaluation: fixed strategy parameters, sequential held-out test windows.
+  // This is a walk-forward performance report, not parameter optimization or model training.
+  const walkForwardFolds=[];
+  const warmupFraction=0.4;
+  const foldCount=5;
+  const testFraction=(1-warmupFraction)/foldCount;
+  for(let fold=0;fold<foldCount;fold++){
+    const trainEndIndex=Math.floor(bars.length*(warmupFraction+fold*testFraction));
+    const testEndIndex=fold===foldCount-1?bars.length:Math.floor(bars.length*(warmupFraction+(fold+1)*testFraction));
+    const testStart=bars[Math.min(trainEndIndex,bars.length-1)].openTime;
+    const testEnd=bars[Math.max(Math.min(testEndIndex-1,bars.length-1),0)].closeTime;
+    const foldTrades=trades.filter(trade=>Date.parse(trade.signalTime)>=Date.parse(testStart)&&Date.parse(trade.signalTime)<=(Date.parse(testEnd)));
+    walkForwardFolds.push({fold:fold+1,trainingStart:bars[0].openTime,trainingEnd:bars[Math.max(0,trainEndIndex-1)].closeTime,
+      testStart,testEnd,...summarizeTrades(foldTrades)});
+  }
   return {
     ok: true, mode: useAI ? "HISTORICAL_AI_BACKTEST" : "HISTORICAL_TECHNICAL_BACKTEST", symbol: "XAUUSD",
     ai: useAI ? { providerId: aiProviderId, modelId: aiModelId } : { used: false },
@@ -218,7 +237,8 @@ export async function runHistoricalBacktest(input) {
       entry: "next M1 candle open; buy entry includes configured spread",
       sameCandleStopAndTarget: "stop loss first (conservative)",
       dataEnd: "remaining positions marked to last close",
-      chronologicalSplit: "70% in-sample / 30% out-of-sample by signal time; no parameter fitting performed",
+      chronologicalSplit: "70% first-period / 30% later-period descriptive holdout; not model training",
+      walkForwardMethod: "5 expanding-window chronological test folds; strategy parameters remain fixed; no parameter fitting or optimization",
       noLookahead: true, liveOrdersSent: false
     },
     metrics: {
@@ -230,7 +250,7 @@ export async function runHistoricalBacktest(input) {
       netPnl: round(netPnl, 2), maxDrawdown: round(maxDrawdown, 2),
       profitFactor: grossLoss < 0 ? round(grossProfit / Math.abs(grossLoss), 3) : null,
       expectancyPerTrade: trades.length ? round(netPnl / trades.length, 2) : 0,
-      strategyBreakdown, sampleBreakdown
+      strategyBreakdown, sampleBreakdown, walkForwardFolds
     },
     equityCurve, trades: trades.slice(-100), aiErrorDetails: aiErrors.slice(0, 20)
   };

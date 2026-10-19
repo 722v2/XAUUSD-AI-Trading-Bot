@@ -54,6 +54,11 @@ $env:AI_API_KEY = "your-provider-secret"
 # $env:PROVIDER_A_API_KEY = "set-your-secret-in-this-shell"
 $env:SUPABASE_URL = "https://your-project.supabase.co"
 $env:SUPABASE_SERVICE_ROLE_KEY = "your-server-only-service-role-key"
+# Required before auto-execution can be armed; choose limits appropriate for the account.
+$env:MAX_DAILY_LOSS_PERCENT = "<choose-account-limit-percent>"
+$env:MAX_CONSECUTIVE_LOSSES = "<choose-consecutive-loss-limit>"
+# Required automated economic calendar provider key; keep it server-side.
+$env:FINNHUB_API_KEY = "your-finnhub-api-key"
 npm start
 ```
 
@@ -76,8 +81,9 @@ Open http://127.0.0.1:3000. The dashboard refuses non-loopback binding by design
 4. Discover Telegram chats if notifications are needed. Start the bot in Telegram first. Enable only intended recipients.
 5. Start the scanner. It checks closed M1 candles every 60 seconds and uses M5/M15/H1 as context. Invalid/stale data should produce NO_ANALYSIS, not a signal.
 6. Review scanner history and analysis output before enabling Demo auto-execution.
-7. Enable **تفعيل التنفيذ الآلي (Demo)** only when you intend to allow orders on that Demo account. The system checks AI, persisted risk settings, fresh quote, broker specifications and durable intent before sending. It permits at most one bot-owned XAUUSD position at a time; a second entry is blocked until the existing position closes.
-8. Verify every submitted order and position directly in MetaTrader 5, not only in the dashboard.
+7. Configure `MAX_DAILY_LOSS_PERCENT`, `MAX_CONSECUTIVE_LOSSES`, and `FINNHUB_API_KEY` before arming auto-execution. Missing limits or unavailable economic-calendar data fail closed. Closed MT5 bot deals are used to calculate UTC-day realized net P&L (including entry/exit commission, swap, and fees) and consecutive losing closing deals. The guard is checked before arming and each scheduled scan; reaching either configured limit disarms new auto entries. It does not automatically close an already-open position. The Finnhub calendar blocks high-impact US events within ±15 minutes. Confirm provider access and limits on Demo before use.
+8. Enable **تفعيل التنفيذ الآلي (Demo)** only when you intend to allow orders on that Demo account. The system checks AI, persisted risk settings, fresh quote, broker specifications and durable intent before sending. It permits at most one bot-owned XAUUSD position at a time; a second entry is blocked until the existing position closes.
+9. Verify every submitted order and position directly in MetaTrader 5, not only in the dashboard.
 
 ## 7. Stop and recovery
 

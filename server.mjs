@@ -92,11 +92,59 @@ function configuredAI(env, catalog, providerId, modelId) {
     });
   } catch { return null; }
 }
-function tradingTimeBlock(env, nowMs=Date.now()) {
-  const date=new Date(nowMs);
-  const minute=date.getUTCHours()*60+date.getUTCMinutes();
-  // Conservative UTC rollover window; broker server timezone may differ and must be verified.
-  if (minute>=21*60+55 && minute<22*60+10) return "ROLLOVER_BLACKOUT";
+export function scanFreshnessPolicy(triggerType) {
+  const manual=triggerType==="MANUAL";
+  return {maxAgeSeconds:manual?70:35,maxM1AgeMs:manual?70000:20000};
+}
+let economicCalendarCache = { expiresAt: 0, events: null, apiKey: null, from: null, to: null };
+export async function economicCalendarBlock(env, nowMs=Date.now(), fetchImpl=fetch) {
+  const apiKey=typeof env.FINNHUB_API_KEY==="string"?env.FINNHUB_API_KEY.trim():"";
+  if (!apiKey) return "NEWS_CALENDAR_NOT_CONFIGURED";
+  const from=new Date(nowMs-24*60*60*1000).toISOString().slice(0,10);
+  const to=new Date(nowMs+24*60*60*1000).toISOString().slice(0,10);
+  let events=economicCalendarCache.expiresAt>Date.now() &&
+    economicCalendarCache.apiKey===apiKey && economicCalendarCache.from===from &&
+    economicCalendarCache.to===to ? economicCalendarCache.events : null;
+  if (!events) {
+    const endpoint=new URL("https://finnhub.io/api/v1/calendar/economic");
+    endpoint.searchParams.set("from",from);
+    endpoint.searchParams.set("to",to);
+    endpoint.searchParams.set("token",apiKey);
+    const controller=new AbortController();
+    const timeout=setTimeout(()=>controller.abort(),4000);
+    try {
+      const response=await fetchImpl(endpoint,{signal:controller.signal,headers:{accept:"application/json"}});
+      if (!response.ok) return "NEWS_CALENDAR_UNAVAILABLE";
+      const body=await response.json();
+      if (!body || !Array.isArray(body.economicCalendar)) return "NEWS_CALENDAR_UNAVAILABLE";
+      events=body.economicCalendar;
+      economicCalendarCache={expiresAt:Date.now()+60_000,events,apiKey,from,to};
+    } catch { return "NEWS_CALENDAR_UNAVAILABLE"; }
+    finally { clearTimeout(timeout); }
+  }
+  const highImpact=events.filter(event=>event && (event.country==="US" || event.country==="USD") &&
+    (event.impact===3 || String(event.impact).toLowerCase()==="high") && typeof event.time==="string");
+  for (const event of highImpact) {
+    const rawTime=event.time.trim();
+    // Finnhub may return a UTC datetime without an explicit timezone suffix.
+    const normalizedTime=/(?:Z|[+-]\d{2}:?\d{2})$/i.test(rawTime)
+      ? rawTime
+      : rawTime.replace(" ","T")+"Z";
+    const eventMs=Date.parse(normalizedTime);
+    if (Number.isFinite(eventMs) && Math.abs(nowMs-eventMs)<=15*60*1000) return "HIGH_IMPACT_NEWS_BLACKOUT";
+  }
+  return null;
+}
+export function tradingTimeBlock(env, nowMs=Date.now()) {
+  // Most XAUUSD brokers widen spreads around the New York 17:00 close.
+  // America/New_York handles EST/EDT transitions without a hard-coded UTC offset.
+  const parts=new Intl.DateTimeFormat("en-US",{
+    timeZone:"America/New_York",hour:"2-digit",minute:"2-digit",hourCycle:"h23"
+  }).formatToParts(new Date(nowMs));
+  const localHour=Number(parts.find(part=>part.type==="hour")?.value);
+  const localMinute=Number(parts.find(part=>part.type==="minute")?.value);
+  const minute=localHour*60+localMinute;
+  if (minute>=16*60+55 && minute<17*60+10) return "ROLLOVER_BLACKOUT";
   const configured=(env.HIGH_IMPACT_NEWS_BLACKOUTS_UTC||"").split(",").map(item=>item.trim()).filter(Boolean);
   for (const range of configured) {
     const parts=range.split("/");
@@ -108,6 +156,26 @@ function tradingTimeBlock(env, nowMs=Date.now()) {
 }
 function validRiskSettings(value) {
   return value && typeof value === "object" && validateRiskSettings(value) === null;
+}
+function dailyLossGuardConfig(env) {
+  const maxDailyLossPercent=Number(env.MAX_DAILY_LOSS_PERCENT);
+  const maxConsecutiveLosses=Number(env.MAX_CONSECUTIVE_LOSSES);
+  if (!Number.isFinite(maxDailyLossPercent) || maxDailyLossPercent<=0 || maxDailyLossPercent>100 ||
+      !Number.isInteger(maxConsecutiveLosses) || maxConsecutiveLosses<1 || maxConsecutiveLosses>100) return null;
+  return {maxDailyLossPercent,maxConsecutiveLosses};
+}
+export function evaluateDailyRiskGuard(env, risk, expectedAccountLogin) {
+  const limits=dailyLossGuardConfig(env);
+  if (!limits) return {ok:false,code:"DAILY_RISK_LIMITS_NOT_CONFIGURED"};
+  if (!risk || risk.accountLogin!==String(expectedAccountLogin) ||
+      risk.source!=="MT5_CLOSED_DEALS_BOT_MAGIC" ||
+      !Number.isFinite(risk.balance) || risk.balance<=0 ||
+      !Number.isFinite(risk.dailyNetPnl) || !Number.isInteger(risk.consecutiveLosses) ||
+      risk.consecutiveLosses<0) return {ok:false,code:"DAILY_RISK_HISTORY_UNAVAILABLE"};
+  const dailyLossPercent=Math.max(0,-risk.dailyNetPnl)/risk.balance*100;
+  if (dailyLossPercent>=limits.maxDailyLossPercent) return {ok:false,code:"DAILY_LOSS_LIMIT_REACHED",dailyLossPercent,dailyNetPnl:risk.dailyNetPnl,consecutiveLosses:risk.consecutiveLosses,dayStartUtc:risk.dayStartUtc};
+  if (risk.consecutiveLosses>=limits.maxConsecutiveLosses) return {ok:false,code:"CONSECUTIVE_LOSS_LIMIT_REACHED",dailyLossPercent,dailyNetPnl:risk.dailyNetPnl,consecutiveLosses:risk.consecutiveLosses,dayStartUtc:risk.dayStartUtc};
+  return {ok:true,dailyLossPercent,dailyNetPnl:risk.dailyNetPnl,consecutiveLosses:risk.consecutiveLosses};
 }
 export function createAppServer(env = process.env) {
   const telegram = new TelegramBotClient(env.TELEGRAM_BOT_TOKEN);
@@ -406,12 +474,13 @@ export function createAppServer(env = process.env) {
       const timeframes = ["M1","M5","M15","H1"];
       const fetched = await Promise.all(timeframes.map(async timeframe => [timeframe,await bridge.candles(timeframe, timeframe==="M1"?120:60)]));
       const normalized = {};
+      const freshness=scanFreshnessPolicy(triggerType);
       for (const [timeframe,result] of fetched) {
         if (!result.ok) {
           const entry=record("NO_ANALYSIS","MARKET_DATA_UNAVAILABLE",{timeframe,error:result.message});
           return {status:503,body:{error:"MARKET_DATA_UNAVAILABLE",message:"تعذر جلب بيانات الشموع المغلقة؛ لم يتم إنشاء إشارة.",run:entry}};
         }
-        const bars = normalizeClosedCandles(result.value.candles,timeframe,timeframe==="M1"?35:1);
+        const bars = normalizeClosedCandles(result.value.candles,timeframe,timeframe==="M1"?freshness.maxAgeSeconds:1);
         if (!bars.ok) {
           const entry=record("NO_ANALYSIS",bars.error,{timeframe});
           return {status:409,body:{error:bars.error,message:"بيانات السوق غير صالحة للتحليل.",run:entry}};
@@ -429,7 +498,7 @@ export function createAppServer(env = process.env) {
         managedOpenPositionCount=management.openPositionCount;
       }
       const now = new Date().toISOString();
-      const analysis = analyzeClosedMarket({symbol:"XAUUSD",candles:normalized,now,maxM1AgeMs:20000,minimumM1Bars:35});
+      const analysis = analyzeClosedMarket({symbol:"XAUUSD",candles:normalized,now,maxM1AgeMs:freshness.maxM1AgeMs,minimumM1Bars:35});
       if (analysis.status === "NO_ANALYSIS") {
         const entry=record("NO_ANALYSIS",analysis.reason,{latestClosedBarTime:analysis.latestClosedBarTime});
         return {status:409,body:{error:analysis.reason,message:"البيانات غير كافية أو قديمة؛ لا توجد إشارة.",analysis,chartCandles:normalized.M1.slice(-60),run:entry}};
@@ -475,7 +544,7 @@ export function createAppServer(env = process.env) {
       }
       let assessment;
       try {
-        assessment = await aiProvider.assess({symbol:"XAUUSD",evidence:analysis.evidence,now});
+        assessment = await aiProvider.assess({symbol:"XAUUSD",evidence:analysis.evidence,now,marketContext:{recentClosedM1:normalized.M1.slice(-20).map(bar=>({time:bar.closeTime,open:bar.open,high:bar.high,low:bar.low,close:bar.close}))}});
         aiProbePassed = true;
       } catch (error) {
         aiProbePassed = false;
@@ -561,6 +630,36 @@ export function createAppServer(env = process.env) {
           const entry=record("RISK_REJECTED",timeBlock);
           return {status:409,body:{status:"RISK_REJECTED",message:timeBlock==="ROLLOVER_BLACKOUT"?"فترة إغلاق/تبديل جلسة السوق؛ تم منع الدخول الجديد.":"فترة أخبار عالية التأثير مُعدّة على الخادم؛ تم منع الدخول الجديد.",execution:"NOT_SUBMITTED",run:entry}};
         }
+        const newsBlock=await economicCalendarBlock(env);
+        if (newsBlock) {
+          autoTradingEnabled=false;
+          const entry=record("RISK_REJECTED",newsBlock);
+          return {status:newsBlock==="HIGH_IMPACT_NEWS_BLACKOUT"?409:503,body:{status:"RISK_REJECTED",message:newsBlock==="HIGH_IMPACT_NEWS_BLACKOUT"?"خبر أمريكي عالي التأثير ضمن نافذة الحظر؛ تم منع الدخول.":"تقويم الأخبار غير متاح أو غير مضبوط؛ تم إيقاف التنفيذ الآلي احترازيًا.",execution:"NOT_SUBMITTED",run:entry}};
+        }
+        const dailyGuard=dailyLossGuardConfig(env);
+        if (!dailyGuard) {
+          autoTradingEnabled=false;
+          const entry=record("RISK_REJECTED","DAILY_RISK_LIMITS_NOT_CONFIGURED");
+          return {status:409,body:{status:"RISK_REJECTED",message:"تم إيقاف التنفيذ الآلي: اضبط MAX_DAILY_LOSS_PERCENT وMAX_CONSECUTIVE_LOSSES على الخادم أولًا.",execution:"NOT_SUBMITTED",run:entry}};
+        }
+        const dailyRisk=await bridge.dailyRisk();
+        if (!dailyRisk.ok || dailyRisk.value.accountLogin!==String(health.value.accountLogin) ||
+            dailyRisk.value.source!=="MT5_CLOSED_DEALS_BOT_MAGIC" ||
+            !Number.isFinite(dailyRisk.value.balance) || dailyRisk.value.balance<=0 ||
+            !Number.isFinite(dailyRisk.value.dailyNetPnl) || !Number.isInteger(dailyRisk.value.consecutiveLosses) ||
+            dailyRisk.value.consecutiveLosses<0) {
+          autoTradingEnabled=false;
+          const entry=record("RISK_REJECTED","DAILY_RISK_HISTORY_UNAVAILABLE");
+          return {status:503,body:{status:"RISK_REJECTED",message:"تعذر التحقق من سجل الصفقات المغلقة لدى MT5؛ تم إيقاف التنفيذ الآلي احترازيًا.",execution:"NOT_SUBMITTED",run:entry}};
+        }
+        const dailyLossPercent=Math.max(0,-dailyRisk.value.dailyNetPnl)/dailyRisk.value.balance*100;
+        if (dailyLossPercent>=dailyGuard.maxDailyLossPercent || dailyRisk.value.consecutiveLosses>=dailyGuard.maxConsecutiveLosses) {
+          autoTradingEnabled=false;
+          const reason=dailyLossPercent>=dailyGuard.maxDailyLossPercent?"DAILY_LOSS_LIMIT_REACHED":"CONSECUTIVE_LOSS_LIMIT_REACHED";
+          const entry=record("RISK_REJECTED",reason,{dailyLossPercent,dailyNetPnl:dailyRisk.value.dailyNetPnl,consecutiveLosses:dailyRisk.value.consecutiveLosses});
+          await queueNotificationToEnabled("تم إيقاف التنفيذ الآلي لـ XAUUSD بسبب حد المخاطرة: "+reason+". خسارة اليوم "+dailyLossPercent.toFixed(2)+"%، سلسلة الخسائر "+dailyRisk.value.consecutiveLosses+".","RISK_GUARD", "risk-guard:"+dailyRisk.value.dayStartUtc+":"+reason);
+          return {status:409,body:{status:"RISK_REJECTED",message:"تم إيقاف التنفيذ الآلي بعد تجاوز حد خسارة اليوم أو عدد الخسائر المتتالية.",dailyLossPercent,dailyNetPnl:dailyRisk.value.dailyNetPnl,consecutiveLosses:dailyRisk.value.consecutiveLosses,execution:"NOT_SUBMITTED",run:entry}};
+        }
         const entryPrice=decision.direction==="BUY"?liveQuote.value.ask:liveQuote.value.bid;
         const spreadPrice=liveQuote.value.ask-liveQuote.value.bid;
         if (!Number.isFinite(spreadPrice) || spreadPrice<0) {
@@ -576,7 +675,6 @@ export function createAppServer(env = process.env) {
         }
         // Rebuild protection from the executable quote, not the earlier candle close.
         const stopDistance=1.5*currentAtr+spreadPrice;
-        const targetDistance=3*currentAtr;
         if (spreadPrice>stopDistance*0.125 || currentAtr<spreadPrice*2) {
           const entry=record("RISK_REJECTED","SPREAD_TOO_WIDE_FOR_ATR");
           return {status:409,body:{status:"RISK_REJECTED",message:"السبريد مرتفع نسبةً إلى ATR ووقف الخسارة؛ تم منع الدخول.",spreadPrice,atr:currentAtr,stopDistance,execution:"NOT_SUBMITTED",run:entry}};
@@ -584,6 +682,10 @@ export function createAppServer(env = process.env) {
         const digits=symbolSpec.value.priceDigits;
         const roundPrice=value=>Number(value.toFixed(digits));
         const stopLoss=roundPrice(decision.direction==="BUY"?entryPrice-stopDistance:entryPrice+stopDistance);
+        // Preserve the configured minimum RR using the rounded, executable SL distance.
+        // One tick of headroom prevents price rounding from nudging the ratio below the threshold.
+        const actualStopDistance=Math.abs(entryPrice-stopLoss);
+        const targetDistance=Math.max(3*currentAtr,(actualStopDistance+symbolSpec.value.tickSize)*riskSettings.minimumRiskRewardRatio);
         const takeProfit=roundPrice(decision.direction==="BUY"?entryPrice+targetDistance:entryPrice-targetDistance);
         const prepared = prepareExecutionIntent({
           id:randomUUID(),idempotencyKey:candidateKey+":"+executionEnvironment,opportunityId:candidateId,decisionId,
@@ -626,7 +728,7 @@ export function createAppServer(env = process.env) {
             const order = await supabase.insertRecord("broker_orders",{
               id:randomUUID(),execution_intent_id:prepared.intent.id,account_login:String(accountLogin),
               broker_order_id:submitted.value.brokerOrderId,status:"CONFIRMED",
-              request_payload:{symbol:"XAUUSD",direction:decision.direction,volume:prepared.intent.volume,stopLoss:evidence.stopLoss,takeProfit:evidence.takeProfit},
+              request_payload:{symbol:"XAUUSD",direction:decision.direction,volume:prepared.intent.volume,stopLoss:prepared.intent.stopLoss,takeProfit:prepared.intent.takeProfit},
               response_payload:submitted.value,created_at:new Date().toISOString(),updated_at:new Date().toISOString()
             });
             orderPersisted = order.ok;
@@ -675,6 +777,31 @@ export function createAppServer(env = process.env) {
     const result=await performScan(triggerType);
     if (result.body?.error!=="SCAN_ALREADY_RUNNING") latestScanView={statusCode:result.status,updatedAt:new Date().toISOString(),body:result.body};
     return result;
+  }
+  async function dailyRiskGuardStatus() {
+    const limits=dailyLossGuardConfig(env);
+    if (!limits) return {ok:false,code:"DAILY_RISK_LIMITS_NOT_CONFIGURED"};
+    if (!bridge) return {ok:false,code:"MT5_BRIDGE_NOT_CONFIGURED"};
+    const health=await bridge.health();
+    if (!health.ok || health.value.state!=="CONNECTED" || health.value.environment!==executionEnvironment || !health.value.accountLogin) {
+      return {ok:false,code:"MT5_ACCOUNT_NOT_CONFIRMED"};
+    }
+    const result=await bridge.dailyRisk();
+    if (!result.ok) return {ok:false,code:"DAILY_RISK_HISTORY_UNAVAILABLE"};
+    return evaluateDailyRiskGuard(env,result.value,health.value.accountLogin);
+  }
+  async function enforceScheduledDailyRiskGuard() {
+    if (!autoTradingEnabled) return true;
+    let status;
+    try { status=await dailyRiskGuardStatus(); }
+    catch { status={ok:false,code:"DAILY_RISK_HISTORY_UNAVAILABLE"}; }
+    if (status.ok) return true;
+    autoTradingEnabled=false;
+    const at=new Date().toISOString();
+    scannerRuns=[{id:randomUUID(),at,triggerType:"RISK_MONITOR",status:"RISK_REJECTED",reason:status.code,...(status.dailyLossPercent!==undefined?{dailyLossPercent:status.dailyLossPercent}:{}),...(status.consecutiveLosses!==undefined?{consecutiveLosses:status.consecutiveLosses}:{})},...scannerRuns].slice(0,50);
+    latestScanView={statusCode:409,updatedAt:at,body:{status:"RISK_REJECTED",error:status.code,message:"تم إيقاف التنفيذ الآلي بواسطة مراقب المخاطر. لا يتم إغلاق المراكز المفتوحة تلقائيًا.",execution:"NOT_SUBMITTED",...status}};
+    await queueNotificationToEnabled("تم إيقاف التنفيذ الآلي لـ XAUUSD بواسطة مراقب المخاطر: "+status.code+". راجع سجل MT5 قبل إعادة التفعيل.","RISK_GUARD","risk-monitor:"+status.code+":"+new Date().toISOString().slice(0,10));
+    return false;
   }
   const outboxTimer = supabase && telegram.configured ? setInterval(()=>{ void drainOutbox(); },15000) : null;
   outboxTimer?.unref?.();
@@ -837,8 +964,8 @@ export function createAppServer(env = process.env) {
       scannerEnabled=true;
       if (scannerTimer) clearInterval(scannerTimer);
       nextScheduledScanAt=Date.now()+60000;
-      const scheduleAtNextClosedM1=()=>{ if (!scannerEnabled) return; const nowMs=Date.now(); const delay=60000-(nowMs%60000)+2000; nextScheduledScanAt=nowMs+delay; scannerTimer=setTimeout(async()=>{ if (!scannerEnabled) return; try { await runAndStoreScan("SCHEDULED"); } finally { scheduleAtNextClosedM1(); } },delay); scannerTimer.unref?.(); };
-      void runAndStoreScan("SCHEDULED").finally(()=>scheduleAtNextClosedM1());
+      const scheduleAtNextClosedM1=()=>{ if (!scannerEnabled) return; const nowMs=Date.now(); const delay=60000-(nowMs%60000)+2000; nextScheduledScanAt=nowMs+delay; scannerTimer=setTimeout(async()=>{ if (!scannerEnabled) return; try { if (await enforceScheduledDailyRiskGuard()) await runAndStoreScan("SCHEDULED"); } finally { scheduleAtNextClosedM1(); } },delay); scannerTimer.unref?.(); };
+      void (async()=>{ if (await enforceScheduledDailyRiskGuard()) await runAndStoreScan("SCHEDULED"); })().finally(()=>scheduleAtNextClosedM1());
       return sendJson(res,200,{ok:true,enabled:true,intervalSeconds:60});
     }
     if (method === "POST" && url.pathname === "/api/trading/environment") {
@@ -867,6 +994,10 @@ export function createAppServer(env = process.env) {
       if (typeof body.enabled!=="boolean") return sendJson(res,400,{error:"INVALID_VALUE"});
       if (!body.enabled) { autoTradingEnabled=false; return sendJson(res,200,{ok:true,enabled:false,environment:executionEnvironment,liveTradingEnabled}); }
       await hydrateSettings();
+      if (!dailyLossGuardConfig(env)) return sendJson(res,409,{error:"DAILY_RISK_LIMITS_NOT_CONFIGURED",message:"اضبط MAX_DAILY_LOSS_PERCENT وMAX_CONSECUTIVE_LOSSES على الخادم قبل تفعيل التنفيذ الآلي."});
+      if (!env.FINNHUB_API_KEY?.trim()) return sendJson(res,409,{error:"NEWS_CALENDAR_NOT_CONFIGURED",message:"اضبط FINNHUB_API_KEY لتفعيل فلتر الأخبار الآلي قبل التنفيذ الآلي."});
+      const calendarStatus=await economicCalendarBlock(env);
+      if (calendarStatus) return sendJson(res,calendarStatus==="HIGH_IMPACT_NEWS_BLACKOUT"?409:503,{error:calendarStatus,message:calendarStatus==="HIGH_IMPACT_NEWS_BLACKOUT"?"يوجد خبر أمريكي عالي التأثير ضمن نافذة الحظر؛ لا يمكن تسليح التنفيذ الآن.":"تعذر التحقق من تقويم الأخبار الاقتصادي؛ التنفيذ الآلي مغلق."});
       if (!scannerEnabled || !bridge || !aiProvider || !supabase || !riskSettings) return sendJson(res,409,{error:"EXECUTION_PREREQUISITES_MISSING",message:"يلزم تفعيل السكانر وضبط MT5 وAI والمخاطرة وSupabase قبل التنفيذ الآلي."});
       const health=await bridge.health();
       if (!health.ok || health.value.state!=="CONNECTED" || health.value.environment!==executionEnvironment || !health.value.accountLogin || health.value.executionReady!==true) return sendJson(res,409,{error:"MT5_ACCOUNT_NOT_CONFIRMED",message:"يلزم حساب MT5 مطابق لبيئة التنفيذ ومن نوع Hedging مع تأكيد الجاهزية؛ التنفيذ الآلي ما زال متوقفًا."});
@@ -878,6 +1009,8 @@ export function createAppServer(env = process.env) {
         if (probe.outcome==="BUY" || probe.outcome==="SELL") return sendJson(res,409,{error:"AI_PROBE_UNSAFE",message:"مزود AI أعاد اتجاه تداول دون أدلة؛ التنفيذ الآلي مرفوض."});
         aiProbePassed=true;
       } catch { return sendJson(res,503,{error:"AI_PROVIDER_UNAVAILABLE",message:"اختبار اتصال AI فشل؛ التنفيذ الآلي مرفوض."}); }
+      const riskStatus=await dailyRiskGuardStatus();
+      if (!riskStatus.ok) return sendJson(res,409,{error:riskStatus.code,message:"مراقب المخاطر يمنع تفعيل التنفيذ الآلي حتى تُحل المشكلة أو يبدأ يوم تداول جديد.",risk:riskStatus});
       autoTradingEnabled=true;
       return sendJson(res,200,{ok:true,enabled:true,environment:executionEnvironment,liveTradingEnabled});
     }
