@@ -83,7 +83,8 @@ export function analyzeClosedMarket(input: TechnicalAnalysisInput): TechnicalAna
   const priorRangeLow=Math.min(...priorRange.map(bar=>bar.low));
   const selection=selectAdaptiveStrategy({
     trendStrength,ema9:e9,ema21:e21,ema21FiveBarsAgo,previousEma9,previousClose:previous.close,
-    currentOpen:latest.open,currentClose:latest.close,priorRangeHigh,priorRangeLow,rsi14:rv,macdHistogram:mv.histogram,atr14:av
+    previousHigh:previous.high,previousLow:previous.low,currentOpen:latest.open,currentClose:latest.close,
+    priorRangeHigh,priorRangeLow,rsi14:rv,macdHistogram:mv.histogram,atr14:av
   });
   const metrics = { ema9:e9,ema21:e21,rsi14:rv,macd:mv.macd,macdSignal:mv.signal,macdHistogram:mv.histogram,atr14:av,marketRegime:selection?.regime ?? (trendStrength>=0.25?"TRENDING":"RANGING") as MarketRegime,trendStrength,higherTimeframeContext };
   if (!selection) return { status:"WAIT",reason:"NO_SETUP",evaluatedAt:input.now,latestClosedBarTime:latest.closeTime,metrics,evidence:EMPTY };
