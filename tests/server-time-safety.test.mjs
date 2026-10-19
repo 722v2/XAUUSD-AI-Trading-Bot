@@ -47,7 +47,7 @@ test('automatic news filter blocks high-impact US events inside the 15-minute wi
 test('automatic news filter accepts Finnhub string high-impact labels', async () => {
   const now=Date.now()+2*60*60*1000;
   const result=await economicCalendarBlock({FINNHUB_API_KEY:'string-impact-key'},now,async () => new Response(JSON.stringify({economicCalendar:[
-    {country:'US',impact:'high',time:new Date(now-5*60*1000).toISOString(),event:'CPI'}
+    {country:'US',impact:'high',time:new Date(now-5*60*1000).toISOString().replace('T',' ').replace('Z',''),event:'CPI'}
   ]}),{status:200}));
   assert.equal(result,'HIGH_IMPACT_NEWS_BLACKOUT');
 });
