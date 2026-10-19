@@ -163,7 +163,7 @@ export async function runHistoricalBacktest(input) {
       aiCalls++;
       let assessment;
       try {
-        assessment = await aiProvider.assess({ symbol: "XAUUSD", evidence: [candidate.evidence], now: candidate.evidence.createdAt });
+        assessment = await aiProvider.assess({ symbol: "XAUUSD", evidence: [candidate.evidence], now: candidate.evidence.createdAt, marketContext: { recentClosedM1: candles.M1.slice(-20).map(bar => ({ time: bar.closeTime, open: bar.open, high: bar.high, low: bar.low, close: bar.close })) } });
       } catch (error) {
         aiErrors.push({ signalTime: candidate.evidence.createdAt, code: typeof error?.code === "string" ? error.code : "AI_ERROR" });
         continue;
