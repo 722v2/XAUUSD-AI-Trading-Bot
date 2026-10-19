@@ -119,14 +119,14 @@ class BridgeUnitTests(unittest.TestCase):
         fake.deals = [
             SimpleNamespace(symbol="XAUUSD", magic=61016001, entry=FakeMT5.DEAL_ENTRY_OUT, time=now-300, profit=-3.0, commission=-0.2, swap=0.0, fee=0.0),
             SimpleNamespace(symbol="XAUUSD", magic=61016001, entry=FakeMT5.DEAL_ENTRY_OUT, time=now-200, profit=-2.0, commission=-0.2, swap=0.0, fee=0.0),
-            SimpleNamespace(symbol="XAUUSD", magic=61016001, entry=0, time=now-100, profit=-99.0, commission=0.0, swap=0.0, fee=0.0),
+            SimpleNamespace(symbol="XAUUSD", magic=61016001, entry=0, time=now-100, profit=0.0, commission=-1.0, swap=0.0, fee=0.0),
             SimpleNamespace(symbol="XAUUSD", magic=42, entry=FakeMT5.DEAL_ENTRY_OUT, time=now-50, profit=-99.0, commission=0.0, swap=0.0, fee=0.0),
         ]
         bridge_module.mt5 = fake
         try:
             status, result = self.service.daily_risk()
             self.assertEqual(status, 200)
-            self.assertAlmostEqual(result["dailyNetPnl"], -5.4)
+            self.assertAlmostEqual(result["dailyNetPnl"], -6.4)
             self.assertEqual(result["consecutiveLosses"], 2)
             self.assertEqual(result["source"], "MT5_CLOSED_DEALS_BOT_MAGIC")
         finally:
