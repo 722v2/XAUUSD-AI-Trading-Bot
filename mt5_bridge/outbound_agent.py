@@ -26,7 +26,9 @@ LOCAL_BRIDGE_URL = os.environ.get("MT5_LOCAL_BRIDGE_URL", "http://127.0.0.1:8765
 POLL_SECONDS = max(0.2, min(5.0, float(os.environ.get("MT5_RELAY_POLL_SECONDS", "0.5"))))
 WORKERS = max(4, min(12, int(os.environ.get("MT5_RELAY_WORKERS", "4"))))
 POLL_TIMEOUT = 15
-JOB_TIMEOUT = 12
+# Local bridge calls may need longer than the server's former 12-second window.
+JOB_TIMEOUT = 20
+RESULT_TIMEOUT = 8
 _thread_local = threading.local()
 
 
@@ -115,9 +117,11 @@ def worker(worker_id: int, stop: threading.Event) -> None:
             result_status, result_body = request(
                 result_url, "POST",
                 {"id": job["id"], "status": local_status, "body": local_body},
-                timeout=JOB_TIMEOUT,
+                timeout=RESULT_TIMEOUT,
             )
-            if result_status != 200:
+            if result_status == 404 and result_body.get("error") == "UNKNOWN_JOB":
+                print(f"[worker {worker_id}] discarded late result for expired job {job['id']}")
+            elif result_status != 200:
                 print(f"[worker {worker_id}] result delivery failed: HTTP {result_status} {result_body.get('error', 'HTTP_ERROR')}")
         except KeyboardInterrupt:
             stop.set()
