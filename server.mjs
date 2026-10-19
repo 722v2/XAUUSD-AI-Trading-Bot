@@ -524,7 +524,7 @@ export function createAppServer(env = process.env) {
       }
       let assessment;
       try {
-        assessment = await aiProvider.assess({symbol:"XAUUSD",evidence:analysis.evidence,now});
+        assessment = await aiProvider.assess({symbol:"XAUUSD",evidence:analysis.evidence,now,marketContext:{recentClosedM1:normalized.M1.slice(-20).map(bar=>({time:bar.closeTime,open:bar.open,high:bar.high,low:bar.low,close:bar.close}))}});
         aiProbePassed = true;
       } catch (error) {
         aiProbePassed = false;
