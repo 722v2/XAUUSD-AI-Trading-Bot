@@ -37,7 +37,7 @@ export class MT5BridgeClient {
   async #request<T>(path: string, init: RequestInit = {}, timeoutMs = this.#timeoutMs): Promise<BridgeResult<T>> {
     let response: Response;
     try {
-      response = await this.#fetch(this.#baseUrl + path, {
+      response = await this.#fetch(this.#baseUrl + "/api/mt5/relay/proxy" + path, {
         ...init,
         headers: { "content-type": "application/json", "X-Bridge-Token": this.#token, ...((init.headers ?? {}) as Record<string,string>) },
         signal: AbortSignal.timeout(timeoutMs)
