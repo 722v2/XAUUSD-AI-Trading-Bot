@@ -12,10 +12,12 @@ test('AI adapter parses only structured assessments and never issues an executio
     captured = {url:String(url),headers:init.headers,body:JSON.parse(init.body)};
     return response({choices:[{message:{content:JSON.stringify({outcome:'BUY',rationale:'Evidence aligned',rationaleCodes:['EMA_UP']})}}]});
   });
-  const result = await provider.assess({symbol:'XAUUSD',evidence,now:'2026-10-16T12:00:00.000Z'});
+  const result = await provider.assess({symbol:'XAUUSD',evidence,now:'2026-10-16T12:00:00.000Z',marketContext:{recentClosedM1:[{time:'2026-10-16T11:59:00.000Z',open:2000,high:2002,low:1999,close:2001}]}});
   assert.equal(result.outcome,'BUY');
   assert.equal(result.providerId,'test-provider');
   assert.equal(captured.body.model,'test-model');
+  const userMessage=captured.body.messages.find(message=>message.role==='user');
+  assert.equal(JSON.parse(userMessage.content).marketContext.recentClosedM1.length,1);
   assert.equal(captured.headers.authorization,'Bearer test-secret');
   assert.equal(JSON.stringify(captured.body).includes('place_order'),false);
 });
