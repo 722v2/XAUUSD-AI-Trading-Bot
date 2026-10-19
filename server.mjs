@@ -155,15 +155,15 @@ export function tradingTimeBlock(env, nowMs=Date.now()) {
 function validRiskSettings(value) {
   return value && typeof value === "object" && validateRiskSettings(value) === null;
 }
-function dailyLossGuardConfig(env) {
-  const maxDailyLossPercent=Number(env.MAX_DAILY_LOSS_PERCENT);
-  const maxConsecutiveLosses=Number(env.MAX_CONSECUTIVE_LOSSES);
+function dailyLossGuardConfig(env={}, settings=null) {
+  const maxDailyLossPercent=settings?.maxDailyLossPercent ?? Number(env.MAX_DAILY_LOSS_PERCENT);
+  const maxConsecutiveLosses=settings?.maxConsecutiveLosses ?? Number(env.MAX_CONSECUTIVE_LOSSES);
   if (!Number.isFinite(maxDailyLossPercent) || maxDailyLossPercent<=0 || maxDailyLossPercent>100 ||
       !Number.isInteger(maxConsecutiveLosses) || maxConsecutiveLosses<1 || maxConsecutiveLosses>100) return null;
   return {maxDailyLossPercent,maxConsecutiveLosses};
 }
-export function evaluateDailyRiskGuard(env, risk, expectedAccountLogin) {
-  const limits=dailyLossGuardConfig(env);
+export function evaluateDailyRiskGuard(env, risk, expectedAccountLogin, settings=null) {
+  const limits=dailyLossGuardConfig(env,settings);
   if (!limits) return {ok:false,code:"DAILY_RISK_LIMITS_NOT_CONFIGURED"};
   if (!risk || risk.accountLogin!==String(expectedAccountLogin) ||
       risk.source!=="MT5_CLOSED_DEALS_BOT_MAGIC" ||
@@ -645,11 +645,11 @@ export function createAppServer(env = process.env) {
           const entry=record("RISK_REJECTED",newsBlock);
           return {status:newsBlock==="HIGH_IMPACT_NEWS_BLACKOUT"?409:503,body:{status:"RISK_REJECTED",message:newsBlock==="HIGH_IMPACT_NEWS_BLACKOUT"?"خبر أمريكي عالي التأثير ضمن نافذة الحظر؛ تم منع الدخول.":"تقويم الأخبار غير متاح أو غير مضبوط؛ تم إيقاف التنفيذ الآلي احترازيًا.",execution:"NOT_SUBMITTED",run:entry}};
         }
-        const dailyGuard=dailyLossGuardConfig(env);
+        const dailyGuard=dailyLossGuardConfig({},riskSettings);
         if (!dailyGuard) {
           autoTradingEnabled=false;
           const entry=record("RISK_REJECTED","DAILY_RISK_LIMITS_NOT_CONFIGURED");
-          return {status:409,body:{status:"RISK_REJECTED",message:"تم إيقاف التنفيذ الآلي: اضبط MAX_DAILY_LOSS_PERCENT وMAX_CONSECUTIVE_LOSSES على الخادم أولًا.",execution:"NOT_SUBMITTED",run:entry}};
+          return {status:409,body:{status:"RISK_REJECTED",message:"تم إيقاف التنفيذ الآلي: احفظ حد الخسارة اليومية وعدد الخسائر المتتالية من قسم المخاطر في لوحة التحكم.",execution:"NOT_SUBMITTED",run:entry}};
         }
         const dailyRisk=await bridge.dailyRisk();
         if (!dailyRisk.ok || dailyRisk.value.accountLogin!==String(health.value.accountLogin) ||
@@ -788,7 +788,7 @@ export function createAppServer(env = process.env) {
     return result;
   }
   async function dailyRiskGuardStatus() {
-    const limits=dailyLossGuardConfig(env);
+    const limits=dailyLossGuardConfig({},riskSettings);
     if (!limits) return {ok:false,code:"DAILY_RISK_LIMITS_NOT_CONFIGURED"};
     if (!bridge) return {ok:false,code:"MT5_BRIDGE_NOT_CONFIGURED"};
     const health=await bridge.health();
@@ -797,7 +797,7 @@ export function createAppServer(env = process.env) {
     }
     const result=await bridge.dailyRisk();
     if (!result.ok) return {ok:false,code:"DAILY_RISK_HISTORY_UNAVAILABLE"};
-    return evaluateDailyRiskGuard(env,result.value,health.value.accountLogin);
+    return evaluateDailyRiskGuard({},result.value,health.value.accountLogin,riskSettings);
   }
   async function enforceScheduledDailyRiskGuard() {
     if (!autoTradingEnabled) return true;
@@ -1084,7 +1084,7 @@ export function createAppServer(env = process.env) {
       if (typeof body.enabled!=="boolean") return sendJson(res,400,{error:"INVALID_VALUE"});
       if (!body.enabled) { autoTradingEnabled=false; return sendJson(res,200,{ok:true,enabled:false,environment:executionEnvironment,liveTradingEnabled}); }
       await hydrateSettings();
-      if (!dailyLossGuardConfig(env)) return sendJson(res,409,{error:"DAILY_RISK_LIMITS_NOT_CONFIGURED",message:"اضبط MAX_DAILY_LOSS_PERCENT وMAX_CONSECUTIVE_LOSSES على الخادم قبل تفعيل التنفيذ الآلي."});
+      if (!dailyLossGuardConfig({},riskSettings)) return sendJson(res,409,{error:"DAILY_RISK_LIMITS_NOT_CONFIGURED",message:"احفظ حد الخسارة اليومية وعدد الخسائر المتتالية من قسم المخاطر قبل تفعيل التنفيذ الآلي."});
       if (!env.FINNHUB_API_KEY?.trim()) return sendJson(res,409,{error:"NEWS_CALENDAR_NOT_CONFIGURED",message:"اضبط FINNHUB_API_KEY لتفعيل فلتر الأخبار الآلي قبل التنفيذ الآلي."});
       const calendarStatus=await economicCalendarBlock(env);
       if (calendarStatus) return sendJson(res,calendarStatus==="HIGH_IMPACT_NEWS_BLACKOUT"?409:503,{error:calendarStatus,message:calendarStatus==="HIGH_IMPACT_NEWS_BLACKOUT"?"يوجد خبر أمريكي عالي التأثير ضمن نافذة الحظر؛ لا يمكن تسليح التنفيذ الآن.":"تعذر التحقق من تقويم الأخبار الاقتصادي؛ التنفيذ الآلي مغلق."});
