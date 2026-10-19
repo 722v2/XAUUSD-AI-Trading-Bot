@@ -113,6 +113,8 @@
           <label id="risk-percent-label">المخاطرة (%)<input id="risk-percent" type="number" min="0.000001" step="any" placeholder="مثال: 1"></label>
           <label id="risk-cash-label" hidden>المخاطرة النقدية<input id="risk-cash" type="number" min="0.000001" step="any" placeholder="مبلغ المخاطرة"></label>
           <label>الحد الأدنى لنسبة العائد إلى المخاطرة<input id="min-rr" type="number" min="0" step="any" value="2" required></label>
+          <label>حد الخسارة اليومية (%)<input id="max-daily-loss-percent" type="number" min="0.01" max="100" step="any" placeholder="مثال: 3" required></label>
+          <label>أقصى خسائر متتالية<input id="max-consecutive-losses" type="number" min="1" max="100" step="1" placeholder="مثال: 3" required></label>
           <div class="form-actions"><button class="primary-button" type="submit">حفظ إعدادات المخاطرة</button><span id="risk-feedback" role="status" class="muted"></span></div>
         </form>
         <p class="footnote">هذه القيم لا تنشئ صفقة. حجم العقد الفعلي يحتاج مواصفات الوسيط وتأكيد حساب MT5.</p>
