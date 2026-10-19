@@ -88,7 +88,7 @@ test('auto execution stays off and Live remains disabled without all prerequisit
     const response = await fetch(base+'/api/trading/auto',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({enabled:true})});
     const data = await response.json();
     assert.equal(response.status,409);
-    assert.equal(data.error,'EXECUTION_PREREQUISITES_MISSING');
+    assert.equal(data.error,'DAILY_RISK_LIMITS_NOT_CONFIGURED');
   });
 });
 test('positions API never invents positions when MT5 bridge is absent', async () => {
