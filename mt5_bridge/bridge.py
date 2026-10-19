@@ -8,7 +8,8 @@ import os
 import sqlite3
 import threading
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timezone, time as datetime_time, timedelta
+from zoneinfo import ZoneInfo
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
@@ -512,9 +513,13 @@ class BridgeService:
             if account is None:
                 return 503, {"error": "ACCOUNT_INFO_UNAVAILABLE"}
             now = datetime.now(timezone.utc)
-            start = datetime(now.year, now.month, now.day, tzinfo=timezone.utc)
-            # Query only the UTC day: both the daily loss and the consecutive-loss guard reset at 00:00 UTC.
-            # This also avoids scanning the account's entire lifetime on every risk check.
+            # Define the trading day from the New York 17:00 metals rollover, including DST.
+            new_york = ZoneInfo("America/New_York")
+            local_now = now.astimezone(new_york)
+            session_date = local_now.date() if local_now.time().replace(tzinfo=None) >= datetime_time(17, 0) else local_now.date() - timedelta(days=1)
+            local_start = datetime.combine(session_date, datetime_time(17, 0), tzinfo=new_york)
+            start = local_start.astimezone(timezone.utc)
+            # Query only the current metals trading session instead of the account's entire lifetime.
             history = mt5.history_deals_get(start, now)
             if history is None:
                 return 503, {"error": "DEAL_HISTORY_UNAVAILABLE"}
