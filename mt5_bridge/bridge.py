@@ -502,6 +502,55 @@ class BridgeService:
                 self.store.update(key, "UNKNOWN", uncertain)
                 return 202, {"state": "RECONCILIATION_REQUIRED", "comment": comment}
 
+    def daily_risk(self) -> tuple[int, dict[str, Any]]:
+        """Return today's closed P&L and the current consecutive losing-deal streak for bot trades."""
+        with self._mt5_lock:
+            allowed, reason = self._account_matches_environment()
+            if not allowed:
+                return 503, {"error": reason}
+            account = mt5.account_info()
+            if account is None:
+                return 503, {"error": "ACCOUNT_INFO_UNAVAILABLE"}
+            now = datetime.now(timezone.utc)
+            start = datetime(now.year, now.month, now.day, tzinfo=timezone.utc)
+            # Include enough history to calculate the consecutive-loss streak, not just today's deals.
+            history = mt5.history_deals_get(datetime(2000, 1, 1, tzinfo=timezone.utc), now)
+            if history is None:
+                return 503, {"error": "DEAL_HISTORY_UNAVAILABLE"}
+            entry_out = getattr(mt5, "DEAL_ENTRY_OUT", 1)
+            entry_out_by = getattr(mt5, "DEAL_ENTRY_OUT_BY", 3)
+            entry_inout = getattr(mt5, "DEAL_ENTRY_INOUT", 2)
+            closing = []
+            for deal in history:
+                if str(getattr(deal, "symbol", "")) != self.symbol or int(getattr(deal, "magic", 0)) != 61016001:
+                    continue
+                if getattr(deal, "entry", None) not in (entry_out, entry_out_by, entry_inout):
+                    continue
+                stamp = int(getattr(deal, "time", 0) or 0)
+                pnl = sum(float(getattr(deal, field, 0.0) or 0.0) for field in ("profit", "commission", "swap", "fee"))
+                if not math.isfinite(pnl) or stamp <= 0:
+                    return 503, {"error": "INVALID_DEAL_HISTORY"}
+                closing.append((stamp, pnl))
+            closing.sort(key=lambda item: item[0])
+            today_start = int(start.timestamp())
+            today_pnl = sum(pnl for stamp, pnl in closing if stamp >= today_start)
+            streak = 0
+            for _, pnl in reversed(closing):
+                if pnl < -0.000001:
+                    streak += 1
+                else:
+                    break
+            return 200, {
+                "accountLogin": str(getattr(account, "login", "")),
+                "currency": str(getattr(account, "currency", "")),
+                "balance": float(getattr(account, "balance", 0.0)),
+                "dailyNetPnl": float(today_pnl),
+                "consecutiveLosses": streak,
+                "asOf": utc_iso(now.timestamp()),
+                "dayStartUtc": start.isoformat().replace("+00:00", "Z"),
+                "source": "MT5_CLOSED_DEALS_BOT_MAGIC",
+            }
+
     def lookup_intent(self, key: str) -> tuple[int, dict[str, Any]]:
         if not key or len(key) > 180:
             return 400, {"error": "INVALID_IDEMPOTENCY_KEY"}
@@ -547,6 +596,9 @@ def create_handler(service: BridgeService):
                 return self._send(status, body)
             if parsed.path == "/positions":
                 status, body = service.positions()
+                return self._send(status, body)
+            if parsed.path == "/risk/daily":
+                status, body = service.daily_risk()
                 return self._send(status, body)
             if parsed.path == "/market/candles":
                 query = parse_qs(parsed.query)
