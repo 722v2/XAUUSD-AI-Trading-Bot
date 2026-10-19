@@ -521,19 +521,21 @@ class BridgeService:
             entry_out_by = getattr(mt5, "DEAL_ENTRY_OUT_BY", 3)
             entry_inout = getattr(mt5, "DEAL_ENTRY_INOUT", 2)
             closing = []
+            daily_deals = []
             for deal in history:
                 if str(getattr(deal, "symbol", "")) != self.symbol or int(getattr(deal, "magic", 0)) != 61016001:
-                    continue
-                if getattr(deal, "entry", None) not in (entry_out, entry_out_by, entry_inout):
                     continue
                 stamp = int(getattr(deal, "time", 0) or 0)
                 pnl = sum(float(getattr(deal, field, 0.0) or 0.0) for field in ("profit", "commission", "swap", "fee"))
                 if not math.isfinite(pnl) or stamp <= 0:
                     return 503, {"error": "INVALID_DEAL_HISTORY"}
-                closing.append((stamp, pnl))
+                # Daily net P&L includes today's entry commissions/fees as well as closed P&L.
+                daily_deals.append((stamp, pnl))
+                if getattr(deal, "entry", None) in (entry_out, entry_out_by, entry_inout):
+                    closing.append((stamp, pnl))
             closing.sort(key=lambda item: item[0])
             today_start = int(start.timestamp())
-            today_pnl = sum(pnl for stamp, pnl in closing if stamp >= today_start)
+            today_pnl = sum(pnl for stamp, pnl in daily_deals if stamp >= today_start)
             streak = 0
             for _, pnl in reversed(closing):
                 if pnl < -0.000001:
