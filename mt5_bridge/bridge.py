@@ -150,15 +150,48 @@ class BridgeService:
             terminal = mt5.terminal_info()
             if terminal is None or not getattr(terminal, "connected", False):
                 return False, "MT5_TERMINAL_DISCONNECTED"
+            if not self._resolve_gold_symbol():
+                return False, "GOLD_SYMBOL_NOT_FOUND"
             return True, "CONNECTED"
         except Exception:
             return False, "MT5_CONNECTION_ERROR"
+
+    def _resolve_gold_symbol(self) -> bool:
+        """Resolve JustMarkets' broker-specific gold symbol while keeping XAUUSD as the app's canonical ID."""
+        try:
+            requested = str(self.symbol or "XAUUSD").strip()
+            info = mt5.symbol_info(requested)
+            if info is not None and mt5.symbol_select(requested, True):
+                return True
+            symbols = mt5.symbols_get()
+            if not symbols:
+                return False
+            names = [str(getattr(item, "name", "")) for item in symbols if getattr(item, "name", None)]
+            upper_to_name = {name.upper(): name for name in names}
+            candidates = []
+            # Exact broker standard name first, then common account suffixes such as XAUUSDm.
+            for name in ("XAUUSD", "XAUUSDM", "XAUUSD.M", "XAUUSD_PRO", "GOLD"):
+                actual = upper_to_name.get(name)
+                if actual and actual not in candidates:
+                    candidates.append(actual)
+            candidates.extend(name for name in names
+                if name.upper().startswith("XAUUSD") and name not in candidates)
+            for candidate in candidates:
+                try:
+                    if mt5.symbol_info(candidate) is not None and mt5.symbol_select(candidate, True):
+                        self.symbol = candidate
+                        return True
+                except Exception:
+                    continue
+            return False
+        except Exception:
+            return False
 
     def health(self) -> dict[str, Any]:
         with self._mt5_lock:
             connected, reason = self._connect_mt5()
             if not connected:
-                return {"state": "NOT_CONFIGURED" if reason == "MT5_PACKAGE_MISSING" else "DISCONNECTED", "reason": reason, "environment": self.execution_environment, "liveTradingEnabled": self.live_enabled}
+                return {"state": "NOT_CONFIGURED" if reason == "MT5_PACKAGE_MISSING" else "DISCONNECTED", "reason": reason, "environment": self.execution_environment, "liveTradingEnabled": self.live_enabled, "canonicalSymbol": "XAUUSD", "brokerSymbol": self.symbol}
             account = mt5.account_info()
             if account is None:
                 return {"state": "DISCONNECTED", "reason": "ACCOUNT_INFO_UNAVAILABLE", "environment": self.execution_environment, "liveTradingEnabled": self.live_enabled}
@@ -179,6 +212,8 @@ class BridgeService:
                 "accountLogin": str(getattr(account, "login", "")) if execution_ready else None,
                 "executionReady": execution_ready,
                 "liveTradingEnabled": self.live_enabled,
+                "canonicalSymbol": "XAUUSD", "brokerSymbol": self.symbol,
+                "brokerTimeZone": "UTC+03:00",
             }
 
     def set_environment(self, payload: Any) -> tuple[int, dict[str, Any]]:
@@ -212,11 +247,11 @@ class BridgeService:
             if not connected:
                 return 503, {"error": reason}
             if not mt5.symbol_select(self.symbol, True):
-                return 503, {"error": "SYMBOL_SELECT_FAILED"}
+                return 503, {"error": "SYMBOL_SELECT_FAILED", "requestedSymbol": self.symbol, "canonicalSymbol": "XAUUSD"}
             tick = mt5.symbol_info_tick(self.symbol)
             if tick is None or not math.isfinite(float(tick.bid)) or not math.isfinite(float(tick.ask)) or tick.bid <= 0 or tick.ask < tick.bid:
                 return 503, {"error": "INVALID_TICK"}
-            return 200, {"symbol": "XAUUSD", "bid": float(tick.bid), "ask": float(tick.ask), "tickTime": utc_iso(tick.time), "receivedAt": utc_iso(time.time())}
+            return 200, {"symbol": "XAUUSD", "brokerSymbol": self.symbol, "brokerTimeZone": "UTC+03:00", "bid": float(tick.bid), "ask": float(tick.ask), "tickTime": utc_iso(tick.time), "receivedAt": utc_iso(time.time())}
 
     def symbol_spec(self) -> tuple[int, dict[str, Any]]:
         with self._mt5_lock:
@@ -237,7 +272,7 @@ class BridgeService:
                     or tick_size <= 0 or tick_value <= 0 or point <= 0 or volume_min <= 0 or volume_max < volume_min or volume_step <= 0):
                 return 503, {"error": "TICK_SPEC_UNAVAILABLE"}
             return 200, {
-                "symbol": "XAUUSD", "tickSize": tick_size, "tickValuePerLot": tick_value,
+                "symbol": "XAUUSD", "brokerSymbol": self.symbol, "brokerTimeZone": "UTC+03:00", "tickSize": tick_size, "tickValuePerLot": tick_value,
                 "volumeMin": volume_min, "volumeMax": volume_max,
                 "volumeStep": volume_step, "priceDigits": int(info.digits),
                 "point": point, "stopsLevelPoints": stops_level,
@@ -274,7 +309,7 @@ class BridgeService:
                     "high": float(row["high"]), "low": float(row["low"]), "close": float(row["close"]),
                     "tickVolume": int(row["tick_volume"]), "isClosed": True,
                 })
-            return 200, {"symbol": "XAUUSD", "timeframe": timeframe, "candles": result}
+            return 200, {"symbol": "XAUUSD", "brokerSymbol": self.symbol, "brokerTimeZone": "UTC+03:00", "timeframe": timeframe, "candles": result}
 
     def _account_matches_environment(self, expected_environment: str | None = None) -> tuple[bool, str]:
         connected, reason = self._connect_mt5()
@@ -513,12 +548,11 @@ class BridgeService:
             if account is None:
                 return 503, {"error": "ACCOUNT_INFO_UNAVAILABLE"}
             now = datetime.now(timezone.utc)
-            # Define the trading day from the New York 17:00 metals rollover, including DST.
-            new_york = ZoneInfo("America/New_York")
-            local_now = now.astimezone(new_york)
-            session_date = local_now.date() if local_now.time().replace(tzinfo=None) >= datetime_time(17, 0) else local_now.date() - timedelta(days=1)
-            local_start = datetime.combine(session_date, datetime_time(17, 0), tzinfo=new_york)
-            start = local_start.astimezone(timezone.utc)
+            # JustMarkets' metals server clock is GMT+3. Risk-day boundaries use broker time,
+            # while all stored/API timestamps remain UTC to avoid local-machine timezone drift.
+            broker_now = now + timedelta(hours=3)
+            broker_midnight = datetime.combine(broker_now.date(), datetime_time(0, 0), tzinfo=timezone.utc)
+            start = broker_midnight - timedelta(hours=3)
             # Query only the current metals trading session instead of the account's entire lifetime.
             history = mt5.history_deals_get(start, now)
             if history is None:
@@ -557,6 +591,7 @@ class BridgeService:
                 "consecutiveLosses": streak,
                 "asOf": utc_iso(now.timestamp()),
                 "dayStartUtc": start.isoformat().replace("+00:00", "Z"),
+                "brokerTimeZone": "UTC+03:00",
                 "source": "MT5_CLOSED_DEALS_BOT_MAGIC",
             }
 
