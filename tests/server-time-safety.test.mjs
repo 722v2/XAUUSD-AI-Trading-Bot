@@ -89,6 +89,13 @@ test('daily risk guard rejects missing or invalid account-specific limits', () =
   assert.equal(evaluateDailyRiskGuard({MAX_DAILY_LOSS_PERCENT:'101',MAX_CONSECUTIVE_LOSSES:'3'},risk,'123').code,'DAILY_RISK_LIMITS_NOT_CONFIGURED');
 });
 
+test('daily risk guard reads account limits from saved UI risk settings', () => {
+  const risk={accountLogin:'123',currency:'USD',balance:1000,dailyNetPnl:-30,consecutiveLosses:1,source:'MT5_CLOSED_DEALS_BOT_MAGIC',dayStartUtc:'2026-10-19T00:00:00Z'};
+  const result=evaluateDailyRiskGuard({},risk,'123',{maxDailyLossPercent:3,maxConsecutiveLosses:4});
+  assert.equal(result.code,'DAILY_LOSS_LIMIT_REACHED');
+  assert.equal(evaluateDailyRiskGuard({},risk,'123',{maxDailyLossPercent:5,maxConsecutiveLosses:4}).ok,true);
+});
+
 test('daily risk guard stops at the configured realized-loss threshold', () => {
   const risk={accountLogin:'123',currency:'USD',balance:1000,dailyNetPnl:-30,consecutiveLosses:1,source:'MT5_CLOSED_DEALS_BOT_MAGIC',dayStartUtc:'2026-10-19T00:00:00Z'};
   const result=evaluateDailyRiskGuard({MAX_DAILY_LOSS_PERCENT:'3',MAX_CONSECUTIVE_LOSSES:'4'},risk,'123');
