@@ -88,9 +88,11 @@ set "MT5_BRIDGE_PORT=8765"
 echo.
 echo Selected mode: %MT5_EXECUTION_ENVIRONMENT%
 echo The bridge will verify the actual MT5 account mode before allowing execution.
-echo Keep this window open. Press Ctrl+C to stop.
-echo Never expose port 8765 directly to the public internet.
+echo The outbound relay connects to Render over HTTPS. No tunnel or open inbound port is needed.
+echo Keep both windows open. The relay token must match MT5_BRIDGE_TOKEN in Render.
 echo.
+set "MT5_RELAY_SERVER_URL=https://xauusd-ai-trading-bot-preview.onrender.com"
+start "XAUUSD MT5 Outbound Relay" cmd /k "cd /d ""%~dp0"" && set MT5_BRIDGE_TOKEN=%MT5_BRIDGE_TOKEN% && set MT5_RELAY_SERVER_URL=%MT5_RELAY_SERVER_URL% && py -3.12 mt5_bridge\outbound_agent.py"
 py -3.12 mt5_bridge\bridge.py
 echo.
 echo Bridge process ended.
