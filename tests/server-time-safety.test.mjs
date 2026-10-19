@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { economicCalendarBlock, scanFreshnessPolicy, tradingTimeBlock } from '../server.mjs';
+import { economicCalendarBlock, evaluateDailyRiskGuard, scanFreshnessPolicy, tradingTimeBlock } from '../server.mjs';
 
 test('manual scan permits a closed M1 candle for up to 70 seconds', () => {
   assert.deepEqual(scanFreshnessPolicy('MANUAL'), {maxAgeSeconds:70,maxM1AgeMs:70000});
@@ -70,4 +70,30 @@ test('economic calendar cache is isolated by API key', async () => {
   const second=await economicCalendarBlock({FINNHUB_API_KEY:'cache-key-b'},now,provider);
   assert.equal(second,null);
   assert.equal(calls,2);
+});
+
+test('daily risk guard rejects missing or invalid account-specific limits', () => {
+  const risk={accountLogin:'123',currency:'USD',balance:1000,dailyNetPnl:0,consecutiveLosses:0,source:'MT5_CLOSED_DEALS_BOT_MAGIC'};
+  assert.equal(evaluateDailyRiskGuard({},risk,'123').code,'DAILY_RISK_LIMITS_NOT_CONFIGURED');
+  assert.equal(evaluateDailyRiskGuard({MAX_DAILY_LOSS_PERCENT:'101',MAX_CONSECUTIVE_LOSSES:'3'},risk,'123').code,'DAILY_RISK_LIMITS_NOT_CONFIGURED');
+});
+
+test('daily risk guard stops at the configured realized-loss threshold', () => {
+  const risk={accountLogin:'123',currency:'USD',balance:1000,dailyNetPnl:-30,consecutiveLosses:1,source:'MT5_CLOSED_DEALS_BOT_MAGIC',dayStartUtc:'2026-10-19T00:00:00Z'};
+  const result=evaluateDailyRiskGuard({MAX_DAILY_LOSS_PERCENT:'3',MAX_CONSECUTIVE_LOSSES:'4'},risk,'123');
+  assert.equal(result.ok,false);
+  assert.equal(result.code,'DAILY_LOSS_LIMIT_REACHED');
+  assert.equal(result.dailyLossPercent,3);
+});
+
+test('daily risk guard stops at the configured consecutive-loss threshold', () => {
+  const risk={accountLogin:'123',currency:'USD',balance:1000,dailyNetPnl:-2,consecutiveLosses:3,source:'MT5_CLOSED_DEALS_BOT_MAGIC'};
+  assert.equal(evaluateDailyRiskGuard({MAX_DAILY_LOSS_PERCENT:'5',MAX_CONSECUTIVE_LOSSES:'3'},risk,'123').code,'CONSECUTIVE_LOSS_LIMIT_REACHED');
+});
+
+test('daily risk guard rejects stale account identity and malformed telemetry', () => {
+  const risk={accountLogin:'999',balance:1000,dailyNetPnl:0,consecutiveLosses:0,source:'MT5_CLOSED_DEALS_BOT_MAGIC'};
+  const env={MAX_DAILY_LOSS_PERCENT:'5',MAX_CONSECUTIVE_LOSSES:'3'};
+  assert.equal(evaluateDailyRiskGuard(env,risk,'123').code,'DAILY_RISK_HISTORY_UNAVAILABLE');
+  assert.equal(evaluateDailyRiskGuard(env,{...risk,accountLogin:'123',balance:0},'123').code,'DAILY_RISK_HISTORY_UNAVAILABLE');
 });
