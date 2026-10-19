@@ -118,6 +118,13 @@ export function tradingTimeBlock(env, nowMs=Date.now()) {
 function validRiskSettings(value) {
   return value && typeof value === "object" && validateRiskSettings(value) === null;
 }
+function dailyLossGuardConfig(env) {
+  const maxDailyLossPercent=Number(env.MAX_DAILY_LOSS_PERCENT);
+  const maxConsecutiveLosses=Number(env.MAX_CONSECUTIVE_LOSSES);
+  if (!Number.isFinite(maxDailyLossPercent) || maxDailyLossPercent<=0 || maxDailyLossPercent>100 ||
+      !Number.isInteger(maxConsecutiveLosses) || maxConsecutiveLosses<1 || maxConsecutiveLosses>100) return null;
+  return {maxDailyLossPercent,maxConsecutiveLosses};
+}
 export function createAppServer(env = process.env) {
   const telegram = new TelegramBotClient(env.TELEGRAM_BOT_TOKEN);
   const supabase = configuredSupabase(env);
@@ -571,6 +578,30 @@ export function createAppServer(env = process.env) {
           const entry=record("RISK_REJECTED",timeBlock);
           return {status:409,body:{status:"RISK_REJECTED",message:timeBlock==="ROLLOVER_BLACKOUT"?"فترة إغلاق/تبديل جلسة السوق؛ تم منع الدخول الجديد.":"فترة أخبار عالية التأثير مُعدّة على الخادم؛ تم منع الدخول الجديد.",execution:"NOT_SUBMITTED",run:entry}};
         }
+        const dailyGuard=dailyLossGuardConfig(env);
+        if (!dailyGuard) {
+          autoTradingEnabled=false;
+          const entry=record("RISK_REJECTED","DAILY_RISK_LIMITS_NOT_CONFIGURED");
+          return {status:409,body:{status:"RISK_REJECTED",message:"تم إيقاف التنفيذ الآلي: اضبط MAX_DAILY_LOSS_PERCENT وMAX_CONSECUTIVE_LOSSES على الخادم أولًا.",execution:"NOT_SUBMITTED",run:entry}};
+        }
+        const dailyRisk=await bridge.dailyRisk();
+        if (!dailyRisk.ok || dailyRisk.value.accountLogin!==String(health.value.accountLogin) ||
+            dailyRisk.value.source!=="MT5_CLOSED_DEALS_BOT_MAGIC" ||
+            !Number.isFinite(dailyRisk.value.balance) || dailyRisk.value.balance<=0 ||
+            !Number.isFinite(dailyRisk.value.dailyNetPnl) || !Number.isInteger(dailyRisk.value.consecutiveLosses) ||
+            dailyRisk.value.consecutiveLosses<0) {
+          autoTradingEnabled=false;
+          const entry=record("RISK_REJECTED","DAILY_RISK_HISTORY_UNAVAILABLE");
+          return {status:503,body:{status:"RISK_REJECTED",message:"تعذر التحقق من سجل الصفقات المغلقة لدى MT5؛ تم إيقاف التنفيذ الآلي احترازيًا.",execution:"NOT_SUBMITTED",run:entry}};
+        }
+        const dailyLossPercent=Math.max(0,-dailyRisk.value.dailyNetPnl)/dailyRisk.value.balance*100;
+        if (dailyLossPercent>=dailyGuard.maxDailyLossPercent || dailyRisk.value.consecutiveLosses>=dailyGuard.maxConsecutiveLosses) {
+          autoTradingEnabled=false;
+          const reason=dailyLossPercent>=dailyGuard.maxDailyLossPercent?"DAILY_LOSS_LIMIT_REACHED":"CONSECUTIVE_LOSS_LIMIT_REACHED";
+          const entry=record("RISK_REJECTED",reason,{dailyLossPercent,dailyNetPnl:dailyRisk.value.dailyNetPnl,consecutiveLosses:dailyRisk.value.consecutiveLosses});
+          await queueNotificationToEnabled("تم إيقاف التنفيذ الآلي لـ XAUUSD بسبب حد المخاطرة: "+reason+". خسارة اليوم "+dailyLossPercent.toFixed(2)+"%، سلسلة الخسائر "+dailyRisk.value.consecutiveLosses+".","RISK_GUARD", "risk-guard:"+dailyRisk.value.dayStartUtc+":"+reason);
+          return {status:409,body:{status:"RISK_REJECTED",message:"تم إيقاف التنفيذ الآلي بعد تجاوز حد خسارة اليوم أو عدد الخسائر المتتالية.",dailyLossPercent,dailyNetPnl:dailyRisk.value.dailyNetPnl,consecutiveLosses:dailyRisk.value.consecutiveLosses,execution:"NOT_SUBMITTED",run:entry}};
+        }
         const entryPrice=decision.direction==="BUY"?liveQuote.value.ask:liveQuote.value.bid;
         const spreadPrice=liveQuote.value.ask-liveQuote.value.bid;
         if (!Number.isFinite(spreadPrice) || spreadPrice<0) {
@@ -880,6 +911,7 @@ export function createAppServer(env = process.env) {
       if (typeof body.enabled!=="boolean") return sendJson(res,400,{error:"INVALID_VALUE"});
       if (!body.enabled) { autoTradingEnabled=false; return sendJson(res,200,{ok:true,enabled:false,environment:executionEnvironment,liveTradingEnabled}); }
       await hydrateSettings();
+      if (!dailyLossGuardConfig(env)) return sendJson(res,409,{error:"DAILY_RISK_LIMITS_NOT_CONFIGURED",message:"اضبط MAX_DAILY_LOSS_PERCENT وMAX_CONSECUTIVE_LOSSES على الخادم قبل تفعيل التنفيذ الآلي."});
       if (!scannerEnabled || !bridge || !aiProvider || !supabase || !riskSettings) return sendJson(res,409,{error:"EXECUTION_PREREQUISITES_MISSING",message:"يلزم تفعيل السكانر وضبط MT5 وAI والمخاطرة وSupabase قبل التنفيذ الآلي."});
       const health=await bridge.health();
       if (!health.ok || health.value.state!=="CONNECTED" || health.value.environment!==executionEnvironment || !health.value.accountLogin || health.value.executionReady!==true) return sendJson(res,409,{error:"MT5_ACCOUNT_NOT_CONFIRMED",message:"يلزم حساب MT5 مطابق لبيئة التنفيذ ومن نوع Hedging مع تأكيد الجاهزية؛ التنفيذ الآلي ما زال متوقفًا."});
