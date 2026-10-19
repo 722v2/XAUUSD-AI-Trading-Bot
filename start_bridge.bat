@@ -31,15 +31,12 @@ if errorlevel 1 (
   exit /b 1
 )
 
-py -3.12 -m pip show MetaTrader5 >nul 2>&1
+echo Installing/verifying bridge and relay dependencies...
+py -3.12 -m pip install -r "mt5_bridge\requirements.txt"
 if errorlevel 1 (
-  echo Installing the required MT5 Python package...
-  py -3.12 -m pip install -r "mt5_bridge\requirements.txt"
-  if errorlevel 1 (
-    echo ERROR: Could not install the MT5 Python package.
-    pause
-    exit /b 1
-  )
+  echo ERROR: Dependency installation failed.
+  pause
+  exit /b 1
 )
 
 set "TOKEN_FILE=%USERPROFILE%\.xauusd-mt5-bridge-token"
