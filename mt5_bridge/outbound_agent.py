@@ -23,8 +23,8 @@ load_dotenv()
 RAW_SERVER_URL = os.environ.get("MT5_RELAY_SERVER_URL", "").strip()
 TOKEN = os.environ.get("MT5_BRIDGE_TOKEN", "").strip()
 LOCAL_BRIDGE_URL = os.environ.get("MT5_LOCAL_BRIDGE_URL", "http://127.0.0.1:8765").strip().rstrip("/")
-POLL_SECONDS = max(0.2, min(5.0, float(os.environ.get("MT5_RELAY_POLL_SECONDS", "0.5"))))
-WORKERS = max(4, min(12, int(os.environ.get("MT5_RELAY_WORKERS", "4"))))
+POLL_SECONDS = max(0.5, min(5.0, float(os.environ.get("MT5_RELAY_POLL_SECONDS", "1.0")))
+WORKERS = max(1, min(4, int(os.environ.get("MT5_RELAY_WORKERS", "2"))))
 POLL_TIMEOUT = 15
 # Local bridge calls may need longer than the server's former 12-second window.
 JOB_TIMEOUT = 20
@@ -63,14 +63,16 @@ def request(url: str, method: str = "GET", payload=None, timeout: int = JOB_TIME
             try:
                 body = json.loads(raw.decode("utf-8")) if raw else {}
             except (ValueError, UnicodeDecodeError):
-                body = {"error": "INVALID_LOCAL_RESPONSE"}
+                preview = raw[:180].decode("utf-8", errors="replace").replace("\\r", " ").replace("\\n", " ")
+                body = {"error": "NON_JSON_RESPONSE", "responsePreview": preview}
             return response.status, body
     except HTTPError as exc:
         raw = exc.read(1_048_576)
         try:
             body = json.loads(raw.decode("utf-8")) if raw else {}
         except (ValueError, UnicodeDecodeError):
-            body = {"error": "INVALID_LOCAL_RESPONSE"}
+            preview = raw[:180].decode("utf-8", errors="replace").replace("\\r", " ").replace("\\n", " ")
+            body = {"error": "NON_JSON_RESPONSE", "responsePreview": preview}
         return exc.code, body
     except (URLError, TimeoutError, OSError):
         return 503, {"error": "RELAY_TRANSPORT_ERROR"}
@@ -97,8 +99,13 @@ def worker(worker_id: int, stop: threading.Event) -> None:
             status, body = request(poll_url, timeout=POLL_TIMEOUT)
             if status != 200:
                 if status not in (204,):
-                    print(f"[worker {worker_id}] poll failed: HTTP {status} {body.get('error', 'HTTP_ERROR')}")
-                stop.wait(POLL_SECONDS)
+                    detail = body.get("responsePreview") or body.get("message") or ""
+                    if detail:
+                        print(f"[worker {worker_id}] poll failed: HTTP {status} {body.get('error', 'HTTP_ERROR')} | response={detail[:180]}", flush=True)
+                    else:
+                        print(f"[worker {worker_id}] poll failed: HTTP {status} {body.get('error', 'HTTP_ERROR')}", flush=True)
+                # Avoid hammering Render during a transient 5xx or cold start.
+                stop.wait(min(10.0, POLL_SECONDS * 2 if status >= 500 else POLL_SECONDS))
                 continue
             job = body.get("job")
             if not job:
