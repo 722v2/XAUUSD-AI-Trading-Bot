@@ -864,7 +864,15 @@ export function createAppServer(env = process.env) {
         if (method === "POST") { try { body=await readJson(req); } catch(error) { return sendJson(res,error.status??400,{error:"INVALID_BODY"}); } }
         const id = randomUUID();
         const result = await new Promise(resolve => {
-          const timeout = setTimeout(() => { if (relayWaiters.delete(id)) resolve(null); }, 12000);
+          // Must outlive the local bridge's 20-second request timeout and result delivery.
+          const timeout = setTimeout(() => {
+            if (relayWaiters.delete(id)) {
+              // Remove jobs that have not yet been picked up, preventing stale UNKNOWN_JOB results.
+              const queuedIndex = relayJobs.findIndex(job => job.id === id);
+              if (queuedIndex !== -1) relayJobs.splice(queuedIndex, 1);
+              resolve(null);
+            }
+          }, 30000);
           relayWaiters.set(id, value => { clearTimeout(timeout); resolve(value); });
           relayJobs.push({id,path:path+url.search,method,body});
         });
