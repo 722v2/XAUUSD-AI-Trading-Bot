@@ -122,6 +122,8 @@ async function loadConfig() {
       $("risk-percent").value = config.riskSettings.riskPercent ?? "";
       $("risk-cash").value = config.riskSettings.riskCash ?? "";
       $("min-rr").value = config.riskSettings.minimumRiskRewardRatio;
+      $("max-daily-loss-percent").value = config.riskSettings.maxDailyLossPercent ?? "";
+      $("max-consecutive-losses").value = config.riskSettings.maxConsecutiveLosses ?? "";
     }
     updateRiskMode();
     $("scanner-toggle").textContent = config.scannerEnabled ? "إيقاف السكانر" : "تشغيل السكانر";
@@ -136,6 +138,8 @@ $("risk-form").addEventListener("submit",async event => {
   const settings = {
     mode, referenceCapital:Number($("capital").value),
     minimumRiskRewardRatio:Number($("min-rr").value),
+    maxDailyLossPercent:Number($("max-daily-loss-percent").value),
+    maxConsecutiveLosses:Number($("max-consecutive-losses").value),
     ...(mode === "PERCENT_OF_CAPITAL" ? {riskPercent:Number($("risk-percent").value)} : {riskCash:Number($("risk-cash").value)})
   };
   const feedback = $("risk-feedback"); feedback.textContent = "جارٍ التحقق…";
