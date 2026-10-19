@@ -183,6 +183,10 @@ export function createAppServer(env = process.env) {
   const telegram = new TelegramBotClient(env.TELEGRAM_BOT_TOKEN);
   const supabase = configuredSupabase(env);
   const bridge = configuredBridge(env);
+  const relayJobs = [];
+  const relayWaiters = new Map();
+  const relayResults = new Map();
+  const relayToken = typeof env.MT5_BRIDGE_TOKEN === "string" ? env.MT5_BRIDGE_TOKEN : "";
   const aiCatalog = aiProviderCatalogFromEnv(env);
   const config = { aiProviderId:null, aiModelId:null };
   let aiProvider = null;
@@ -818,13 +822,47 @@ export function createAppServer(env = process.env) {
   const dashboardPassword=typeof env.DASHBOARD_PASSWORD==="string"?env.DASHBOARD_PASSWORD:"";
   const dashboardAuthEnabled=Boolean(dashboardUsername && dashboardPassword);
   const server = createServer(async (req,res) => {
+    const url = new URL(req.url ?? "/", "http://localhost");
+    const method = req.method ?? "GET";
+    const isRelayRoute = url.pathname.startsWith("/api/mt5/relay/");
+    if (isRelayRoute) {
+      const supplied = req.headers["x-bridge-token"];
+      if (!relayToken || typeof supplied !== "string" || supplied.length !== relayToken.length || !timingSafeEqual(Buffer.from(supplied),Buffer.from(relayToken))) return sendJson(res,401,{error:"UNAUTHORIZED"});
+      if (method === "GET" && url.pathname === "/api/mt5/relay/poll") {
+        const job = relayJobs.shift() ?? null;
+        return sendJson(res,200,{job});
+      }
+      if (method === "POST" && url.pathname === "/api/mt5/relay/result") {
+        let body; try { body=await readJson(req,1_100_000); } catch(error) { return sendJson(res,error.status??400,{error:"INVALID_BODY"}); }
+        if (typeof body.id !== "string" || !Number.isInteger(body.status) || body.status<100 || body.status>599 || !body.body || typeof body.body!=="object") return sendJson(res,400,{error:"INVALID_RESULT"});
+        const waiter=relayWaiters.get(body.id);
+        if (!waiter) return sendJson(res,404,{error:"UNKNOWN_JOB"});
+        relayWaiters.delete(body.id); waiter({status:body.status,body:body.body});
+        return sendJson(res,200,{ok:true});
+      }
+      if ((method === "GET" || method === "POST") && url.pathname.startsWith("/api/mt5/relay/proxy/")) {
+        const path = url.pathname.slice("/api/mt5/relay/proxy".length) || "/";
+        const allowedPath = /^\/(health|market\/(quote|spec|candles)|orders(\/lookup)?|positions(\/modify|\/close)?|environment|risk\/daily)(\?.*)?$/.test(path+url.search);
+        if (!allowedPath || path.startsWith("//") || path.includes("..") || path.includes("\\\\") || /[\\r\\n]/.test(path)) return sendJson(res,400,{error:"INVALID_RELAY_PATH"});
+        if (relayJobs.length >= 100 || relayWaiters.size >= 100) return sendJson(res,503,{error:"MT5_RELAY_BUSY"});
+        let body = null;
+        if (method === "POST") { try { body=await readJson(req); } catch(error) { return sendJson(res,error.status??400,{error:"INVALID_BODY"}); } }
+        const id = randomUUID();
+        const result = await new Promise(resolve => {
+          const timeout = setTimeout(() => { if (relayWaiters.delete(id)) resolve(null); }, 12000);
+          relayWaiters.set(id, value => { clearTimeout(timeout); resolve(value); });
+          relayJobs.push({id,path:path+url.search,method,body});
+        });
+        if (!result) return sendJson(res,503,{error:"MT5_RELAY_TIMEOUT",message:"Windows relay agent did not respond in time."});
+        return sendJson(res,result.status,result.body);
+      }
+      return sendJson(res,404,{error:"NOT_FOUND"});
+    }
     if (dashboardAuthEnabled && !basicAuthMatches(req.headers.authorization,dashboardUsername,dashboardPassword)) {
       res.writeHead(401,{"content-type":"text/plain; charset=utf-8","www-authenticate":'Basic realm="XAUUSD Dashboard", charset="UTF-8"',"cache-control":"no-store"});
       res.end("Dashboard authentication required.");
       return;
     }
-    const url = new URL(req.url ?? "/", "http://localhost");
-    const method = req.method ?? "GET";
     if (method === "GET" && url.pathname === "/api/health") {
       await hydrateSettings();
       let databaseState = "NOT_CONFIGURED";
