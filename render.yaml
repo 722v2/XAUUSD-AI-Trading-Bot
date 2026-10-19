@@ -2,7 +2,7 @@ services:
   - type: web
     name: xauusd-ai-trading-bot
     runtime: node
-    plan: starter
+    plan: free
     buildCommand: npm ci && npm run build
     startCommand: node server.mjs
     healthCheckPath: /api/health
