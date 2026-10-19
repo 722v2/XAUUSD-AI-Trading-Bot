@@ -96,6 +96,38 @@ export function scanFreshnessPolicy(triggerType) {
   const manual=triggerType==="MANUAL";
   return {maxAgeSeconds:manual?70:35,maxM1AgeMs:manual?70000:20000};
 }
+let economicCalendarCache = { expiresAt: 0, events: null };
+export async function economicCalendarBlock(env, nowMs=Date.now(), fetchImpl=fetch) {
+  const apiKey=typeof env.FINNHUB_API_KEY==="string"?env.FINNHUB_API_KEY.trim():"";
+  if (!apiKey) return "NEWS_CALENDAR_NOT_CONFIGURED";
+  let events=economicCalendarCache.expiresAt>Date.now()?economicCalendarCache.events:null;
+  if (!events) {
+    const from=new Date(nowMs-24*60*60*1000).toISOString().slice(0,10);
+    const to=new Date(nowMs+24*60*60*1000).toISOString().slice(0,10);
+    const endpoint=new URL("https://finnhub.io/api/v1/calendar/economic");
+    endpoint.searchParams.set("from",from);
+    endpoint.searchParams.set("to",to);
+    endpoint.searchParams.set("token",apiKey);
+    const controller=new AbortController();
+    const timeout=setTimeout(()=>controller.abort(),4000);
+    try {
+      const response=await fetchImpl(endpoint,{signal:controller.signal,headers:{accept:"application/json"}});
+      if (!response.ok) return "NEWS_CALENDAR_UNAVAILABLE";
+      const body=await response.json();
+      if (!body || !Array.isArray(body.economicCalendar)) return "NEWS_CALENDAR_UNAVAILABLE";
+      events=body.economicCalendar;
+      economicCalendarCache={expiresAt:Date.now()+60_000,events};
+    } catch { return "NEWS_CALENDAR_UNAVAILABLE"; }
+    finally { clearTimeout(timeout); }
+  }
+  const highImpact=events.filter(event=>event && (event.country==="US" || event.country==="USD") &&
+    (event.impact===3 || String(event.impact).toLowerCase()==="high") && typeof event.time==="string");
+  for (const event of highImpact) {
+    const eventMs=Date.parse(event.time);
+    if (Number.isFinite(eventMs) && Math.abs(nowMs-eventMs)<=15*60*1000) return "HIGH_IMPACT_NEWS_BLACKOUT";
+  }
+  return null;
+}
 export function tradingTimeBlock(env, nowMs=Date.now()) {
   // Most XAUUSD brokers widen spreads around the New York 17:00 close.
   // America/New_York handles EST/EDT transitions without a hard-coded UTC offset.
@@ -578,6 +610,12 @@ export function createAppServer(env = process.env) {
           const entry=record("RISK_REJECTED",timeBlock);
           return {status:409,body:{status:"RISK_REJECTED",message:timeBlock==="ROLLOVER_BLACKOUT"?"فترة إغلاق/تبديل جلسة السوق؛ تم منع الدخول الجديد.":"فترة أخبار عالية التأثير مُعدّة على الخادم؛ تم منع الدخول الجديد.",execution:"NOT_SUBMITTED",run:entry}};
         }
+        const newsBlock=await economicCalendarBlock(env);
+        if (newsBlock) {
+          autoTradingEnabled=false;
+          const entry=record("RISK_REJECTED",newsBlock);
+          return {status:newsBlock==="HIGH_IMPACT_NEWS_BLACKOUT"?409:503,body:{status:"RISK_REJECTED",message:newsBlock==="HIGH_IMPACT_NEWS_BLACKOUT"?"خبر أمريكي عالي التأثير ضمن نافذة الحظر؛ تم منع الدخول.":"تقويم الأخبار غير متاح أو غير مضبوط؛ تم إيقاف التنفيذ الآلي احترازيًا.",execution:"NOT_SUBMITTED",run:entry}};
+        }
         const dailyGuard=dailyLossGuardConfig(env);
         if (!dailyGuard) {
           autoTradingEnabled=false;
@@ -912,6 +950,7 @@ export function createAppServer(env = process.env) {
       if (!body.enabled) { autoTradingEnabled=false; return sendJson(res,200,{ok:true,enabled:false,environment:executionEnvironment,liveTradingEnabled}); }
       await hydrateSettings();
       if (!dailyLossGuardConfig(env)) return sendJson(res,409,{error:"DAILY_RISK_LIMITS_NOT_CONFIGURED",message:"اضبط MAX_DAILY_LOSS_PERCENT وMAX_CONSECUTIVE_LOSSES على الخادم قبل تفعيل التنفيذ الآلي."});
+      if (!env.FINNHUB_API_KEY?.trim()) return sendJson(res,409,{error:"NEWS_CALENDAR_NOT_CONFIGURED",message:"اضبط FINNHUB_API_KEY لتفعيل فلتر الأخبار الآلي قبل التنفيذ الآلي."});
       if (!scannerEnabled || !bridge || !aiProvider || !supabase || !riskSettings) return sendJson(res,409,{error:"EXECUTION_PREREQUISITES_MISSING",message:"يلزم تفعيل السكانر وضبط MT5 وAI والمخاطرة وSupabase قبل التنفيذ الآلي."});
       const health=await bridge.health();
       if (!health.ok || health.value.state!=="CONNECTED" || health.value.environment!==executionEnvironment || !health.value.accountLogin || health.value.executionReady!==true) return sendJson(res,409,{error:"MT5_ACCOUNT_NOT_CONFIRMED",message:"يلزم حساب MT5 مطابق لبيئة التنفيذ ومن نوع Hedging مع تأكيد الجاهزية؛ التنفيذ الآلي ما زال متوقفًا."});
