@@ -8,7 +8,8 @@ import os
 import sqlite3
 import threading
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timezone, time as datetime_time, timedelta
+from zoneinfo import ZoneInfo
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
@@ -512,9 +513,14 @@ class BridgeService:
             if account is None:
                 return 503, {"error": "ACCOUNT_INFO_UNAVAILABLE"}
             now = datetime.now(timezone.utc)
-            start = datetime(now.year, now.month, now.day, tzinfo=timezone.utc)
-            # Include enough history to calculate the consecutive-loss streak, not just today's deals.
-            history = mt5.history_deals_get(datetime(2000, 1, 1, tzinfo=timezone.utc), now)
+            # Define the trading day from the New York 17:00 metals rollover, including DST.
+            new_york = ZoneInfo("America/New_York")
+            local_now = now.astimezone(new_york)
+            session_date = local_now.date() if local_now.time().replace(tzinfo=None) >= datetime_time(17, 0) else local_now.date() - timedelta(days=1)
+            local_start = datetime.combine(session_date, datetime_time(17, 0), tzinfo=new_york)
+            start = local_start.astimezone(timezone.utc)
+            # Query only the current metals trading session instead of the account's entire lifetime.
+            history = mt5.history_deals_get(start, now)
             if history is None:
                 return 503, {"error": "DEAL_HISTORY_UNAVAILABLE"}
             entry_out = getattr(mt5, "DEAL_ENTRY_OUT", 1)
@@ -536,6 +542,7 @@ class BridgeService:
             closing.sort(key=lambda item: item[0])
             today_start = int(start.timestamp())
             today_pnl = sum(pnl for stamp, pnl in daily_deals if stamp >= today_start)
+            # Because history starts at UTC midnight, prior-day losses cannot lock today's guard.
             streak = 0
             for _, pnl in reversed(closing):
                 if pnl < -0.000001:

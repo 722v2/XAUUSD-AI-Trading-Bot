@@ -20,7 +20,9 @@ function simulateTrade(candidate, bars, baseSpreadPrice, slippagePrice, lots, ti
   if (entryIndex >= bars.length) return null;
   const signal = candidate.evidence;
   const stopDistance = signal.direction === "BUY" ? signal.entryPrice - signal.stopLoss : signal.stopLoss - signal.entryPrice;
-  const targetDistance = signal.direction === "BUY" ? signal.takeProfit - signal.entryPrice : signal.entryPrice - signal.takeProfit;
+  const signalTargetDistance = signal.direction === "BUY" ? signal.takeProfit - signal.entryPrice : signal.entryPrice - signal.takeProfit;
+  const minimumRR = finite(candidate.minimumRiskRewardRatio) && candidate.minimumRiskRewardRatio > 0 ? candidate.minimumRiskRewardRatio : 0;
+  const targetDistance = Math.max(signalTargetDistance, stopDistance * minimumRR);
   if (!(stopDistance > 0 && targetDistance > 0)) return null;
   const entryBar = bars[entryIndex];
   const entrySpread = sessionSpread(baseSpreadPrice, entryBar.openTime);
@@ -172,7 +174,7 @@ export async function runHistoricalBacktest(input) {
       if (decision.outcome !== candidate.evidence.direction) { aiRejected++; continue; }
       aiOutcome = assessment.outcome;
     }
-    const trade = simulateTrade({ ...candidate, aiOutcome }, bars, spreadPrice, slippagePrice, lots, tickSize, tickValuePerLot, commissionPerLot);
+    const trade = simulateTrade({ ...candidate, aiOutcome, minimumRiskRewardRatio: request.minimumRiskRewardRatio }, bars, spreadPrice, slippagePrice, lots, tickSize, tickValuePerLot, commissionPerLot);
     if (!trade) continue;
     lastExitIndex = trade._exitIndex;
     delete trade._exitIndex;
