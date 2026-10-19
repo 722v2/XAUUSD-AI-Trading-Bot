@@ -169,8 +169,9 @@ class BridgeService:
             names = [str(getattr(item, "name", "")) for item in symbols if getattr(item, "name", None)]
             upper_to_name = {name.upper(): name for name in names}
             candidates = []
-            # Exact broker standard name first, then common account suffixes such as XAUUSDm.
-            for name in ("XAUUSD", "XAUUSDM", "XAUUSD.M", "XAUUSD_PRO", "GOLD"):
+            # Prefer the exact JustMarkets symbol confirmed by the user's MT5 screenshot.
+            # Only fall back to other broker naming variants if XAUUSD.m is unavailable.
+            for name in ("XAUUSD.M", "XAUUSD", "XAUUSDM", "XAUUSD_PRO", "GOLD"):
                 actual = upper_to_name.get(name)
                 if actual and actual not in candidates:
                     candidates.append(actual)
