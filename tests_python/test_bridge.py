@@ -110,7 +110,7 @@ class BridgeUnitTests(unittest.TestCase):
         finally:
             bridge_module.mt5 = previous
 
-    def test_daily_risk_uses_only_closed_bot_deals_and_counts_consecutive_losses(self):
+    def test_daily_risk_queries_only_current_utc_day_and_streak_resets(self):
         import mt5_bridge.bridge as bridge_module
         from datetime import datetime, timezone
         previous = bridge_module.mt5
@@ -124,10 +124,21 @@ class BridgeUnitTests(unittest.TestCase):
         ]
         bridge_module.mt5 = fake
         try:
+            # The bridge must request only today's deals; old losses must not lock the next UTC day.
+            original_history = fake.history_deals_get
+            requested = {}
+            def current_day_history(start, end):
+                requested["start"] = start
+                requested["end"] = end
+                return original_history(start, end)
+            fake.history_deals_get = current_day_history
             status, result = self.service.daily_risk()
             self.assertEqual(status, 200)
             self.assertAlmostEqual(result["dailyNetPnl"], -6.4)
             self.assertEqual(result["consecutiveLosses"], 2)
+            self.assertEqual(requested["start"].hour, 0)
+            self.assertEqual(requested["start"].minute, 0)
+            self.assertEqual(requested["start"].tzinfo, timezone.utc)
             self.assertEqual(result["source"], "MT5_CLOSED_DEALS_BOT_MAGIC")
         finally:
             bridge_module.mt5 = previous
