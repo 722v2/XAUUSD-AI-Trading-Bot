@@ -110,7 +110,7 @@ class BridgeUnitTests(unittest.TestCase):
         finally:
             bridge_module.mt5 = previous
 
-    def test_daily_risk_queries_only_current_utc_day_and_streak_resets(self):
+    def test_daily_risk_queries_only_current_new_york_session_and_streak_resets(self):
         import mt5_bridge.bridge as bridge_module
         from datetime import datetime, timezone
         previous = bridge_module.mt5
@@ -136,8 +136,10 @@ class BridgeUnitTests(unittest.TestCase):
             self.assertEqual(status, 200)
             self.assertAlmostEqual(result["dailyNetPnl"], -6.4)
             self.assertEqual(result["consecutiveLosses"], 2)
-            self.assertEqual(requested["start"].hour, 0)
-            self.assertEqual(requested["start"].minute, 0)
+            from zoneinfo import ZoneInfo
+            local_start = requested["start"].astimezone(ZoneInfo("America/New_York"))
+            self.assertEqual(local_start.hour, 17)
+            self.assertEqual(local_start.minute, 0)
             self.assertEqual(requested["start"].tzinfo, timezone.utc)
             self.assertEqual(result["source"], "MT5_CLOSED_DEALS_BOT_MAGIC")
         finally:
