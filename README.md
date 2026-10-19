@@ -82,9 +82,11 @@ See `docs/DEMO_RUNBOOK.md`, `docs/PROJECT_SPEC.md`, `docs/ARCHITECTURE.md`, `doc
 
 The bridge and dashboard expose both Demo and Live environment selection. **Demo is the default; Live is implemented but blocked unless independently enabled on both the dashboard host and the machine running MT5.** Selecting Live does not itself arm automated trading; the separate automated-execution action is still required. Automated execution is reset to off after a server restart.
 
-Dashboard host environment variables:
+Dashboard host environment variables (Live remains disabled unless deliberately enabled):
 - `LIVE_TRADING_ENABLED=true`
 - `LIVE_TRADING_CONFIRMATION=I_UNDERSTAND_LIVE_TRADING_RISK`
+
+Daily loss and consecutive-loss limits are configured and persisted from the Dashboard's **Risk & Capital** section; they are not Render environment variables. For a public Render deployment, set `HOST=0.0.0.0`, `DASHBOARD_USERNAME`, and `DASHBOARD_PASSWORD`. The app refuses remote binding without dashboard Basic Auth.
 
 MT5 bridge machine environment variables (set separately on the Windows machine that runs the bridge):
 - `MT5_LIVE_TRADING_ENABLED=true`

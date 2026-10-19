@@ -1,0 +1,41 @@
+services:
+  - type: web
+    name: xauusd-ai-trading-bot
+    runtime: node
+    plan: free
+    buildCommand: npm ci && npm run build
+    startCommand: node server.mjs
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_VERSION
+        value: 22.16.0
+      - key: APP_ENV
+        value: production
+      - key: HOST
+        value: 0.0.0.0
+      - key: LOG_LEVEL
+        value: info
+      - key: DASHBOARD_USERNAME
+        sync: false
+      - key: DASHBOARD_PASSWORD
+        sync: false
+      - key: MT5_BRIDGE_URL
+        sync: false
+      - key: MT5_BRIDGE_TOKEN
+        sync: false
+      - key: AI_PROVIDER_ID
+        sync: false
+      - key: AI_MODEL_ID
+        sync: false
+      - key: AI_BASE_URL
+        sync: false
+      - key: AI_API_KEY
+        sync: false
+      - key: FINNHUB_API_KEY
+        sync: false
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false
