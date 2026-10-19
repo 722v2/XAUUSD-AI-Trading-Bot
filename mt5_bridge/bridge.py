@@ -160,10 +160,11 @@ class BridgeService:
         """Resolve JustMarkets' broker-specific gold symbol while keeping XAUUSD as the app's canonical ID."""
         try:
             requested = str(self.symbol or "XAUUSD").strip()
-            symbols = mt5.symbols_get()
-            if not symbols:
-                return False
-            names = [str(getattr(item, "name", "")) for item in symbols if getattr(item, "name", None)]
+            # Some test doubles / restricted MT5 wrappers expose symbol_info but not symbols_get.
+            # Preserve exact-symbol lookup in that case; real MT5 terminals use the full symbol list.
+            symbols_get = getattr(mt5, "symbols_get", None)
+            symbols = symbols_get() if callable(symbols_get) else None
+            names = [str(getattr(item, "name", "")) for item in (symbols or []) if getattr(item, "name", None)]
             # The user's JustMarkets account confirms XAUUSD.m. Prefer it even when
             # the generic XAUUSD symbol also exists in the terminal.
             exact_justmarkets = next((name for name in names if name.upper() == "XAUUSD.M"), None)
@@ -173,6 +174,8 @@ class BridgeService:
             info = mt5.symbol_info(requested)
             if info is not None and mt5.symbol_select(requested, True):
                 return True
+            if not names:
+                return False
             upper_to_name = {name.upper(): name for name in names}
             candidates = []
             # Prefer the exact JustMarkets symbol confirmed by the user's MT5 screenshot.
