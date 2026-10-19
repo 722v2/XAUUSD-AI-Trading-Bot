@@ -49,6 +49,14 @@ test('automatic news filter blocks high-impact US events inside the 15-minute wi
   assert.equal(await economicCalendarBlock({FINNHUB_API_KEY:'test-key'},now,fetchImpl),'HIGH_IMPACT_NEWS_BLACKOUT');
 });
 
+test('automatic news filter protects 45 minutes after release but only 15 minutes before', async () => {
+  const now=Date.parse('2026-10-19T14:00:00Z');
+  const provider=async () => new Response(JSON.stringify({economicCalendar:[
+    {country:'US',impact:3,time:new Date(now-40*60*1000).toISOString(),event:'Post-release volatility'}
+  ]}),{status:200});
+  assert.equal(await economicCalendarBlock({FINNHUB_API_KEY:'asymmetric-window-key'},now,provider),'HIGH_IMPACT_NEWS_BLACKOUT');
+});
+
 test('automatic news filter accepts Finnhub string high-impact labels', async () => {
   const now=Date.now()+2*60*60*1000;
   const result=await economicCalendarBlock({FINNHUB_API_KEY:'string-impact-key'},now,async () => new Response(JSON.stringify({economicCalendar:[
