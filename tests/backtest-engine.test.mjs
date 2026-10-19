@@ -54,8 +54,11 @@ test("historical backtest uses closed MT5 candles, AI agreement, costs, and neve
   assert.ok(result.data.receivedBars >= 100);
   assert.ok(Array.isArray(result.trades));
   assert.ok(result.metrics.trades >= 1);
-  assert.ok(result.metrics.sampleBreakdown.inSample);
-  assert.ok(result.metrics.sampleBreakdown.outOfSample);
+  assert.ok(result.metrics.sampleBreakdown.chronologicalFirst70Percent);
+  assert.ok(result.metrics.sampleBreakdown.chronologicalLast30Percent);
+  assert.equal(result.metrics.walkForwardFolds.length,5);
+  assert.ok(result.metrics.walkForwardFolds.every(fold=>fold.testStart && fold.testEnd));
+  assert.match(result.assumptions.walkForwardMethod,/5 expanding-window chronological test folds/);
   assert.ok(result.metrics.strategyBreakdown.TEST);
 });
 
