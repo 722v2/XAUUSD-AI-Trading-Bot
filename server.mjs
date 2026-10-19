@@ -92,11 +92,16 @@ function configuredAI(env, catalog, providerId, modelId) {
     });
   } catch { return null; }
 }
-function tradingTimeBlock(env, nowMs=Date.now()) {
-  const date=new Date(nowMs);
-  const minute=date.getUTCHours()*60+date.getUTCMinutes();
-  // Conservative UTC rollover window; broker server timezone may differ and must be verified.
-  if (minute>=21*60+55 && minute<22*60+10) return "ROLLOVER_BLACKOUT";
+export function tradingTimeBlock(env, nowMs=Date.now()) {
+  // Most XAUUSD brokers widen spreads around the New York 17:00 close.
+  // America/New_York handles EST/EDT transitions without a hard-coded UTC offset.
+  const parts=new Intl.DateTimeFormat("en-US",{
+    timeZone:"America/New_York",hour:"2-digit",minute:"2-digit",hourCycle:"h23"
+  }).formatToParts(new Date(nowMs));
+  const localHour=Number(parts.find(part=>part.type==="hour")?.value);
+  const localMinute=Number(parts.find(part=>part.type==="minute")?.value);
+  const minute=localHour*60+localMinute;
+  if (minute>=16*60+55 && minute<17*60+10) return "ROLLOVER_BLACKOUT";
   const configured=(env.HIGH_IMPACT_NEWS_BLACKOUTS_UTC||"").split(",").map(item=>item.trim()).filter(Boolean);
   for (const range of configured) {
     const parts=range.split("/");
@@ -411,7 +416,7 @@ export function createAppServer(env = process.env) {
           const entry=record("NO_ANALYSIS","MARKET_DATA_UNAVAILABLE",{timeframe,error:result.message});
           return {status:503,body:{error:"MARKET_DATA_UNAVAILABLE",message:"تعذر جلب بيانات الشموع المغلقة؛ لم يتم إنشاء إشارة.",run:entry}};
         }
-        const bars = normalizeClosedCandles(result.value.candles,timeframe,timeframe==="M1"?35:1);
+        const bars = normalizeClosedCandles(result.value.candles,timeframe,timeframe==="M1"?(triggerType==="MANUAL"?70:35):1);
         if (!bars.ok) {
           const entry=record("NO_ANALYSIS",bars.error,{timeframe});
           return {status:409,body:{error:bars.error,message:"بيانات السوق غير صالحة للتحليل.",run:entry}};
@@ -429,7 +434,7 @@ export function createAppServer(env = process.env) {
         managedOpenPositionCount=management.openPositionCount;
       }
       const now = new Date().toISOString();
-      const analysis = analyzeClosedMarket({symbol:"XAUUSD",candles:normalized,now,maxM1AgeMs:20000,minimumM1Bars:35});
+      const analysis = analyzeClosedMarket({symbol:"XAUUSD",candles:normalized,now,maxM1AgeMs:triggerType==="MANUAL"?70000:20000,minimumM1Bars:35});
       if (analysis.status === "NO_ANALYSIS") {
         const entry=record("NO_ANALYSIS",analysis.reason,{latestClosedBarTime:analysis.latestClosedBarTime});
         return {status:409,body:{error:analysis.reason,message:"البيانات غير كافية أو قديمة؛ لا توجد إشارة.",analysis,chartCandles:normalized.M1.slice(-60),run:entry}};
@@ -576,7 +581,6 @@ export function createAppServer(env = process.env) {
         }
         // Rebuild protection from the executable quote, not the earlier candle close.
         const stopDistance=1.5*currentAtr+spreadPrice;
-        const targetDistance=3*currentAtr;
         if (spreadPrice>stopDistance*0.125 || currentAtr<spreadPrice*2) {
           const entry=record("RISK_REJECTED","SPREAD_TOO_WIDE_FOR_ATR");
           return {status:409,body:{status:"RISK_REJECTED",message:"السبريد مرتفع نسبةً إلى ATR ووقف الخسارة؛ تم منع الدخول.",spreadPrice,atr:currentAtr,stopDistance,execution:"NOT_SUBMITTED",run:entry}};
@@ -584,6 +588,10 @@ export function createAppServer(env = process.env) {
         const digits=symbolSpec.value.priceDigits;
         const roundPrice=value=>Number(value.toFixed(digits));
         const stopLoss=roundPrice(decision.direction==="BUY"?entryPrice-stopDistance:entryPrice+stopDistance);
+        // Preserve the configured minimum RR using the rounded, executable SL distance.
+        // One tick of headroom prevents price rounding from nudging the ratio below the threshold.
+        const actualStopDistance=Math.abs(entryPrice-stopLoss);
+        const targetDistance=Math.max(3*currentAtr,(actualStopDistance+symbolSpec.value.tickSize)*riskSettings.minimumRiskRewardRatio);
         const takeProfit=roundPrice(decision.direction==="BUY"?entryPrice+targetDistance:entryPrice-targetDistance);
         const prepared = prepareExecutionIntent({
           id:randomUUID(),idempotencyKey:candidateKey+":"+executionEnvironment,opportunityId:candidateId,decisionId,
@@ -626,7 +634,7 @@ export function createAppServer(env = process.env) {
             const order = await supabase.insertRecord("broker_orders",{
               id:randomUUID(),execution_intent_id:prepared.intent.id,account_login:String(accountLogin),
               broker_order_id:submitted.value.brokerOrderId,status:"CONFIRMED",
-              request_payload:{symbol:"XAUUSD",direction:decision.direction,volume:prepared.intent.volume,stopLoss:evidence.stopLoss,takeProfit:evidence.takeProfit},
+              request_payload:{symbol:"XAUUSD",direction:decision.direction,volume:prepared.intent.volume,stopLoss:prepared.intent.stopLoss,takeProfit:prepared.intent.takeProfit},
               response_payload:submitted.value,created_at:new Date().toISOString(),updated_at:new Date().toISOString()
             });
             orderPersisted = order.ok;
