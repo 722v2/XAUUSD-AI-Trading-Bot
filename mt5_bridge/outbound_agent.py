@@ -16,6 +16,10 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urlsplit, urlunsplit
 from urllib.request import Request, urlopen
 
+from dotenv import load_dotenv
+
+load_dotenv()
+
 RAW_SERVER_URL = os.environ.get("MT5_RELAY_SERVER_URL", "").strip()
 TOKEN = os.environ.get("MT5_BRIDGE_TOKEN", "").strip()
 LOCAL_BRIDGE_URL = os.environ.get("MT5_LOCAL_BRIDGE_URL", "http://127.0.0.1:8765").strip().rstrip("/")
