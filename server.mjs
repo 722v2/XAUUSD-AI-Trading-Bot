@@ -125,7 +125,12 @@ export async function economicCalendarBlock(env, nowMs=Date.now(), fetchImpl=fet
   const highImpact=events.filter(event=>event && (event.country==="US" || event.country==="USD") &&
     (event.impact===3 || String(event.impact).toLowerCase()==="high") && typeof event.time==="string");
   for (const event of highImpact) {
-    const eventMs=Date.parse(event.time);
+    const rawTime=event.time.trim();
+    // Finnhub may return a UTC datetime without an explicit timezone suffix.
+    const normalizedTime=/(?:Z|[+-]\\d{2}:?\\d{2})$/i.test(rawTime)
+      ? rawTime
+      : rawTime.replace(" ","T")+"Z";
+    const eventMs=Date.parse(normalizedTime);
     if (Number.isFinite(eventMs) && Math.abs(nowMs-eventMs)<=15*60*1000) return "HIGH_IMPACT_NEWS_BLACKOUT";
   }
   return null;
