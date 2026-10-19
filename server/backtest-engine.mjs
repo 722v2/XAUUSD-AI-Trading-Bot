@@ -176,7 +176,6 @@ export async function runHistoricalBacktest(input) {
     if (!trade) continue;
     lastExitIndex = trade._exitIndex;
     delete trade._exitIndex;
-    trade.sampleSegment = candidate.index < bars.length * 0.7 ? "IN_SAMPLE" : "OUT_OF_SAMPLE";
     trades.push(trade);
   }
   const skippedByLimit = useAI ? Math.max(0, candidates.length - aiCalls - skippedOverlap) : 0;
