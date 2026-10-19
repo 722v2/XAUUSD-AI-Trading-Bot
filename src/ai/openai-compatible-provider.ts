@@ -13,6 +13,8 @@ export interface AIAssessmentInput {
   readonly symbol: "XAUUSD";
   readonly evidence: readonly TechnicalEvidence[];
   readonly now: string;
+  /** Optional recent closed M1 candles; caller must exclude forming/future bars. */
+  readonly marketContext?: { readonly recentClosedM1: readonly { readonly time: string; readonly open: number; readonly high: number; readonly low: number; readonly close: number }[] };
 }
 export type AIProviderErrorCode = "NOT_CONFIGURED" | "INVALID_CONFIG" | "TIMEOUT" | "HTTP_ERROR" | "INVALID_RESPONSE" | "PROVIDER_ERROR";
 export class AIProviderError extends Error {
@@ -75,8 +77,8 @@ export class OpenAICompatibleAIProvider {
           temperature: 0,
           response_format: { type: "json_object" },
           messages: [
-            { role: "system", content: "You are a trading research analyst, not an execution system. Assess only the supplied closed-bar technical evidence. Return one JSON object with outcome BUY|SELL|WAIT|REJECT, rationale, and rationaleCodes (array of uppercase codes). Never invent market data, prices, indicators, or a trade. If evidence is weak or contradictory, return WAIT. This is not permission to execute an order." },
-            { role: "user", content: JSON.stringify({ symbol: input.symbol, asOf: input.now, evidence: input.evidence }) }
+            { role: "system", content: "You are a trading research analyst, not an execution system. Assess only the supplied closed-bar technical evidence and optional recent closed M1 candle context. Use candle context to check structure and avoid chasing late moves; never treat it as permission to override risk rules. Return one JSON object with outcome BUY|SELL|WAIT|REJECT, rationale, and rationaleCodes (array of uppercase codes). Never invent market data, prices, indicators, or a trade. If evidence is weak or contradictory, return WAIT. This is not permission to execute an order." },
+            { role: "user", content: JSON.stringify({ symbol: input.symbol, asOf: input.now, evidence: input.evidence, marketContext: input.marketContext }) }
           ]
         })
       });
