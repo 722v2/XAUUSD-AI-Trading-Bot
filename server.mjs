@@ -96,14 +96,16 @@ export function scanFreshnessPolicy(triggerType) {
   const manual=triggerType==="MANUAL";
   return {maxAgeSeconds:manual?70:35,maxM1AgeMs:manual?70000:20000};
 }
-let economicCalendarCache = { expiresAt: 0, events: null };
+let economicCalendarCache = { expiresAt: 0, events: null, apiKey: null, from: null, to: null };
 export async function economicCalendarBlock(env, nowMs=Date.now(), fetchImpl=fetch) {
   const apiKey=typeof env.FINNHUB_API_KEY==="string"?env.FINNHUB_API_KEY.trim():"";
   if (!apiKey) return "NEWS_CALENDAR_NOT_CONFIGURED";
-  let events=economicCalendarCache.expiresAt>Date.now()?economicCalendarCache.events:null;
+  const from=new Date(nowMs-24*60*60*1000).toISOString().slice(0,10);
+  const to=new Date(nowMs+24*60*60*1000).toISOString().slice(0,10);
+  let events=economicCalendarCache.expiresAt>Date.now() &&
+    economicCalendarCache.apiKey===apiKey && economicCalendarCache.from===from &&
+    economicCalendarCache.to===to ? economicCalendarCache.events : null;
   if (!events) {
-    const from=new Date(nowMs-24*60*60*1000).toISOString().slice(0,10);
-    const to=new Date(nowMs+24*60*60*1000).toISOString().slice(0,10);
     const endpoint=new URL("https://finnhub.io/api/v1/calendar/economic");
     endpoint.searchParams.set("from",from);
     endpoint.searchParams.set("to",to);
@@ -116,7 +118,7 @@ export async function economicCalendarBlock(env, nowMs=Date.now(), fetchImpl=fet
       const body=await response.json();
       if (!body || !Array.isArray(body.economicCalendar)) return "NEWS_CALENDAR_UNAVAILABLE";
       events=body.economicCalendar;
-      economicCalendarCache={expiresAt:Date.now()+60_000,events};
+      economicCalendarCache={expiresAt:Date.now()+60_000,events,apiKey,from,to};
     } catch { return "NEWS_CALENDAR_UNAVAILABLE"; }
     finally { clearTimeout(timeout); }
   }
