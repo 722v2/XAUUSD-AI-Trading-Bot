@@ -164,6 +164,19 @@ function dailyLossGuardConfig(env) {
       !Number.isInteger(maxConsecutiveLosses) || maxConsecutiveLosses<1 || maxConsecutiveLosses>100) return null;
   return {maxDailyLossPercent,maxConsecutiveLosses};
 }
+export function evaluateDailyRiskGuard(env, risk, expectedAccountLogin) {
+  const limits=dailyLossGuardConfig(env);
+  if (!limits) return {ok:false,code:"DAILY_RISK_LIMITS_NOT_CONFIGURED"};
+  if (!risk || risk.accountLogin!==String(expectedAccountLogin) ||
+      risk.source!=="MT5_CLOSED_DEALS_BOT_MAGIC" ||
+      !Number.isFinite(risk.balance) || risk.balance<=0 ||
+      !Number.isFinite(risk.dailyNetPnl) || !Number.isInteger(risk.consecutiveLosses) ||
+      risk.consecutiveLosses<0) return {ok:false,code:"DAILY_RISK_HISTORY_UNAVAILABLE"};
+  const dailyLossPercent=Math.max(0,-risk.dailyNetPnl)/risk.balance*100;
+  if (dailyLossPercent>=limits.maxDailyLossPercent) return {ok:false,code:"DAILY_LOSS_LIMIT_REACHED",dailyLossPercent,dailyNetPnl:risk.dailyNetPnl,consecutiveLosses:risk.consecutiveLosses,dayStartUtc:risk.dayStartUtc};
+  if (risk.consecutiveLosses>=limits.maxConsecutiveLosses) return {ok:false,code:"CONSECUTIVE_LOSS_LIMIT_REACHED",dailyLossPercent,dailyNetPnl:risk.dailyNetPnl,consecutiveLosses:risk.consecutiveLosses,dayStartUtc:risk.dayStartUtc};
+  return {ok:true,dailyLossPercent,dailyNetPnl:risk.dailyNetPnl,consecutiveLosses:risk.consecutiveLosses};
+}
 export function createAppServer(env = process.env) {
   const telegram = new TelegramBotClient(env.TELEGRAM_BOT_TOKEN);
   const supabase = configuredSupabase(env);
@@ -774,15 +787,8 @@ export function createAppServer(env = process.env) {
       return {ok:false,code:"MT5_ACCOUNT_NOT_CONFIRMED"};
     }
     const result=await bridge.dailyRisk();
-    if (!result.ok || result.value.accountLogin!==String(health.value.accountLogin) ||
-        result.value.source!=="MT5_CLOSED_DEALS_BOT_MAGIC" ||
-        !Number.isFinite(result.value.balance) || result.value.balance<=0 ||
-        !Number.isFinite(result.value.dailyNetPnl) || !Number.isInteger(result.value.consecutiveLosses) ||
-        result.value.consecutiveLosses<0) return {ok:false,code:"DAILY_RISK_HISTORY_UNAVAILABLE"};
-    const dailyLossPercent=Math.max(0,-result.value.dailyNetPnl)/result.value.balance*100;
-    if (dailyLossPercent>=limits.maxDailyLossPercent) return {ok:false,code:"DAILY_LOSS_LIMIT_REACHED",dailyLossPercent,dailyNetPnl:result.value.dailyNetPnl,consecutiveLosses:result.value.consecutiveLosses,dayStartUtc:result.value.dayStartUtc};
-    if (result.value.consecutiveLosses>=limits.maxConsecutiveLosses) return {ok:false,code:"CONSECUTIVE_LOSS_LIMIT_REACHED",dailyLossPercent,dailyNetPnl:result.value.dailyNetPnl,consecutiveLosses:result.value.consecutiveLosses,dayStartUtc:result.value.dayStartUtc};
-    return {ok:true,dailyLossPercent,dailyNetPnl:result.value.dailyNetPnl,consecutiveLosses:result.value.consecutiveLosses};
+    if (!result.ok) return {ok:false,code:"DAILY_RISK_HISTORY_UNAVAILABLE"};
+    return evaluateDailyRiskGuard(env,result.value,health.value.accountLogin);
   }
   async function enforceScheduledDailyRiskGuard() {
     if (!autoTradingEnabled) return true;
