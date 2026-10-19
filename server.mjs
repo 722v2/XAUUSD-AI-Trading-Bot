@@ -765,6 +765,38 @@ export function createAppServer(env = process.env) {
     if (result.body?.error!=="SCAN_ALREADY_RUNNING") latestScanView={statusCode:result.status,updatedAt:new Date().toISOString(),body:result.body};
     return result;
   }
+  async function dailyRiskGuardStatus() {
+    const limits=dailyLossGuardConfig(env);
+    if (!limits) return {ok:false,code:"DAILY_RISK_LIMITS_NOT_CONFIGURED"};
+    if (!bridge) return {ok:false,code:"MT5_BRIDGE_NOT_CONFIGURED"};
+    const health=await bridge.health();
+    if (!health.ok || health.value.state!=="CONNECTED" || health.value.environment!==executionEnvironment || !health.value.accountLogin) {
+      return {ok:false,code:"MT5_ACCOUNT_NOT_CONFIRMED"};
+    }
+    const result=await bridge.dailyRisk();
+    if (!result.ok || result.value.accountLogin!==String(health.value.accountLogin) ||
+        result.value.source!=="MT5_CLOSED_DEALS_BOT_MAGIC" ||
+        !Number.isFinite(result.value.balance) || result.value.balance<=0 ||
+        !Number.isFinite(result.value.dailyNetPnl) || !Number.isInteger(result.value.consecutiveLosses) ||
+        result.value.consecutiveLosses<0) return {ok:false,code:"DAILY_RISK_HISTORY_UNAVAILABLE"};
+    const dailyLossPercent=Math.max(0,-result.value.dailyNetPnl)/result.value.balance*100;
+    if (dailyLossPercent>=limits.maxDailyLossPercent) return {ok:false,code:"DAILY_LOSS_LIMIT_REACHED",dailyLossPercent,dailyNetPnl:result.value.dailyNetPnl,consecutiveLosses:result.value.consecutiveLosses,dayStartUtc:result.value.dayStartUtc};
+    if (result.value.consecutiveLosses>=limits.maxConsecutiveLosses) return {ok:false,code:"CONSECUTIVE_LOSS_LIMIT_REACHED",dailyLossPercent,dailyNetPnl:result.value.dailyNetPnl,consecutiveLosses:result.value.consecutiveLosses,dayStartUtc:result.value.dayStartUtc};
+    return {ok:true,dailyLossPercent,dailyNetPnl:result.value.dailyNetPnl,consecutiveLosses:result.value.consecutiveLosses};
+  }
+  async function enforceScheduledDailyRiskGuard() {
+    if (!autoTradingEnabled) return true;
+    let status;
+    try { status=await dailyRiskGuardStatus(); }
+    catch { status={ok:false,code:"DAILY_RISK_HISTORY_UNAVAILABLE"}; }
+    if (status.ok) return true;
+    autoTradingEnabled=false;
+    const at=new Date().toISOString();
+    scannerRuns=[{id:randomUUID(),at,triggerType:"RISK_MONITOR",status:"RISK_REJECTED",reason:status.code,...(status.dailyLossPercent!==undefined?{dailyLossPercent:status.dailyLossPercent}:{}),...(status.consecutiveLosses!==undefined?{consecutiveLosses:status.consecutiveLosses}:{})},...scannerRuns].slice(0,50);
+    latestScanView={statusCode:409,updatedAt:at,body:{status:"RISK_REJECTED",error:status.code,message:"تم إيقاف التنفيذ الآلي بواسطة مراقب المخاطر. لا يتم إغلاق المراكز المفتوحة تلقائيًا.",execution:"NOT_SUBMITTED",...status}};
+    await queueNotificationToEnabled("تم إيقاف التنفيذ الآلي لـ XAUUSD بواسطة مراقب المخاطر: "+status.code+". راجع سجل MT5 قبل إعادة التفعيل.","RISK_GUARD","risk-monitor:"+status.code+":"+new Date().toISOString().slice(0,10));
+    return false;
+  }
   const outboxTimer = supabase && telegram.configured ? setInterval(()=>{ void drainOutbox(); },15000) : null;
   outboxTimer?.unref?.();
   const dashboardUsername=typeof env.DASHBOARD_USERNAME==="string"?env.DASHBOARD_USERNAME:"";
@@ -926,8 +958,8 @@ export function createAppServer(env = process.env) {
       scannerEnabled=true;
       if (scannerTimer) clearInterval(scannerTimer);
       nextScheduledScanAt=Date.now()+60000;
-      const scheduleAtNextClosedM1=()=>{ if (!scannerEnabled) return; const nowMs=Date.now(); const delay=60000-(nowMs%60000)+2000; nextScheduledScanAt=nowMs+delay; scannerTimer=setTimeout(async()=>{ if (!scannerEnabled) return; try { await runAndStoreScan("SCHEDULED"); } finally { scheduleAtNextClosedM1(); } },delay); scannerTimer.unref?.(); };
-      void runAndStoreScan("SCHEDULED").finally(()=>scheduleAtNextClosedM1());
+      const scheduleAtNextClosedM1=()=>{ if (!scannerEnabled) return; const nowMs=Date.now(); const delay=60000-(nowMs%60000)+2000; nextScheduledScanAt=nowMs+delay; scannerTimer=setTimeout(async()=>{ if (!scannerEnabled) return; try { if (await enforceScheduledDailyRiskGuard()) await runAndStoreScan("SCHEDULED"); } finally { scheduleAtNextClosedM1(); } },delay); scannerTimer.unref?.(); };
+      void (async()=>{ if (await enforceScheduledDailyRiskGuard()) await runAndStoreScan("SCHEDULED"); })().finally(()=>scheduleAtNextClosedM1());
       return sendJson(res,200,{ok:true,enabled:true,intervalSeconds:60});
     }
     if (method === "POST" && url.pathname === "/api/trading/environment") {
@@ -969,6 +1001,8 @@ export function createAppServer(env = process.env) {
         if (probe.outcome==="BUY" || probe.outcome==="SELL") return sendJson(res,409,{error:"AI_PROBE_UNSAFE",message:"مزود AI أعاد اتجاه تداول دون أدلة؛ التنفيذ الآلي مرفوض."});
         aiProbePassed=true;
       } catch { return sendJson(res,503,{error:"AI_PROVIDER_UNAVAILABLE",message:"اختبار اتصال AI فشل؛ التنفيذ الآلي مرفوض."}); }
+      const riskStatus=await dailyRiskGuardStatus();
+      if (!riskStatus.ok) return sendJson(res,409,{error:riskStatus.code,message:"مراقب المخاطر يمنع تفعيل التنفيذ الآلي حتى تُحل المشكلة أو يبدأ يوم تداول جديد.",risk:riskStatus});
       autoTradingEnabled=true;
       return sendJson(res,200,{ok:true,enabled:true,environment:executionEnvironment,liveTradingEnabled});
     }
