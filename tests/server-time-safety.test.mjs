@@ -10,16 +10,19 @@ test('scheduled scan keeps the stricter 20-second analysis freshness limit', () 
   assert.deepEqual(scanFreshnessPolicy('SCHEDULED'), {maxAgeSeconds:35,maxM1AgeMs:20000});
 });
 
-test('rollover blackout follows New York daylight saving time in October', () => {
-  // 20:57 UTC is 16:57 EDT on 2026-10-19.
+test('JustMarkets daily metals break is blocked using fixed GMT+3 server time', () => {
+  // 20:57 UTC is 23:57 at the JustMarkets GMT+3 server, just before its 23:58 break.
   assert.equal(tradingTimeBlock({}, Date.parse('2026-10-19T20:57:00Z')), 'ROLLOVER_BLACKOUT');
   assert.equal(tradingTimeBlock({}, Date.parse('2026-10-19T20:50:00Z')), null);
+  // 21:10 UTC is 00:10 server time, inside the daily break.
+  assert.equal(tradingTimeBlock({}, Date.parse('2026-10-19T21:10:00Z')), 'ROLLOVER_BLACKOUT');
+  assert.equal(tradingTimeBlock({}, Date.parse('2026-10-19T22:10:00Z')), null);
 });
 
-test('rollover blackout follows New York standard time after DST ends', () => {
-  // 21:57 UTC is 16:57 EST on 2026-11-02.
-  assert.equal(tradingTimeBlock({}, Date.parse('2026-11-02T21:57:00Z')), 'ROLLOVER_BLACKOUT');
-  assert.equal(tradingTimeBlock({}, Date.parse('2026-11-02T21:50:00Z')), null);
+test('JustMarkets rollover timing does not shift with New York daylight saving time', () => {
+  // JustMarkets metals use GMT+3 before and after the US daylight-saving transition.
+  assert.equal(tradingTimeBlock({}, Date.parse('2026-11-02T20:57:00Z')), 'ROLLOVER_BLACKOUT');
+  assert.equal(tradingTimeBlock({}, Date.parse('2026-11-02T20:50:00Z')), null);
 });
 
 test('manual news blackout configuration still blocks entries', () => {

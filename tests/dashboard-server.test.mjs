@@ -59,6 +59,17 @@ test('historical backtest rejects arbitrary AI providers and never defaults to a
     assert.equal(data.error,'AI_MODEL_NOT_ALLOWLISTED');
   });
 });
+test('AI connectivity test refuses an unconfigured provider without changing execution state', async () => {
+  await withServer(async base => {
+    const response=await fetch(base+'/api/ai/test',{method:'POST',headers:{'content-type':'application/json'},body:'{}'});
+    const data=await response.json();
+    assert.equal(response.status,409);
+    assert.equal(data.error,'AI_NOT_CONFIGURED');
+    const config=await (await fetch(base+'/api/config')).json();
+    assert.equal(config.autoTradingEnabled,false);
+    assert.equal(config.liveTradingEnabled,false);
+  });
+});
 test('manual scan fails closed when MT5 is not connected', async () => {
   await withServer(async base => {
     const response = await fetch(base+'/api/scan',{method:'POST',headers:{'content-type':'application/json'},body:'{}'});
