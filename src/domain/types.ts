@@ -40,6 +40,8 @@ export interface RiskSettings {
   readonly riskCash?: number;
   readonly referenceCapital: number;
   readonly minimumRiskRewardRatio: number;
+  readonly maxDailyLossPercent?: number;
+  readonly maxConsecutiveLosses?: number;
 }
 export interface TechnicalEvidence {
   readonly strategyId: string;
