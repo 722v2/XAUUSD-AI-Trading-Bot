@@ -15,12 +15,15 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 
+from dotenv import load_dotenv
+
 try:
     import MetaTrader5 as mt5  # type: ignore[import-not-found]
 except ImportError:
     mt5 = None  # type: ignore[assignment]
 
 ROOT = Path(__file__).resolve().parent
+load_dotenv(ROOT.parent / ".env")
 DEFAULT_SYMBOL = os.getenv("MT5_SYMBOL", "XAUUSD")
 MAX_BODY_BYTES = 16_384
 TIMEFRAME_MAP = {
