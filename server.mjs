@@ -127,7 +127,7 @@ export async function economicCalendarBlock(env, nowMs=Date.now(), fetchImpl=fet
   for (const event of highImpact) {
     const rawTime=event.time.trim();
     // Finnhub may return a UTC datetime without an explicit timezone suffix.
-    const normalizedTime=/(?:Z|[+-]\\d{2}:?\\d{2})$/i.test(rawTime)
+    const normalizedTime=/(?:Z|[+-]\d{2}:?\d{2})$/i.test(rawTime)
       ? rawTime
       : rawTime.replace(" ","T")+"Z";
     const eventMs=Date.parse(normalizedTime);
