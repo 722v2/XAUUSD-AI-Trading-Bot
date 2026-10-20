@@ -437,6 +437,48 @@ export function createAppServer(env = process.env) {
     return {ok:true};
   }
   let latestScanView=null;
+  async function fetchScannerCandles(timeframe,count) {
+    const intervals={M1:"1m",M5:"5m",M15:"15m",H1:"1h"};
+    const seconds={M1:60,M5:300,M15:900,H1:3600};
+    if(!intervals[timeframe])return {ok:false,message:"INVALID_TIMEFRAME"};
+    let biquoteError="BIQUOTE_UNAVAILABLE";
+    try {
+      const base=typeof env.BIQUOTE_BASE_URL==="string"&&env.BIQUOTE_BASE_URL.trim()?env.BIQUOTE_BASE_URL.trim():"https://biquote.io";
+      const endpoint=new URL("/api/XAUUSD/ohlc",base);
+      if(!(endpoint.protocol==="https:"||(["localhost","127.0.0.1","::1"].includes(endpoint.hostname)&&endpoint.protocol==="http:"))||endpoint.username||endpoint.password)throw new Error("INVALID_BIQUOTE_BASE_URL");
+      endpoint.searchParams.set("interval",intervals[timeframe]);
+      endpoint.searchParams.set("limit",String(count));
+      const response=await fetch(endpoint,{signal:AbortSignal.timeout(8000),headers:{accept:"application/json"}});
+      if(!response.ok) biquoteError="BIQUOTE_HTTP_"+response.status;
+      else {
+        const payload=await response.json();
+        const nowSeconds=Math.floor(Date.now()/1000),duration=seconds[timeframe];
+        const rows=(Array.isArray(payload?.bars)?payload.bars:[]).map(bar=>{
+          const opened=Date.parse(bar?.openTime);
+          const values=[Number(bar?.open),Number(bar?.high),Number(bar?.low),Number(bar?.close)];
+          return {opened,values,tickVolume:Number(bar?.tickVolume??bar?.volume??0),isOpen:bar?.isOpen===true};
+        }).filter(row=>Number.isFinite(row.opened)&&row.opened>0&&row.values.every(value=>Number.isFinite(value)&&value>0)&&!row.isOpen&&Math.floor(row.opened/1000)+duration<=nowSeconds)
+          .sort((a,b)=>a.opened-b.opened);
+        const unique=rows.filter((row,index)=>index===0||row.opened!==rows[index-1].opened);
+        if(unique.length>=35) {
+          const candles=unique.slice(-count).map(row=>({symbol:"XAUUSD",timeframe,openTime:new Date(row.opened).toISOString(),closeTime:new Date(row.opened+duration*1000).toISOString(),open:row.values[0],high:row.values[1],low:row.values[2],close:row.values[3],tickVolume:Number.isFinite(row.tickVolume)?Math.max(0,Math.trunc(row.tickVolume)):0,isClosed:true}));
+          return {ok:true,value:{candles},provider:"BIQUOTE"};
+        }
+        biquoteError="BIQUOTE_INSUFFICIENT_CLOSED_CANDLES";
+      }
+    } catch(error) { biquoteError=error?.name==="TimeoutError"||error?.name==="AbortError"?"BIQUOTE_TIMEOUT":"BIQUOTE_PARSE_OR_NETWORK_ERROR"; }
+    if(bridge) {
+      const fallback=await bridge.candles(timeframe,count);
+      if(fallback.ok) {
+        const candles=(fallback.value.candles||[]).filter(bar=>bar.isClosed===true);
+        if(candles.length>=35)return {ok:true,value:{candles},provider:"MT5_FALLBACK"};
+        return {ok:false,message:"INSUFFICIENT_CLOSED_CANDLES",providerErrors:{biquote:biquoteError,mt5:"INSUFFICIENT_CLOSED_CANDLES"}};
+      }
+      return {ok:false,message:fallback.message||"MARKET_DATA_UNAVAILABLE",providerErrors:{biquote:biquoteError,mt5:fallback.errorCode||fallback.message||"MT5_UNAVAILABLE"}};
+    }
+    return {ok:false,message:biquoteError,providerErrors:{biquote:biquoteError,mt5:"MT5_BRIDGE_NOT_CONFIGURED"}};
+  }
+
   async function performScan(triggerType = "MANUAL") {
     if (scanInFlight) return { status:409, body:{error:"SCAN_ALREADY_RUNNING",message:"هناك دورة فحص قيد التنفيذ."} };
     scanInFlight = true;
@@ -474,16 +516,17 @@ export function createAppServer(env = process.env) {
         return {status:503,body:{error:"RECONCILIATION_REQUIRED",message:"هناك نية تنفيذ سابقة تحتاج مصالحة؛ تم منع أي دخول جديد.",run:entry}};
       }
       const timeframes = ["M1","M5","M15","H1"];
-      const fetched = await Promise.all(timeframes.map(async timeframe => [timeframe,await bridge.candles(timeframe, timeframe==="M1"?120:60)]));
+      const fetched = await Promise.all(timeframes.map(async timeframe => [timeframe,await fetchScannerCandles(timeframe,timeframe==="M1"?120:60)]));
       const normalized = {};
       const freshness=scanFreshnessPolicy(triggerType);
       for (const [timeframe,result] of fetched) {
         if (!result.ok) {
-          const entry=record("NO_ANALYSIS","MARKET_DATA_UNAVAILABLE",{timeframe,error:result.message});
-          return {status:503,body:{error:"MARKET_DATA_UNAVAILABLE",message:"تعذر جلب بيانات الشموع المغلقة؛ لم يتم إنشاء إشارة.",run:entry}};
+          const entry=record("NO_ANALYSIS","MARKET_DATA_UNAVAILABLE",{timeframe,error:result.message,providerErrors:result.providerErrors||null});
+          return {status:503,body:{error:"MARKET_DATA_UNAVAILABLE",message:"تعذر جلب شموع كافية من Biquote أو MT5؛ لم يتم إنشاء إشارة.",run:entry}};
         }
-        // Third argument is minimumBars, not candle age. Freshness is enforced below by analyzeClosedMarket.
-        const bars = normalizeClosedCandles(result.value.candles,timeframe,timeframe==="M1"?35:35);
+        // Biquote is the primary scanner feed, matching the chart; MT5 candles are fallback only.
+        // Freshness and closed-bar validation remain mandatory before analysis.
+        const bars = normalizeClosedCandles(result.value.candles,timeframe,35);
         if (!bars.ok) {
           const entry=record("NO_ANALYSIS",bars.error,{timeframe});
           return {status:409,body:{error:bars.error,message:"بيانات السوق غير صالحة للتحليل.",run:entry}};
@@ -898,19 +941,22 @@ export function createAppServer(env = process.env) {
       if(bridge){const r=await bridge.candles(tf,count);if(r.ok){const candles=(r.value.candles||[]).map(b=>({time:Math.floor(Date.parse(b.openTime||b.time)/1000),open:Number(b.open),high:Number(b.high),low:Number(b.low),close:Number(b.close)})).filter(b=>Number.isFinite(b.time)&&[b.open,b.high,b.low,b.close].every(Number.isFinite)).sort((x,y)=>x.time-y.time);if(candles.length>=35)return sendJson(res,200,{ok:true,provider:"MT5_FALLBACK",symbol:"XAUUSD",timeframe:tf,count:candles.length,candles,updatedAt:new Date().toISOString()});}}
       return sendJson(res,503,{error:"MARKET_DATA_UNAVAILABLE",message:"تعذر جلب شموع كافية من Biquote ومن مصدر MT5 البديل."});
     }
-    if (method === "POST" && url.pathname === "/api/mt5/demo-market-buy") {
-      if(!bridge)return sendJson(res,409,{error:"MT5_BRIDGE_NOT_CONFIGURED",message:"جسر MT5 غير مضبوط."});
+    if (method === "POST" && url.pathname === "/api/mt5/demo-execute-signal") {
+      await hydrateSettings();
+      if(executionEnvironment!=="DEMO")return sendJson(res,403,{error:"DEMO_ACCOUNT_REQUIRED",message:"هذا الزر يعمل على Demo فقط؛ اختر Demo أولًا."});
+      if(!bridge||!aiProvider||!supabase||!riskSettings)return sendJson(res,409,{error:"EXECUTION_PREREQUISITES_MISSING",message:"يلزم اتصال MT5 Demo وإعداد AI والمخاطرة والتخزين الدائم قبل تنفيذ الإشارة."});
+      if(autoTradingEnabled)return sendJson(res,409,{error:"MANUAL_EXECUTION_CONFLICT",message:"أوقف التنفيذ الآلي قبل طلب تنفيذ يدوي مستقل لتجنب تداخل الأوامر."});
+      if(scanInFlight)return sendJson(res,409,{error:"SCAN_ALREADY_RUNNING",message:"هناك دورة فحص قيد التنفيذ."});
       const health=await bridge.health();
-      if(!health.ok||health.value.state!=="CONNECTED"||health.value.environment!=="DEMO")return sendJson(res,403,{error:"DEMO_ACCOUNT_REQUIRED",message:"مرفوض: يجب تأكيد أن الحساب المتصل Demo من الجسر."});
-      const [q,spec]=await Promise.all([bridge.quote(),bridge.symbolSpec()]);
-      if(!q.ok||!spec.ok)return sendJson(res,503,{error:"MT5_MARKET_NOT_READY",message:"تعذر جلب السعر أو مواصفات الرمز من MT5."});
-      const p=spec.value,entry=Number(q.value.ask),point=Number(p.point),digits=Number.isInteger(p.priceDigits)?p.priceDigits:2;
-      if(!(entry>0&&point>0&&Number(p.volumeMin)>0))return sendJson(res,503,{error:"INVALID_MARKET_SPEC",message:"السعر أو الحجم الأدنى غير صالح."});
-      const distance=Math.max(Number(p.stopsLevelPoints||0)*point,point*10),sl=Number((entry-distance).toFixed(digits)),tp=Number((entry+2*distance).toFixed(digits));
-      const intent={idempotencyKey:"manual-demo-buy-"+randomUUID(),environment:"DEMO",symbol:"XAUUSD",direction:"BUY",volume:Number(p.volumeMin),entryPrice:entry,stopLoss:sl,takeProfit:tp,source:"MANUAL_DEMO_TEST"};
-      const result=await bridge.submitOrder({intent});
-      if(!result.ok)return sendJson(res,result.status||422,{error:result.error||"ORDER_REJECTED",message:"لم يؤكد MT5 تنفيذ الأمر.",details:result.value||null});
-      return sendJson(res,200,{ok:true,environment:"DEMO",symbol:"XAUUSD",volume:p.volumeMin,requestedAsk:entry,stopLoss:sl,takeProfit:tp,result:result.value});
+      if(!health.ok||health.value.state!=="CONNECTED"||health.value.environment!=="DEMO"||health.value.executionReady!==true||!health.value.accountLogin)
+        return sendJson(res,403,{error:"DEMO_ACCOUNT_NOT_READY",message:"لم يؤكد الجسر حساب Demo جاهزًا للتنفيذ."});
+      autoTradingEnabled=true;
+      try {
+        const result=await runAndStoreScan("MANUAL");
+        return sendJson(res,result.status,result.body);
+      } finally {
+        autoTradingEnabled=false;
+      }
     }
     if (method === "GET" && url.pathname === "/api/health") {
       await hydrateSettings();

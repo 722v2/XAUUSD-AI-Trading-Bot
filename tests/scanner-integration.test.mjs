@@ -17,9 +17,16 @@ function candles(timeframe,count,minutes) {
   });
 }
 
-test('manual scanner uses authenticated MT5 candles and structured AI without auto-executing', async t => {
+test('manual scanner uses Biquote candles first and structured AI without auto-executing', async t => {
   let aiCalls=0;
   const bridge=createServer((req,res)=>{
+    if(req.url.startsWith('/api/XAUUSD/ohlc')){
+      const url=new URL(req.url,'http://127.0.0.1');
+      const tf={'1m':'M1','5m':'M5','15m':'M15','1h':'H1'}[url.searchParams.get('interval')];
+      const minutes={M1:1,M5:5,M15:15,H1:60}[tf];
+      const rows=candles(tf,Number(url.searchParams.get('limit')),minutes).map(bar=>({openTime:bar.openTime,open:bar.open,high:bar.high,low:bar.low,close:bar.close,tickVolume:bar.tickVolume,isOpen:false}));
+      res.setHeader('content-type','application/json');res.end(JSON.stringify({bars:rows}));return;
+    }
     if(req.headers['x-bridge-token']!=='bridge-test-token'){res.writeHead(401);res.end(JSON.stringify({error:'UNAUTHORIZED'}));return;}
     res.setHeader('content-type','application/json');
     if(req.url==='/health'){res.end(JSON.stringify({state:'CONNECTED',reason:'DEMO_ACCOUNT_CONFIRMED',environment:'DEMO',accountLogin:'demo-123',executionReady:true,liveTradingEnabled:false}));return;}
@@ -43,7 +50,7 @@ test('manual scanner uses authenticated MT5 candles and structured AI without au
     res.end(JSON.stringify({choices:[{message:{content:JSON.stringify({outcome,rationale:'Test fixture response',rationaleCodes:['TEST_FIXTURE']})}}]}));
   });
   const bridgeUrl=await listen(bridge), aiUrl=await listen(ai);
-  const app=createAppServer({MT5_BRIDGE_URL:bridgeUrl,MT5_BRIDGE_TOKEN:'bridge-test-token',AI_API_KEY:'test-key',AI_BASE_URL:aiUrl+'/v1',AI_PROVIDER_ID:'fixture',AI_MODEL_ID:'fixture-model'});
+  const app=createAppServer({MT5_BRIDGE_URL:bridgeUrl,MT5_BRIDGE_TOKEN:'bridge-test-token',BIQUOTE_BASE_URL:bridgeUrl,AI_API_KEY:'test-key',AI_BASE_URL:aiUrl+'/v1',AI_PROVIDER_ID:'fixture',AI_MODEL_ID:'fixture-model'});
   const appUrl=await listen(app);
   t.after(async()=>{await close(app);await close(bridge);await close(ai);});
   const aiConfig=await fetch(appUrl+'/api/ai/config',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({providerId:'fixture',modelId:'fixture-model'})});
