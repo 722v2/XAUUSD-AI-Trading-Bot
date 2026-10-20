@@ -443,7 +443,12 @@ export function createAppServer(env = process.env) {
     if(!intervals[timeframe])return {ok:false,message:"INVALID_TIMEFRAME"};
     let biquoteError="BIQUOTE_UNAVAILABLE";
     try {
-      const response=await fetch("https://biquote.io/api/XAUUSD/ohlc?interval="+intervals[timeframe]+"&limit="+count,{signal:AbortSignal.timeout(8000),headers:{accept:"application/json"}});
+      const base=typeof env.BIQUOTE_BASE_URL==="string"&&env.BIQUOTE_BASE_URL.trim()?env.BIQUOTE_BASE_URL.trim():"https://biquote.io";
+      const endpoint=new URL("/api/XAUUSD/ohlc",base);
+      if(!(endpoint.protocol==="https:"||(["localhost","127.0.0.1","::1"].includes(endpoint.hostname)&&endpoint.protocol==="http:"))||endpoint.username||endpoint.password)throw new Error("INVALID_BIQUOTE_BASE_URL");
+      endpoint.searchParams.set("interval",intervals[timeframe]);
+      endpoint.searchParams.set("limit",String(count));
+      const response=await fetch(endpoint,{signal:AbortSignal.timeout(8000),headers:{accept:"application/json"}});
       if(!response.ok) biquoteError="BIQUOTE_HTTP_"+response.status;
       else {
         const payload=await response.json();
