@@ -940,7 +940,7 @@ export function createAppServer(env = process.env) {
       await hydrateSettings();
       if(executionEnvironment!=="DEMO")return sendJson(res,403,{error:"DEMO_ACCOUNT_REQUIRED",message:"هذا الزر يعمل على Demo فقط؛ اختر Demo أولًا."});
       if(!bridge||!aiProvider||!supabase||!riskSettings)return sendJson(res,409,{error:"EXECUTION_PREREQUISITES_MISSING",message:"يلزم اتصال MT5 Demo وإعداد AI والمخاطرة والتخزين الدائم قبل تنفيذ الإشارة."});
-      if(scannerEnabled||autoTradingEnabled)return sendJson(res,409,{error:"MANUAL_EXECUTION_CONFLICT",message:"أوقف السكانر والتنفيذ الآلي قبل طلب تنفيذ يدوي مستقل لتجنب تداخل الدورات."});
+      if(autoTradingEnabled)return sendJson(res,409,{error:"MANUAL_EXECUTION_CONFLICT",message:"أوقف التنفيذ الآلي قبل طلب تنفيذ يدوي مستقل لتجنب تداخل الأوامر."});
       if(scanInFlight)return sendJson(res,409,{error:"SCAN_ALREADY_RUNNING",message:"هناك دورة فحص قيد التنفيذ."});
       const health=await bridge.health();
       if(!health.ok||health.value.state!=="CONNECTED"||health.value.environment!=="DEMO"||health.value.executionReady!==true||!health.value.accountLogin)
