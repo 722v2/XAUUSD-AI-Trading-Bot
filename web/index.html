@@ -52,6 +52,11 @@
         </div>
       </section>
 
+      <section id="market-chart" class="section panel">
+        <div class="section-heading"><div><h2>شارت الذهب · XAUUSD</h2><p>مصدر Biquote تلقائيًا، وMT5 بديل عند تعذر البيانات</p></div><span id="market-chart-status" class="status-tag muted-tag">جارٍ التحميل</span></div>
+        <div class="chart-toolbar"><div class="chart-timeframes"><button class="secondary-button timeframe-button active" data-timeframe="M1" type="button">M1</button><button class="secondary-button timeframe-button" data-timeframe="M5" type="button">M5</button><button class="secondary-button timeframe-button" data-timeframe="M15" type="button">M15</button><button class="secondary-button timeframe-button" data-timeframe="H1" type="button">H1</button></div><div class="chart-quote"><span>آخر إغلاق</span><strong id="chart-last-price">—</strong></div></div>
+        <div id="market-candlestick-chart" role="img" aria-label="شارت شموع الذهب"></div><p id="market-chart-feedback" class="muted" role="status">تحميل الشموع…</p>
+      </section>
       <section id="ai-config" class="section panel">
         <div class="section-heading"><div><h2>مزود الذكاء الاصطناعي والنموذج</h2><p>عنوان API والمفتاح السري يُضبطان في Environment على Render. اكتب معرّف المزود والنموذج هنا فقط.</p></div><span id="ai-config-status" class="status-tag muted-tag">غير مضبوط</span></div>
         <form id="ai-config-form" class="risk-form ai-config-form">
@@ -120,6 +125,7 @@
         <p class="footnote">هذه القيم لا تنشئ صفقة. حجم العقد الفعلي يحتاج مواصفات الوسيط وتأكيد حساب MT5.</p>
       </section>
 
+      <section class="section panel demo-buy-panel"><div class="section-heading"><div><h2>اختبار تنفيذ مباشر</h2><p>أمر BUY سوقي مستقل عن الإشارات ومحرك المخاطر</p></div><span class="status-tag warn-tag">Demo فقط</span></div><p class="positions-warning">سيُرسل أمر سوقي فعلي إلى حساب Demo بالحجم الأدنى لدى الوسيط، مع SL/TP تلقائيين. لن يعمل على Live.</p><div class="scanner-actions"><button id="demo-market-buy" class="primary-button" type="button">شراء فوري — Demo</button><span id="demo-buy-feedback" class="muted" role="status">لم يتم إرسال أمر.</span></div></section>
       <section id="mt5" class="section panel">
         <div class="section-heading"><div><h2>اتصال MT5</h2><p>إرسال الأوامر يتطلب حساب Hedging مطابقًا للبيئة المختارة. Live يبقى محجوبًا ما لم يُفعّل صراحةً على الخادم والجسر.</p></div><span id="execution-status" class="status-tag muted-tag">معطّل</span></div>
         <div class="connection-row"><div class="connection-symbol">MT5</div><div class="connection-copy"><b id="mt5-title">جسر MT5 غير متصل</b><p id="mt5-detail">لم يتم تأكيد حساب تجريبي أو مواصفات الرمز XAUUSD.</p></div><span id="mt5-environment-badge" class="status-tag muted-tag">Demo</span></div>
@@ -151,5 +157,6 @@
       <footer> XAUUSD AI Trading Bot <span>·</span> نظام قيد التطوير · لا يوجد ضمان للربحية</footer>
     </main>
   </div>
+  <script src="https://unpkg.com/lightweight-charts@5.0.8/dist/lightweight-charts.standalone.production.js"></script>
 </body>
 </html>
