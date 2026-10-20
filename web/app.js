@@ -489,3 +489,16 @@ function initDashboardNavigation() {
   showDashboardPage(pageFromHash(), false);
 }
 initDashboardNavigation();
+
+let marketChartTimeframe="M1",marketChartBusy=false,marketChartInstance=null,marketCandleSeries=null;
+function drawMarketCandles(data){
+ const host=$("market-candlestick-chart");if(!host)return;
+ if(typeof LightweightCharts==="undefined"){host.innerHTML='<div class="chart-unavailable">تعذر تحميل مكتبة الشارت من CDN.</div>';return;}
+ if(!marketChartInstance){marketChartInstance=LightweightCharts.createChart(host,{width:host.clientWidth||800,height:360,layout:{background:{color:"#0a111b"},textColor:"#aebbd0"},grid:{vertLines:{color:"#172334"},horzLines:{color:"#172334"}},rightPriceScale:{borderColor:"#263344"},timeScale:{borderColor:"#263344",timeVisible:true},crosshair:{mode:1}});marketCandleSeries=marketChartInstance.addSeries(LightweightCharts.CandlestickSeries,{upColor:"#29b58a",downColor:"#e45c69",borderUpColor:"#29b58a",borderDownColor:"#e45c69",wickUpColor:"#29b58a",wickDownColor:"#e45c69"});if(typeof ResizeObserver!=="undefined")new ResizeObserver(()=>marketChartInstance?.applyOptions({width:host.clientWidth||800})).observe(host);}
+ marketCandleSeries.setData(data.candles.map(b=>({time:b.time,open:b.open,high:b.high,low:b.low,close:b.close})));marketChartInstance.timeScale().fitContent();
+ const last=data.candles[data.candles.length-1];$("chart-last-price").textContent=last?last.close.toFixed(2):"—";$("market-chart-status").textContent=data.provider+" · "+data.count+" شمعة";$("market-chart-status").className="status-tag "+(data.provider==="BIQUOTE"?"ok-tag":"warn-tag");$("market-chart-feedback").textContent="الفريم "+marketChartTimeframe+" · تحديث "+timeNow();
+}
+async function loadMarketCandles(){if(marketChartBusy)return;marketChartBusy=true;try{drawMarketCandles(await api("/api/market/candles?timeframe="+marketChartTimeframe+"&count=300"));}catch(e){$("market-chart-status").textContent="غير متاح";$("market-chart-status").className="status-tag error-tag";$("market-chart-feedback").textContent=e.message;}finally{marketChartBusy=false;}}
+document.querySelectorAll(".timeframe-button").forEach(b=>b.addEventListener("click",()=>{marketChartTimeframe=b.dataset.timeframe;document.querySelectorAll(".timeframe-button").forEach(x=>x.classList.toggle("active",x===b));void loadMarketCandles();}));
+const demoBuyButton=$("demo-market-buy");if(demoBuyButton)demoBuyButton.addEventListener("click",async()=>{if(!confirm("تأكيد إرسال BUY سوقي فوري إلى حساب Demo فقط؟"))return;demoBuyButton.disabled=true;$("demo-buy-feedback").textContent="جارٍ إرسال الأمر…";try{const r=await api("/api/mt5/demo-market-buy",{method:"POST",body:"{}"});$("demo-buy-feedback").textContent="MT5 أكد الأمر. رقم: "+(r.result?.brokerOrderId||"مؤكد")+" · الحجم "+r.volume+" · السعر "+r.requestedAsk;}catch(e){$("demo-buy-feedback").textContent="لم يتأكد التنفيذ: "+e.message;}finally{demoBuyButton.disabled=false;}});
+void loadMarketCandles();setInterval(()=>void loadMarketCandles(),15000);
