@@ -886,6 +886,32 @@ export function createAppServer(env = process.env) {
       res.end("Dashboard authentication required.");
       return;
     }
+    if (method === "GET" && url.pathname === "/api/market/candles") {
+      const intervals={M1:"1m",M5:"5m",M15:"15m",H1:"1h"}, tf=(url.searchParams.get("timeframe")||"M1").toUpperCase();
+      if(!intervals[tf])return sendJson(res,400,{error:"INVALID_TIMEFRAME"});
+      const n=Number(url.searchParams.get("count")||300),count=Number.isInteger(n)?Math.max(50,Math.min(1000,n)):300;
+      try {
+        const r=await fetch("https://biquote.io/api/XAUUSD/ohlc?interval="+intervals[tf]+"&limit="+count,{signal:AbortSignal.timeout(8000)});
+        if(r.ok){const d=await r.json();const candles=(Array.isArray(d.bars)?d.bars:[]).map(b=>({time:Math.floor(Date.parse(b.openTime)/1000),open:Number(b.open),high:Number(b.high),low:Number(b.low),close:Number(b.close),isOpen:Boolean(b.isOpen)})).filter(b=>Number.isFinite(b.time)&&[b.open,b.high,b.low,b.close].every(Number.isFinite)).sort((x,y)=>x.time-y.time).filter((b,i,x)=>!i||b.time>x[i-1].time);
+          if(candles.length>=35)return sendJson(res,200,{ok:true,provider:"BIQUOTE",symbol:"XAUUSD",timeframe:tf,count:candles.length,candles,updatedAt:new Date().toISOString()});}
+      }catch{}
+      if(bridge){const r=await bridge.candles(tf,count);if(r.ok){const candles=(r.value.candles||[]).map(b=>({time:Math.floor(Date.parse(b.openTime||b.time)/1000),open:Number(b.open),high:Number(b.high),low:Number(b.low),close:Number(b.close)})).filter(b=>Number.isFinite(b.time)&&[b.open,b.high,b.low,b.close].every(Number.isFinite)).sort((x,y)=>x.time-y.time);if(candles.length>=35)return sendJson(res,200,{ok:true,provider:"MT5_FALLBACK",symbol:"XAUUSD",timeframe:tf,count:candles.length,candles,updatedAt:new Date().toISOString()});}}
+      return sendJson(res,503,{error:"MARKET_DATA_UNAVAILABLE",message:"تعذر جلب شموع كافية من Biquote ومن مصدر MT5 البديل."});
+    }
+    if (method === "POST" && url.pathname === "/api/mt5/demo-market-buy") {
+      if(!bridge)return sendJson(res,409,{error:"MT5_BRIDGE_NOT_CONFIGURED",message:"جسر MT5 غير مضبوط."});
+      const health=await bridge.health();
+      if(!health.ok||health.value.state!=="CONNECTED"||health.value.environment!=="DEMO")return sendJson(res,403,{error:"DEMO_ACCOUNT_REQUIRED",message:"مرفوض: يجب تأكيد أن الحساب المتصل Demo من الجسر."});
+      const [q,spec]=await Promise.all([bridge.quote(),bridge.symbolSpec()]);
+      if(!q.ok||!spec.ok)return sendJson(res,503,{error:"MT5_MARKET_NOT_READY",message:"تعذر جلب السعر أو مواصفات الرمز من MT5."});
+      const p=spec.value,entry=Number(q.value.ask),point=Number(p.point),digits=Number.isInteger(p.priceDigits)?p.priceDigits:2;
+      if(!(entry>0&&point>0&&Number(p.volumeMin)>0))return sendJson(res,503,{error:"INVALID_MARKET_SPEC",message:"السعر أو الحجم الأدنى غير صالح."});
+      const distance=Math.max(Number(p.stopsLevelPoints||0)*point,point*10),sl=Number((entry-distance).toFixed(digits)),tp=Number((entry+2*distance).toFixed(digits));
+      const intent={idempotencyKey:"manual-demo-buy-"+randomUUID(),environment:"DEMO",symbol:"XAUUSD",direction:"BUY",volume:Number(p.volumeMin),entryPrice:entry,stopLoss:sl,takeProfit:tp,source:"MANUAL_DEMO_TEST"};
+      const result=await bridge.submitOrder({intent});
+      if(!result.ok)return sendJson(res,result.status||422,{error:result.error||"ORDER_REJECTED",message:"لم يؤكد MT5 تنفيذ الأمر.",details:result.value||null});
+      return sendJson(res,200,{ok:true,environment:"DEMO",symbol:"XAUUSD",volume:p.volumeMin,requestedAsk:entry,stopLoss:sl,takeProfit:tp,result:result.value});
+    }
     if (method === "GET" && url.pathname === "/api/health") {
       await hydrateSettings();
       let databaseState = "NOT_CONFIGURED";
