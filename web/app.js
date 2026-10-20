@@ -442,7 +442,7 @@ setInterval(()=>{void loadLatestScan();void loadScanLog();void loadPositions();}
 
 // Real page navigation: each sidebar item shows a dedicated workspace view.
 const dashboardPages = {
-  overview: { title: "نظرة عامة", sections: ["overview"], notice: true },
+  overview: { title: "نظرة عامة", sections: ["overview", "market-chart"], notice: true },
   scanner: { title: "السكانر والتحليل", sections: ["scanner"] },
   backtest: { title: "الاختبار التاريخي", sections: ["backtest"] },
   risk: { title: "المخاطر ورأس المال", sections: ["risk"] },
