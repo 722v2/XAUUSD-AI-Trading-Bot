@@ -23,7 +23,7 @@ class OutboundRelayTests(unittest.TestCase):
     def test_headers_use_custom_user_agent_and_bridge_token(self):
         with patch.object(relay, "TOKEN", "test-secret"):
             headers = relay._session_headers()
-        self.assertEqual(headers["X-Bridge-token"], "test-secret")
+        self.assertEqual(headers["X-Bridge-Token"], "test-secret")
         self.assertIn("XAUUSD-MT5-Relay", headers["User-agent"])
         self.assertEqual(headers["Connection"], "close")
 
