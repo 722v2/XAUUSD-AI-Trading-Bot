@@ -63,7 +63,7 @@ def _decode_response(raw: bytes) -> dict:
         body = json.loads(raw.decode("utf-8"))
         return body if isinstance(body, dict) else {"error": "INVALID_JSON_SHAPE"}
     except (ValueError, UnicodeDecodeError):
-        preview = raw[:180].decode("utf-8", errors="replace").replace("\\r", " ").replace("\\n", " ")
+        preview = raw[:180].decode("utf-8", errors="replace").replace("\r", " ").replace("\n", " ")
         return {"error": "NON_JSON_RESPONSE", "responsePreview": preview}
 
 
@@ -102,7 +102,7 @@ def valid_job(job):
         return False
     if not path.startswith("/") or path.startswith("//"):
         return False
-    if any(part in path for part in ("\\r", "\\n", "://", "\\\\", "\\x00")):
+    if any(part in path for part in ("\r", "\n", "://", "\\", "\x00")):
         return False
     return True
 
