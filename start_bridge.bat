@@ -67,9 +67,9 @@ echo Local bridge: %MT5_LOCAL_BRIDGE_URL%
 echo Render relay: %MT5_RELAY_SERVER_URL%
 echo Mode: selected in the dashboard; account type is verified by the bridge.
 echo Keep both windows open. Set the same token in Render as MT5_BRIDGE_TOKEN.
-echo Live availability requires explicit MT5_LIVE_TRADING_ENABLED and
-echo MT5_LIVE_CONFIRMATION settings in the local .env and matching server
-echo LIVE_TRADING_ENABLED and LIVE_TRADING_CONFIRMATION settings on Render.
+echo Live trading is disabled by default and must not be enabled for this test.
+echo A .env file is optional; this launcher sets the relay connection values.
+echo Keep live-trading settings disabled while validating the Demo connection.
 echo.
 
 start "XAUUSD MT5 Outbound Relay" cmd /k "cd /d ""%~dp0"" && set MT5_BRIDGE_TOKEN=%MT5_BRIDGE_TOKEN% && set MT5_RELAY_SERVER_URL=%MT5_RELAY_SERVER_URL% && set MT5_LOCAL_BRIDGE_URL=%MT5_LOCAL_BRIDGE_URL% && py -3.12 mt5_bridge\outbound_agent.py"
