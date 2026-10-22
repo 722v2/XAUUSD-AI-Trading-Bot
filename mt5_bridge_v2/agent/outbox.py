@@ -35,7 +35,8 @@ class Outbox:
     def enqueue_result(self,command_id: str,key: str,state: str,payload: dict[str,Any]):
         now=datetime.now(timezone.utc).isoformat()
         with self.lock,self.connect() as db:
-            db.execute("INSERT OR IGNORE INTO results(command_id,idempotency_key,state,payload,updated_at) VALUES(?,?,?,?,?)",
+            db.execute("""INSERT INTO results(command_id,idempotency_key,state,payload,delivered,updated_at) VALUES(?,?,?,?,0,?)
+              ON CONFLICT(command_id) DO UPDATE SET state=excluded.state,payload=excluded.payload,delivered=0,updated_at=excluded.updated_at""",
               (command_id,key,state,json.dumps(payload,separators=(",",":")),now))
             db.execute("""INSERT INTO command_ledger(idempotency_key,state,result_json,updated_at) VALUES(?,?,?,?)
               ON CONFLICT(idempotency_key) DO UPDATE SET state=excluded.state,result_json=excluded.result_json,updated_at=excluded.updated_at""",
