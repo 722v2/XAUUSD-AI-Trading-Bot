@@ -35,11 +35,11 @@ class BridgeStore {
 }
 export async function readBridgeV2Status(env=process.env,agentId="windows-mt5-demo-01",fetchImpl=fetch) {
   const store=new BridgeStore(env,fetchImpl);
-  const rows=await store.request("/bridge_agents?agent_id=eq."+encodeURIComponent(agentId)+"&select=agent_id,state,environment,terminal_connected,account_connected,execution_ready,broker_symbol,last_error_code,last_seen_at&limit=1");
+  const rows=await store.request("/bridge_agents?agent_id=eq."+encodeURIComponent(agentId)+"&select=agent_id,state,environment,terminal_connected,account_connected,execution_ready,broker_symbol,account_login,last_error_code,last_seen_at,payload&limit=1");
   const a=rows[0];
   if(!a) return {state:"DISCONNECTED",ready:false,reason:"AGENT_NOT_REGISTERED",lastSeenAt:null};
   const age=Date.now()-Date.parse(a.last_seen_at),alive=Number.isFinite(age)&&age<=30000;
-  return {state:alive?a.state:"DISCONNECTED",ready:alive&&a.execution_ready===true,reason:alive?(a.last_error_code||"HEARTBEAT_OK"):"HEARTBEAT_STALE",lastSeenAt:a.last_seen_at,heartbeatAgeMs:Number.isFinite(age)?age:null,environment:a.environment,terminalConnected:alive&&a.terminal_connected,accountConnected:alive&&a.account_connected,executionReady:alive&&a.execution_ready,brokerSymbol:a.broker_symbol};
+  return {state:alive?a.state:"DISCONNECTED",ready:alive&&a.execution_ready===true,reason:alive?(a.last_error_code||"HEARTBEAT_OK"):"HEARTBEAT_STALE",lastSeenAt:a.last_seen_at,heartbeatAgeMs:Number.isFinite(age)?age:null,environment:a.environment,terminalConnected:alive&&a.terminal_connected,accountConnected:alive&&a.account_connected,executionReady:alive&&a.execution_ready,brokerSymbol:a.broker_symbol,accountLogin:a.account_login,quote:a.payload?.quote??null,symbolSpec:a.payload?.symbolSpec??null};
 }
 export function createBridgeV2Api(env=process.env,fetchImpl=fetch) {
   const store=new BridgeStore(env,fetchImpl);
