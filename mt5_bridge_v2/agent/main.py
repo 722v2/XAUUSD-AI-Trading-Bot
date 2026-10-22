@@ -79,8 +79,20 @@ class Agent:
             self.outbox.enqueue_result(command_id,key,"REJECTED",result); return
         result=self.executor.execute(command)
         self.outbox.enqueue_result(command_id,key,result["state"],result)
+    def recover_uncertain_commands(self):
+        for row in self.outbox.unresolved():
+            try: saved=json.loads(row["result_json"] or "{}")
+            except Exception: continue
+            reconciled=self.executor.reconcile_uncertain(row["idempotency_key"],saved)
+            if not reconciled: continue
+            command_id=saved.get("commandId")
+            if not isinstance(command_id,str): continue
+            payload={"commandId":command_id,"idempotencyKey":row["idempotency_key"],"state":reconciled["state"],"code":reconciled["code"],"details":reconciled["details"],"completedAt":utc_now()}
+            self.outbox.enqueue_result(command_id,row["idempotency_key"],reconciled["state"],payload)
+            print(f"[reconcile] broker history matched an uncertain order; state={reconciled['state']}",flush=True)
     def run(self):
         ok,reason=self.session.connect(); self.last_error=None if ok else reason
+        if ok: self.recover_uncertain_commands()
         print(f"[startup] agent={self.config.agent_id}; demo_session={'connected' if ok else reason}; live trading disabled",flush=True)
         last_heartbeat=0.0
         while not self.stop.is_set():
