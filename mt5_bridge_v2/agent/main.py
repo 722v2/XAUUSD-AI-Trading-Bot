@@ -61,7 +61,11 @@ class Agent:
         if not isinstance(command_id,str) or not isinstance(key,str) or not key: return
         prior=self.outbox.command_state(key)
         if prior:
-            print(f"[command] duplicate key refused; state={prior['state']}",flush=True)
+            if prior["state"] in ("SUBMITTING","UNKNOWN"):
+                result={"commandId":command_id,"idempotencyKey":key,"state":"UNKNOWN","code":"RECOVERY_REQUIRES_RECONCILIATION","details":{"previousState":prior["state"],"automaticRetry":False},"completedAt":utc_now()}
+                self.outbox.enqueue_result(command_id,key,"UNKNOWN",result)
+            else:
+                print(f"[command] duplicate key refused; state={prior['state']}",flush=True)
             return
         expires=command.get("expiresAt")
         try:
