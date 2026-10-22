@@ -26,13 +26,21 @@ class OrderExecutor:
         direction=payload.get("direction")
         volume=payload.get("volume"); sl=payload.get("stopLoss"); tp=payload.get("takeProfit")
         symbol=payload.get("symbol","XAUUSD")
-        if direction not in ("BUY","SELL") or symbol!="XAUUSD" or not all(_finite_positive(x) for x in (volume,sl,tp)):
+        # The API symbol is canonical XAUUSD; broker symbols may be suffixed
+        # (XAUUSD.m, XAUUSDpro, etc.). Resolve only from the configured broker
+        # symbol first, then conservative XAUUSD-prefix aliases.
+        if direction not in ("BUY","SELL") or symbol not in ("XAUUSD", self.symbol) or not all(_finite_positive(x) for x in (volume,sl,tp)):
             return result("REJECTED","INVALID_ORDER_FIELDS")
         if volume>100: return result("REJECTED","VOLUME_LIMIT_EXCEEDED")
         try:
-            names=[getattr(x,"name","") for x in (self.mt5.symbols_get() or [])]
-            broker_symbol=next((n for n in names if str(n).upper()=="XAUUSD.M"),None) or next((n for n in names if str(n).upper()=="XAUUSD"),None)
-            if not broker_symbol or not self.mt5.symbol_select(broker_symbol,True): return result("REJECTED","GOLD_SYMBOL_UNAVAILABLE")
+            names=[str(getattr(x,"name","")) for x in (self.mt5.symbols_get() or [])]
+            configured=self.symbol.strip()
+            broker_symbol=next((n for n in names if n.upper()==configured.upper()),None)
+            if broker_symbol is None and configured.upper()=="XAUUSD":
+                broker_symbol=next((n for n in names if n.upper()=="XAUUSD"),None) or next((n for n in names if n.upper().startswith("XAUUSD.")),None)
+            if broker_symbol is None and configured.upper().startswith("XAUUSD"):
+                broker_symbol=next((n for n in names if n.upper()==configured.upper()),None)
+            if not broker_symbol or not self.mt5.symbol_select(broker_symbol,True): return result("REJECTED","GOLD_SYMBOL_UNAVAILABLE",{"configuredSymbol":configured,"availableGoldSymbols":[n for n in names if n.upper().startswith("XAUUSD")][:20]})
             info=self.mt5.symbol_info(broker_symbol); tick=self.mt5.symbol_info_tick(broker_symbol); account=self.mt5.account_info()
             if not info or not tick or not account: return result("REJECTED","BROKER_MARKET_STATE_UNAVAILABLE")
             if getattr(account,"trade_mode",None)!=getattr(self.mt5,"ACCOUNT_TRADE_MODE_DEMO",0): return result("REJECTED","DEMO_ACCOUNT_REQUIRED")
