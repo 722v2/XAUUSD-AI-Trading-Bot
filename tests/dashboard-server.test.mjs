@@ -9,24 +9,18 @@ async function withServer(run) {
   try { await run('http://127.0.0.1:'+address.port); }
   finally { await new Promise(resolve=>server.close(resolve)); }
 }
-test('public dashboard requires Basic authentication for UI and API routes', async () => {
+test('dashboard and API remain accessible without username/password even if old env vars exist', async () => {
   const server=createAppServer({DASHBOARD_USERNAME:'deploy-admin',DASHBOARD_PASSWORD:'a-long-test-password'});
   await new Promise((resolve,reject)=>{server.once('error',reject);server.listen(0,'127.0.0.1',resolve);});
   const address=server.address();
   const base='http://127.0.0.1:'+address.port;
   try {
-    const denied=await fetch(base+'/');
-    assert.equal(denied.status,401);
-    assert.match(denied.headers.get('www-authenticate')||'',/Basic/);
-    const deniedApi=await fetch(base+'/api/health');
-    assert.equal(deniedApi.status,401);
-    const auth='Basic '+Buffer.from('deploy-admin:a-long-test-password').toString('base64');
-    const allowed=await fetch(base+'/',{headers:{authorization:auth}});
-    assert.equal(allowed.status,200);
-    const allowedApi=await fetch(base+'/api/health',{headers:{authorization:auth}});
-    assert.equal(allowedApi.status,200);
-    const wrong=await fetch(base+'/',{headers:{authorization:'Basic '+Buffer.from('deploy-admin:wrong').toString('base64')}});
-    assert.equal(wrong.status,401);
+    const dashboard=await fetch(base+'/');
+    assert.equal(dashboard.status,200);
+    assert.ok((await dashboard.text()).includes('<html'));
+    const api=await fetch(base+'/api/health');
+    assert.equal(api.status,200);
+    assert.equal(api.headers.get('www-authenticate'),null);
   } finally { await new Promise(resolve=>server.close(resolve)); }
 });
 test('dashboard serves its HTML, CSS and JavaScript assets', async () => {
