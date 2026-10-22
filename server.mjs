@@ -924,25 +924,35 @@ export function createAppServer(env = process.env) {
         if(r.ok){const d=await r.json();const candles=(Array.isArray(d.bars)?d.bars:[]).map(b=>({time:Math.floor(Date.parse(b.openTime)/1000),open:Number(b.open),high:Number(b.high),low:Number(b.low),close:Number(b.close),isOpen:Boolean(b.isOpen)})).filter(b=>Number.isFinite(b.time)&&[b.open,b.high,b.low,b.close].every(Number.isFinite)).sort((x,y)=>x.time-y.time).filter((b,i,x)=>!i||b.time>x[i-1].time);
           if(candles.length>=35)return sendJson(res,200,{ok:true,provider:"BIQUOTE",symbol:"XAUUSD",timeframe:tf,count:candles.length,candles,updatedAt:new Date().toISOString()});}
       }catch{}
-      if(bridge){const r=await bridge.candles(tf,count);if(r.ok){const candles=(r.value.candles||[]).map(b=>({time:Math.floor(Date.parse(b.openTime||b.time)/1000),open:Number(b.open),high:Number(b.high),low:Number(b.low),close:Number(b.close)})).filter(b=>Number.isFinite(b.time)&&[b.open,b.high,b.low,b.close].every(Number.isFinite)).sort((x,y)=>x.time-y.time);if(candles.length>=35)return sendJson(res,200,{ok:true,provider:"MT5_FALLBACK",symbol:"XAUUSD",timeframe:tf,count:candles.length,candles,updatedAt:new Date().toISOString()});}}
-      return sendJson(res,503,{error:"MARKET_DATA_UNAVAILABLE",message:"تعذر جلب شموع كافية من Biquote ومن مصدر MT5 البديل."});
+      return sendJson(res,503,{error:"MARKET_DATA_UNAVAILABLE",provider:"BIQUOTE",message:"تعذر جلب 35 شمعة مغلقة على الأقل من Biquote. جسر MT5 ليس مصدرًا بديلًا للسكانر."});
     }
     if (method === "POST" && url.pathname === "/api/mt5/demo-execute-signal") {
-      await hydrateSettings();
-      if(executionEnvironment!=="DEMO")return sendJson(res,403,{error:"DEMO_ACCOUNT_REQUIRED",message:"هذا الزر يعمل على Demo فقط؛ اختر Demo أولًا."});
-      if(!bridge||!aiProvider||!supabase||!riskSettings)return sendJson(res,409,{error:"EXECUTION_PREREQUISITES_MISSING",message:"يلزم اتصال MT5 Demo وإعداد AI والمخاطرة والتخزين الدائم قبل تنفيذ الإشارة."});
-      if(autoTradingEnabled)return sendJson(res,409,{error:"MANUAL_EXECUTION_CONFLICT",message:"أوقف التنفيذ الآلي قبل طلب تنفيذ يدوي مستقل لتجنب تداخل الأوامر."});
-      if(scanInFlight)return sendJson(res,409,{error:"SCAN_ALREADY_RUNNING",message:"هناك دورة فحص قيد التنفيذ."});
+      // Explicit demo test order: do not wait for a scanner BUY/SELL signal.
+      // This endpoint can never submit a LIVE order.
+      if(executionEnvironment!=="DEMO")return sendJson(res,403,{error:"DEMO_ACCOUNT_REQUIRED",message:"الزر التجريبي يعمل على Demo فقط؛ اختر Demo أولًا."});
+      if(!bridge)return sendJson(res,503,{error:"MT5_BRIDGE_NOT_CONFIGURED",message:"جسر MT5 غير مضبوط على الخادم."});
       const health=await bridge.health();
-      if(!health.ok||health.value.state!=="CONNECTED"||health.value.environment!=="DEMO"||health.value.executionReady!==true||!health.value.accountLogin)
-        return sendJson(res,403,{error:"DEMO_ACCOUNT_NOT_READY",message:"لم يؤكد الجسر حساب Demo جاهزًا للتنفيذ."});
-      autoTradingEnabled=true;
-      try {
-        const result=await runAndStoreScan("MANUAL");
-        return sendJson(res,result.status,result.body);
-      } finally {
-        autoTradingEnabled=false;
-      }
+      if(!health.ok)return sendJson(res,503,{error:"MT5_BRIDGE_UNREACHABLE",message:"تعذر الاتصال بجسر MT5 عبر Render Relay. شغّل outbound agent وتأكد من اتصاله."});
+      if(health.value.state!=="CONNECTED"||health.value.environment!=="DEMO"||health.value.executionReady!==true||!health.value.accountLogin)
+        return sendJson(res,403,{error:"DEMO_ACCOUNT_NOT_READY",message:"الجسر لا يؤكد حساب Demo متصلًا وجاهزًا للتنفيذ."});
+      const [quote,spec]=await Promise.all([bridge.quote(),bridge.symbolSpec()]);
+      if(!quote.ok||!spec.ok)return sendJson(res,503,{error:"MT5_MARKET_INFO_UNAVAILABLE",message:"الجسر متصل لكن تعذر قراءة سعر XAUUSD أو مواصفات العقد."});
+      const q=quote.value,sp=spec.value;
+      const direction="BUY";
+      const volume=Math.max(sp.volumeMin,Math.min(0.01,sp.volumeMax));
+      const tick=sp.tickSize;
+      const entry=q.ask;
+      const distance=Math.max(5,((sp.stopsLevelPoints||0)*sp.point)+2*tick);
+      const roundPrice=value=>Number(value.toFixed(sp.priceDigits));
+      const stopLoss=roundPrice(entry-distance);
+      const takeProfit=roundPrice(entry+distance);
+      if(![entry,stopLoss,takeProfit,volume,tick].every(Number.isFinite)||tick<=0||!(stopLoss<entry&&entry<takeProfit))
+        return sendJson(res,503,{error:"MT5_ORDER_GEOMETRY_INVALID",message:"تعذر إنشاء أسعار دخول ووقف وخروج صالحة وفق مواصفات الوسيط."});
+      const now=new Date().toISOString();
+      const intent={id:randomUUID(),idempotencyKey:"manual-demo-test:"+randomUUID(),opportunityId:"manual-demo-test",decisionId:"manual-demo-test",environment:"DEMO",symbol:"XAUUSD",direction,volume,stopLoss,takeProfit,createdAt:now};
+      const submitted=await bridge.submitOrder({intent});
+      if(!submitted.ok)return sendJson(res,submitted.errorCode==="RECONCILIATION_REQUIRED"?202:503,{error:submitted.errorCode,message:submitted.message,execution:"NOT_CONFIRMED",direction,volume,stopLoss,takeProfit});
+      return sendJson(res,submitted.value.state==="CONFIRMED"?200:submitted.value.state==="RECONCILIATION_REQUIRED"?202:422,{execution:submitted.value.state,direction,volume,stopLoss,takeProfit,brokerOrderId:submitted.value.brokerOrderId,message:submitted.value.state==="CONFIRMED"?"تم تأكيد أمر BUY التجريبي من MT5.":submitted.value.error||"لم يؤكد الوسيط تنفيذ الأمر."});
     }
     if (method === "GET" && url.pathname === "/api/health") {
       await hydrateSettings();
