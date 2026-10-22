@@ -9,7 +9,7 @@ import {
   OpenAICompatibleAIProvider, coordinateTechnicalAndAI, prepareExecutionIntent, atr, managePositionStop
 } from "./dist/index.js";
 import { runHistoricalBacktest } from "./server/backtest-engine.mjs";
-import { createBridgeV2Api } from "./server/bridge-v2-api.mjs";
+import { createBridgeV2Api, readBridgeV2Status } from "./server/bridge-v2-api.mjs";
 
 const root = fileURLToPath(new URL("./web/", import.meta.url)).replace(/[\\/]+$/, "");
 const MIME = { ".html":"text/html; charset=utf-8", ".css":"text/css; charset=utf-8", ".js":"text/javascript; charset=utf-8", ".svg":"image/svg+xml" };
@@ -999,12 +999,12 @@ export function createAppServer(env = process.env) {
       await hydrateSettings();
       let databaseState = "NOT_CONFIGURED";
       if (supabase) { try { await supabase.readCurrent(); databaseState = "CONNECTED"; } catch { databaseState = "DISCONNECTED"; } }
-      let bridgeHealth = null;
-      if (bridge) { const result=await bridge.health(); if (result.ok) bridgeHealth=result.value; }
+      let bridgeV2Health=null;
+      try { bridgeV2Health=await readBridgeV2Status(env); } catch {}
       const marketState = "BIQUOTE_PRIMARY";
       return sendJson(res,200,{
         marketData:{state:marketState,label:"Biquote · مصدر بيانات السكانر",reason:"التحليل والإشارات تعتمد على Biquote؛ جسر MT5 مطلوب للتنفيذ وإدارة الصفقات فقط."},
-        mt5:{state:!bridge?"NOT_CONFIGURED":bridgeHealth?.state??"NOT_READY",label:bridgeHealth?.state==="CONNECTED"?"MT5 "+executionEnvironment+" متصل":"MT5 غير متصل",reason:bridgeHealth?.reason??"جسر MT5 غير مضبوط؛ إشارات Biquote لا تتوقف بسببه."},
+        mt5:{state:bridgeV2Health?.state??"NOT_CONFIGURED",label:bridgeV2Health?.ready?"MT5 Demo متصل وجاهز":"MT5 غير جاهز",reason:bridgeV2Health?.reason??"Bridge V2 storage unavailable; apply migration and start the Windows agent.",lastSeenAt:bridgeV2Health?.lastSeenAt??null,heartbeatAgeMs:bridgeV2Health?.heartbeatAgeMs??null,executionReady:bridgeV2Health?.ready===true},
         ai:{state:!aiConfigured?"NOT_CONFIGURED":aiProbePassed?"CONNECTED":"CONFIGURED_NOT_TESTED",label:!aiConfigured?"لم يتم الاتصال":aiProbePassed?"AI متصل":"إعدادات موجودة · الاتصال يحتاج اختبارًا"},
         database:{state:databaseState,label:databaseState==="CONNECTED"?"Supabase متصل":"Supabase غير متصل"},
         telegram:{state:telegram.configured?"CONFIGURED":"NOT_CONFIGURED",label:telegram.configured?"البوت مهيأ":"التنبيهات غير جاهزة"},
