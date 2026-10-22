@@ -41,6 +41,43 @@ export async function readBridgeV2Status(env=process.env,agentId="windows-mt5-de
   const age=Date.now()-Date.parse(a.last_seen_at),alive=Number.isFinite(age)&&age<=30000;
   return {state:alive?a.state:"DISCONNECTED",ready:alive&&a.execution_ready===true,reason:alive?(a.last_error_code||"HEARTBEAT_OK"):"HEARTBEAT_STALE",lastSeenAt:a.last_seen_at,heartbeatAgeMs:Number.isFinite(age)?age:null,environment:a.environment,terminalConnected:alive&&a.terminal_connected,accountConnected:alive&&a.account_connected,executionReady:alive&&a.execution_ready,brokerSymbol:a.broker_symbol,accountLogin:a.account_login,quote:a.payload?.quote??null,symbolSpec:a.payload?.symbolSpec??null};
 }
+export async function submitBridgeV2Order(env,intent,fetchImpl=fetch) {
+  const store=new BridgeStore(env,fetchImpl);
+  if(intent.environment!=="DEMO"||intent.symbol!=="XAUUSD"||!["BUY","SELL"].includes(intent.direction)||
+     !Number.isFinite(intent.volume)||intent.volume<=0||!Number.isFinite(intent.stopLoss)||intent.stopLoss<=0||
+     !Number.isFinite(intent.takeProfit)||intent.takeProfit<=0) return {ok:false,errorCode:"INVALID_ORDER",message:"Only validated XAUUSD Demo orders are accepted."};
+  try {
+    const agents=await store.request("/bridge_agents?agent_id=eq.windows-mt5-demo-01&select=execution_ready,last_seen_at,environment&limit=1");
+    const agent=agents[0],age=agent?Date.now()-Date.parse(agent.last_seen_at):Infinity;
+    if(!agent||agent.environment!=="DEMO"||agent.execution_ready!==true||!Number.isFinite(age)||age>30000)
+      return {ok:false,errorCode:"UNAVAILABLE",message:"MT5 Bridge V2 agent is not connected and Demo-ready."};
+    const expiresAt=new Date(Date.now()+45000).toISOString();
+    const payload={symbol:"XAUUSD",direction:intent.direction,volume:intent.volume,stopLoss:intent.stopLoss,takeProfit:intent.takeProfit};
+    let rows=await store.request("/bridge_commands?on_conflict=idempotency_key",{method:"POST",headers:{Prefer:"resolution=ignore-duplicates,return=representation"},body:JSON.stringify({agent_id:"windows-mt5-demo-01",idempotency_key:intent.idempotencyKey,kind:"EXECUTE_ORDER",environment:"DEMO",status:"PENDING",payload,created_at:new Date().toISOString(),expires_at:expiresAt})});
+    let command=rows[0];
+    if(!command) {
+      const prior=await store.request("/bridge_commands?idempotency_key=eq."+encodeURIComponent(intent.idempotencyKey)+"&select=id,status,result&limit=1");
+      if(prior[0]) return {ok:false,errorCode:"RECONCILIATION_REQUIRED",message:"This idempotency key already exists; automatic resubmission is forbidden."};
+      return {ok:false,errorCode:"STORAGE_UNAVAILABLE",message:"Could not persist the Demo command."};
+    }
+    const deadline=Date.now()+30000;
+    while(Date.now()<deadline) {
+      const results=await store.request("/bridge_command_results?command_id=eq."+encodeURIComponent(command.id)+"&select=state,code,details&limit=1");
+      if(results[0]) {
+        const r=results[0];
+        if(r.state==="FILLED") return {ok:true,value:{state:"CONFIRMED",brokerOrderId:r.details?.order??r.details?.deal??null,brokerDealId:r.details?.deal??null,details:r.details}};
+        if(r.state==="REJECTED"||r.state==="EXPIRED") return {ok:false,errorCode:"BROKER_REJECTED",message:r.code||r.state,details:r.details};
+        return {ok:false,errorCode:"RECONCILIATION_REQUIRED",message:r.code||"Execution result is unknown; reconcile before retrying."};
+      }
+      await new Promise(resolve=>setTimeout(resolve,500));
+    }
+    await store.request("/bridge_commands?id=eq."+encodeURIComponent(command.id)+"&status=in.(PENDING,CLAIMED)",{method:"PATCH",body:JSON.stringify({status:"UNKNOWN",result:{code:"RESULT_TIMEOUT"}})}).catch(()=>[]);
+    return {ok:false,errorCode:"RECONCILIATION_REQUIRED",message:"No confirmed broker result arrived in time; do not resubmit this intent."};
+  } catch(error) {
+    const code=error instanceof Error?error.message:"BRIDGE_V2_UNAVAILABLE";
+    return {ok:false,errorCode:"UNAVAILABLE",message:code.startsWith("BRIDGE_STORAGE")?code:"Bridge V2 service unavailable."};
+  }
+}
 export function createBridgeV2Api(env=process.env,fetchImpl=fetch) {
   const store=new BridgeStore(env,fetchImpl);
   const token=env.MT5_BRIDGE_TOKEN||"";
