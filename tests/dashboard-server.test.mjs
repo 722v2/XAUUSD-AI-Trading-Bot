@@ -43,7 +43,8 @@ test('health API reports not-ready services honestly and keeps live disabled', a
     const response = await fetch(base+'/api/health');
     const data = await response.json();
     assert.equal(response.status,200);
-    assert.equal(data.marketData.state,'NOT_CONFIGURED');
+    assert.equal(data.marketData.state,'BIQUOTE_PRIMARY');
+    assert.equal(data.mt5.state,'NOT_CONFIGURED');
     assert.equal(data.scanner.state,'NOT_READY');
     assert.equal(data.execution.state,'DISABLED');
   });
