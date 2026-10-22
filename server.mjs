@@ -993,7 +993,7 @@ export function createAppServer(env = process.env) {
       let persisted=false;
       if (supabase) { try { await supabase.readCurrent(); persisted=true; } catch {} }
       const configured=Boolean(env.AI_BASE_URL && allowedAIBaseUrl(env.AI_BASE_URL) && typeof env.AI_API_KEY==="string" && env.AI_API_KEY.trim());
-      return sendJson(res,200,{configured,providerId:env.AI_PROVIDER_ID||"openai-compatible",providerLabel:env.AI_PROVIDER_LABEL||env.AI_PROVIDER_ID||"OpenAI-compatible",persisted});
+      return sendJson(res,200,{configured,providerId:env.AI_PROVIDER_ID||"openai-compatible",providerLabel:env.AI_PROVIDER_LABEL||env.AI_PROVIDER_ID||"OpenAI-compatible",persisted,scannerEnabled,nextScheduledScanAt});
     }
     if (method === "POST" && url.pathname === "/api/ai/config") {
       let body;
