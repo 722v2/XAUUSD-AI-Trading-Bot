@@ -109,4 +109,11 @@ test('manual scanner produces an analysis without any MT5 bridge configured', as
   assert.equal(data.chartCandles.length,60);
   assert.ok(aiCalls>=1,'AI analysis must run without MT5');
   assert.ok(['BUY','SELL','WAIT'].includes(data.status));
+
+  const enable=await fetch(appUrl+'/api/scanner/enabled',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({enabled:true})});
+  const enabled=await enable.json();
+  assert.equal(enable.status,200,JSON.stringify(enabled));
+  assert.equal(enabled.enabled,true,'scheduled scanning must be enableable without MT5');
+  const disable=await fetch(appUrl+'/api/scanner/enabled',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({enabled:false})});
+  assert.equal(disable.status,200);
 });
