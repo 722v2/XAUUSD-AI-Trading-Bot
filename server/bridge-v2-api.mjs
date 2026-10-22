@@ -123,7 +123,15 @@ export function createBridgeV2Api(env=process.env,fetchImpl=fetch) {
         const commandId=resultMatch[1],body=await readBody(req);
         if(body.commandId!==commandId||typeof body.idempotencyKey!=="string"||!["FILLED","REJECTED","UNKNOWN","EXPIRED"].includes(body.state)||typeof body.code!=="string"||!isObject(body.details)){json(res,400,{error:"INVALID_COMMAND_RESULT"});return true;}
         const existing=await store.request("/bridge_command_results?command_id=eq."+encodeURIComponent(commandId)+"&select=command_id,idempotency_key,state&limit=1");
-        if(existing.length){if(existing[0].idempotency_key!==body.idempotencyKey){json(res,409,{error:"IDEMPOTENCY_CONFLICT"});return true;}json(res,200,{ok:true,duplicate:true});return true;}
+        if(existing.length){
+          if(existing[0].idempotency_key!==body.idempotencyKey){json(res,409,{error:"IDEMPOTENCY_CONFLICT"});return true;}
+          if(existing[0].state==="UNKNOWN"&&["FILLED","REJECTED"].includes(body.state)){
+            await store.request("/bridge_command_results?command_id=eq."+encodeURIComponent(commandId)+"&state=eq.UNKNOWN",{method:"PATCH",body:JSON.stringify({state:body.state,code:body.code,details:body.details,completed_at:body.completedAt||new Date().toISOString()})});
+            await store.request("/bridge_commands?id=eq."+encodeURIComponent(commandId),{method:"PATCH",body:JSON.stringify({status:body.state,completed_at:new Date().toISOString(),result:body})});
+            json(res,200,{ok:true,reconciled:true});return true;
+          }
+          json(res,200,{ok:true,duplicate:true});return true;
+        }
         const commands=await store.request("/bridge_commands?id=eq."+encodeURIComponent(commandId)+"&select=id,idempotency_key,status&limit=1");
         const c=commands[0];if(!c){json(res,404,{error:"UNKNOWN_COMMAND"});return true;}
         if(c.idempotency_key!==body.idempotencyKey){json(res,409,{error:"IDEMPOTENCY_CONFLICT"});return true;}
