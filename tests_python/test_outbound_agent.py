@@ -24,7 +24,7 @@ class OutboundRelayTests(unittest.TestCase):
         with patch.object(relay, "TOKEN", "test-secret"):
             headers = relay._session_headers()
         self.assertEqual(headers["X-Bridge-Token"], "test-secret")
-        self.assertIn("XAUUSD-MT5-Relay", headers["User-agent"])
+        self.assertIn("XAUUSD-MT5-Relay", headers["User-Agent"])
         self.assertEqual(headers["Connection"], "close")
 
     def test_transport_error_exposes_safe_reason(self):

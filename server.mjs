@@ -467,16 +467,10 @@ export function createAppServer(env = process.env) {
         biquoteError="BIQUOTE_INSUFFICIENT_CLOSED_CANDLES";
       }
     } catch(error) { biquoteError=error?.name==="TimeoutError"||error?.name==="AbortError"?"BIQUOTE_TIMEOUT":"BIQUOTE_PARSE_OR_NETWORK_ERROR"; }
-    if(bridge) {
-      const fallback=await bridge.candles(timeframe,count);
-      if(fallback.ok) {
-        const candles=(fallback.value.candles||[]).filter(bar=>bar.isClosed===true);
-        if(candles.length>=35)return {ok:true,value:{candles},provider:"MT5_FALLBACK"};
-        return {ok:false,message:"INSUFFICIENT_CLOSED_CANDLES",providerErrors:{biquote:biquoteError,mt5:"INSUFFICIENT_CLOSED_CANDLES"}};
-      }
-      return {ok:false,message:fallback.message||"MARKET_DATA_UNAVAILABLE",providerErrors:{biquote:biquoteError,mt5:fallback.errorCode||fallback.message||"MT5_UNAVAILABLE"}};
-    }
-    return {ok:false,message:biquoteError,providerErrors:{biquote:biquoteError,mt5:"MT5_BRIDGE_NOT_CONFIGURED"}};
+    // Scanner market data is intentionally independent of MT5. The bridge is an
+    // execution adapter only; a provider outage must be reported, never hidden by
+    // silently switching the scanner to broker candles.
+    return {ok:false,message:biquoteError,providerErrors:{biquote:biquoteError}};
   }
 
   async function performScan(triggerType = "MANUAL") {
@@ -500,20 +494,29 @@ export function createAppServer(env = process.env) {
         });
         dbRunCreated = savedRun.ok;
       }
-      if (!bridge) {
-        const entry=record("NOT_READY","MT5_BRIDGE_NOT_CONFIGURED");
-        return {status:409,body:{error:"SCANNER_NOT_READY",message:"لم يتم ضبط جسر MT5 مع رمز المصادقة؛ لم يتم توليد إشارة.",run:entry}};
-      }
-      const health = await bridge.health();
-      if (!health.ok || health.value.state !== "CONNECTED" || health.value.environment !== executionEnvironment) {
-        const entry=record("NOT_READY",health.ok?health.value.reason:health.message);
-        return {status:503,body:{error:"MT5_NOT_READY",message:"اتصال MT5 التجريبي غير مؤكد؛ تم إيقاف الفحص بأمان.",run:entry}};
-      }
-      const reconciliation=await reconcilePendingExecutionIntents(health.value);
-      if (!reconciliation.ok) {
-        autoTradingEnabled=false;
-        const entry=record("RECONCILIATION_REQUIRED",reconciliation.reason);
-        return {status:503,body:{error:"RECONCILIATION_REQUIRED",message:"هناك نية تنفيذ سابقة تحتاج مصالحة؛ تم منع أي دخول جديد.",run:entry}};
+      // Analysis/signals use Biquote and must keep running when MT5 is offline.
+      // Only an armed execution cycle is allowed to depend on the MT5 bridge.
+      let health = null;
+      if (autoTradingEnabled) {
+        // If the bridge drops after execution was armed, disarm execution but
+        // continue this scan in signal-only mode instead of losing the signal cycle.
+        if (!bridge) {
+          autoTradingEnabled=false;
+          await queueNotificationToEnabled("تم إيقاف التنفيذ الآلي لـ XAUUSD لأن جسر MT5 غير مضبوط. سيستمر السكانر التحليلي عبر Biquote دون إرسال أوامر.","SYSTEM_ALERT","execution-disarmed-no-bridge:"+new Date().toISOString().slice(0,10));
+        } else {
+          const bridgeCheck = await bridge.health();
+          if (!bridgeCheck.ok || bridgeCheck.value.state !== "CONNECTED" || bridgeCheck.value.environment !== executionEnvironment) {
+            autoTradingEnabled=false;
+            await queueNotificationToEnabled("تم إيقاف التنفيذ الآلي لـ XAUUSD لأن جسر MT5 غير جاهز. سيستمر السكانر عبر Biquote بإصدار التحليل والإشارات فقط.","SYSTEM_ALERT","execution-disarmed-bridge-unavailable:"+new Date().toISOString().slice(0,10));
+          } else {
+            health = bridgeCheck;
+            const reconciliation=await reconcilePendingExecutionIntents(health.value);
+            if (!reconciliation.ok) {
+              autoTradingEnabled=false;
+              await queueNotificationToEnabled("تم إيقاف التنفيذ الآلي لـ XAUUSD بسبب حاجة سجل التنفيذ إلى المصالحة: "+reconciliation.reason+". سيستمر التحليل دون إرسال أوامر.","SYSTEM_ALERT","execution-disarmed-reconciliation:"+new Date().toISOString().slice(0,10));
+            }
+          }
+        }
       }
       const timeframes = ["M1","M5","M15","H1"];
       const fetched = await Promise.all(timeframes.map(async timeframe => [timeframe,await fetchScannerCandles(timeframe,timeframe==="M1"?120:60)]));
@@ -522,9 +525,9 @@ export function createAppServer(env = process.env) {
       for (const [timeframe,result] of fetched) {
         if (!result.ok) {
           const entry=record("NO_ANALYSIS","MARKET_DATA_UNAVAILABLE",{timeframe,error:result.message,providerErrors:result.providerErrors||null});
-          return {status:503,body:{error:"MARKET_DATA_UNAVAILABLE",message:"تعذر جلب شموع كافية من Biquote أو MT5؛ لم يتم إنشاء إشارة.",run:entry}};
+          return {status:503,body:{error:"MARKET_DATA_UNAVAILABLE",message:"تعذر جلب شموع كافية من Biquote؛ لم يتم إنشاء إشارة.",run:entry}};
         }
-        // Biquote is the primary scanner feed, matching the chart; MT5 candles are fallback only.
+        // Biquote is the scanner feed; MT5 is not a market-data fallback for analysis.
         // Freshness and closed-bar validation remain mandatory before analysis.
         const bars = normalizeClosedCandles(result.value.candles,timeframe,35);
         if (!bars.ok) {
@@ -964,13 +967,14 @@ export function createAppServer(env = process.env) {
       if (supabase) { try { await supabase.readCurrent(); databaseState = "CONNECTED"; } catch { databaseState = "DISCONNECTED"; } }
       let bridgeHealth = null;
       if (bridge) { const result=await bridge.health(); if (result.ok) bridgeHealth=result.value; }
-      const marketState = !bridge ? "NOT_CONFIGURED" : bridgeHealth?.state === "CONNECTED" ? "CONNECTED" : bridgeHealth?.state === "BLOCKED" ? "DISCONNECTED" : "NOT_READY";
+      const marketState = "BIQUOTE_PRIMARY";
       return sendJson(res,200,{
-        marketData:{state:marketState,label:marketState==="CONNECTED"?"MT5 "+executionEnvironment+" متصل":"MT5 غير متصل",reason:marketState==="CONNECTED"?(bridgeHealth?.executionReady?"تم تأكيد حساب "+executionEnvironment+" من نوع Hedging.":"بيانات السوق متاحة؛ التنفيذ الآلي يتطلب حسابًا مطابقًا من نوع Hedging."):(bridgeHealth?.reason??"لم يتم ضبط جسر MT5؛ لا توجد بيانات سوق فعلية.")},
+        marketData:{state:marketState,label:"Biquote · مصدر بيانات السكانر",reason:"التحليل والإشارات تعتمد على Biquote؛ جسر MT5 مطلوب للتنفيذ وإدارة الصفقات فقط."},
+        mt5:{state:!bridge?"NOT_CONFIGURED":bridgeHealth?.state??"NOT_READY",label:bridgeHealth?.state==="CONNECTED"?"MT5 "+executionEnvironment+" متصل":"MT5 غير متصل",reason:bridgeHealth?.reason??"جسر MT5 غير مضبوط؛ إشارات Biquote لا تتوقف بسببه."},
         ai:{state:!aiConfigured?"NOT_CONFIGURED":aiProbePassed?"CONNECTED":"CONFIGURED_NOT_TESTED",label:!aiConfigured?"لم يتم الاتصال":aiProbePassed?"AI متصل":"إعدادات موجودة · الاتصال يحتاج اختبارًا"},
         database:{state:databaseState,label:databaseState==="CONNECTED"?"Supabase متصل":"Supabase غير متصل"},
         telegram:{state:telegram.configured?"CONFIGURED":"NOT_CONFIGURED",label:telegram.configured?"البوت مهيأ":"التنبيهات غير جاهزة"},
-        scanner:{state:scannerEnabled?"CONNECTED":"NOT_READY",label:scannerEnabled?"السكانر مفعّل":"السكانر غير جاهز",reason:scannerEnabled?"يفحص كل 60 ثانية؛ التنفيذ يعتمد على إعدادات Demo والمخاطر.":"يتطلب اتصال MT5 Demo وتهيئة AI.",nextScanAt:nextScheduledScanAt?new Date(nextScheduledScanAt).toISOString():null},
+        scanner:{state:scannerEnabled?"CONNECTED":aiProvider?"READY_TO_ENABLE":"NOT_READY",label:scannerEnabled?"السكانر مفعّل":aiProvider?"السكانر جاهز للتفعيل":"السكانر يحتاج إعداد AI",reason:scannerEnabled?"يفحص كل 60 ثانية باستخدام Biquote؛ التنفيذ منفصل ويحتاج MT5.":aiProvider?"يتطلب تفعيل السكانر؛ لا يحتاج اتصال MT5 لإصدار الإشارات.":"اضبط مزود AI قبل تفعيل تحليل الإشارات.",nextScanAt:nextScheduledScanAt?new Date(nextScheduledScanAt).toISOString():null},
         execution:{state:autoTradingEnabled?(executionEnvironment==="LIVE"?"ARMED_LIVE":"ARMED_DEMO"):"DISABLED",environment:executionEnvironment,liveTradingEnabled}
       });
     }
@@ -1120,9 +1124,7 @@ export function createAppServer(env = process.env) {
         nextScheduledScanAt=null;
         return sendJson(res,200,{ok:true,enabled:false});
       }
-      if (!bridge || !aiProvider) return sendJson(res,409,{error:"DEPENDENCIES_NOT_CONFIGURED",message:"يلزم ضبط جسر MT5 ومزود AI قبل تفعيل السكانر."});
-      const health=await bridge.health();
-      if (!health.ok || health.value.state!=="CONNECTED" || health.value.environment!==executionEnvironment) return sendJson(res,409,{error:"MT5_NOT_READY",message:"اتصال MT5 غير مطابق لبيئة التنفيذ المختارة."});
+      if (!aiProvider) return sendJson(res,409,{error:"AI_NOT_CONFIGURED",message:"اضبط مزود AI قبل تفعيل السكانر؛ اتصال MT5 غير مطلوب للتحليل والإشارات."});
       scannerEnabled=true;
       if (scannerTimer) clearInterval(scannerTimer);
       nextScheduledScanAt=Date.now()+60000;
