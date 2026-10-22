@@ -9,6 +9,7 @@ import {
   OpenAICompatibleAIProvider, coordinateTechnicalAndAI, prepareExecutionIntent, atr, managePositionStop
 } from "./dist/index.js";
 import { runHistoricalBacktest } from "./server/backtest-engine.mjs";
+import { createBridgeV2Api } from "./server/bridge-v2-api.mjs";
 
 const root = fileURLToPath(new URL("./web/", import.meta.url)).replace(/[\\/]+$/, "");
 const MIME = { ".html":"text/html; charset=utf-8", ".css":"text/css; charset=utf-8", ".js":"text/javascript; charset=utf-8", ".svg":"image/svg+xml" };
@@ -170,6 +171,7 @@ export function createAppServer(env = process.env) {
   const telegram = new TelegramBotClient(env.TELEGRAM_BOT_TOKEN);
   const supabase = configuredSupabase(env);
   const bridge = configuredBridge(env);
+  const bridgeV2Api = createBridgeV2Api(env);
   const relayJobs = [];
   const relayWaiters = new Map();
   const relayResults = new Map();
@@ -896,6 +898,9 @@ export function createAppServer(env = process.env) {
   const server = createServer(async (req,res) => {
     const url = new URL(req.url ?? "/", "http://localhost");
     const method = req.method ?? "GET";
+    if (url.pathname.startsWith("/api/bridge/v1/")) {
+      if (await bridgeV2Api(req,res,method,url)) return;
+    }
     const isRelayRoute = url.pathname.startsWith("/api/mt5/relay/");
     if (isRelayRoute) {
       const supplied = req.headers["x-bridge-token"];
