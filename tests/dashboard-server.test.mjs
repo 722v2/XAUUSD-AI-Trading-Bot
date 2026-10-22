@@ -70,14 +70,18 @@ test('AI connectivity test refuses an unconfigured provider without changing exe
     assert.equal(config.liveTradingEnabled,false);
   });
 });
-test('manual scan fails closed when MT5 is not connected', async () => {
-  await withServer(async base => {
-    const response = await fetch(base+'/api/scan',{method:'POST',headers:{'content-type':'application/json'},body:'{}'});
-    const data = await response.json();
-    assert.equal(response.status,409);
-    assert.equal(data.error,'SCANNER_NOT_READY');
-    assert.match(data.message,/لم يتم توليد إشارة/);
-  });
+test('manual scanner is independent of MT5 and reports only market-data failure when Biquote is unavailable', async () => {
+  const server=createAppServer({BIQUOTE_BASE_URL:'http://127.0.0.1:1'});
+  await new Promise((resolve,reject)=>{server.once('error',reject);server.listen(0,'127.0.0.1',resolve);});
+  const base='http://127.0.0.1:'+server.address().port;
+  try {
+    const response=await fetch(base+'/api/scan',{method:'POST',headers:{'content-type':'application/json'},body:'{}'});
+    const data=await response.json();
+    assert.equal(response.status,503);
+    assert.equal(data.error,'MARKET_DATA_UNAVAILABLE');
+    assert.notEqual(data.error,'SCANNER_NOT_READY');
+    assert.equal(data.run.reason,'MARKET_DATA_UNAVAILABLE');
+  } finally { await new Promise(resolve=>server.close(resolve)); }
 });
 test('risk API validates settings and marks non-durable saves honestly', async () => {
   await withServer(async base => {
