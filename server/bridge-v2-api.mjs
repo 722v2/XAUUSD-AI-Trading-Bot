@@ -43,17 +43,18 @@ export async function readBridgeV2Status(env=process.env,agentId="windows-mt5-de
 }
 export async function submitBridgeV2Order(env,intent,fetchImpl=fetch) {
   const store=new BridgeStore(env,fetchImpl);
+  const agentId=env.MT5_AGENT_ID||"windows-mt5-demo-01";
   if(intent.environment!=="DEMO"||intent.symbol!=="XAUUSD"||!["BUY","SELL"].includes(intent.direction)||
      !Number.isFinite(intent.volume)||intent.volume<=0||!Number.isFinite(intent.stopLoss)||intent.stopLoss<=0||
      !Number.isFinite(intent.takeProfit)||intent.takeProfit<=0) return {ok:false,errorCode:"INVALID_ORDER",message:"Only validated XAUUSD Demo orders are accepted."};
   try {
-    const agents=await store.request("/bridge_agents?agent_id=eq.windows-mt5-demo-01&select=execution_ready,last_seen_at,environment&limit=1");
+    const agents=await store.request("/bridge_agents?agent_id=eq."+encodeURIComponent(agentId)+"&select=execution_ready,last_seen_at,environment&limit=1");
     const agent=agents[0],age=agent?Date.now()-Date.parse(agent.last_seen_at):Infinity;
     if(!agent||agent.environment!=="DEMO"||agent.execution_ready!==true||!Number.isFinite(age)||age>30000)
       return {ok:false,errorCode:"UNAVAILABLE",message:"MT5 Bridge V2 agent is not connected and Demo-ready."};
     const expiresAt=new Date(Date.now()+45000).toISOString();
     const payload={symbol:"XAUUSD",direction:intent.direction,volume:intent.volume,stopLoss:intent.stopLoss,takeProfit:intent.takeProfit};
-    let rows=await store.request("/bridge_commands?on_conflict=idempotency_key",{method:"POST",headers:{Prefer:"resolution=ignore-duplicates,return=representation"},body:JSON.stringify({agent_id:"windows-mt5-demo-01",idempotency_key:intent.idempotencyKey,kind:"EXECUTE_ORDER",environment:"DEMO",status:"PENDING",payload,created_at:new Date().toISOString(),expires_at:expiresAt})});
+    let rows=await store.request("/bridge_commands?on_conflict=idempotency_key",{method:"POST",headers:{Prefer:"resolution=ignore-duplicates,return=representation"},body:JSON.stringify({agent_id:agentId,idempotency_key:intent.idempotencyKey,kind:"EXECUTE_ORDER",environment:"DEMO",status:"PENDING",payload,created_at:new Date().toISOString(),expires_at:expiresAt})});
     let command=rows[0];
     if(!command) {
       const prior=await store.request("/bridge_commands?idempotency_key=eq."+encodeURIComponent(intent.idempotencyKey)+"&select=id,status,result&limit=1");
