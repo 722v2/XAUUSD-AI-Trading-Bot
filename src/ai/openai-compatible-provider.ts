@@ -60,12 +60,12 @@ export class OpenAICompatibleAIProvider {
     if (endpoint.protocol !== "https:" && endpoint.hostname !== "localhost" && endpoint.hostname !== "127.0.0.1") {
       throw new AIProviderError("INVALID_CONFIG", "AI provider must use HTTPS outside localhost");
     }
-    if (!providerId.trim() || !modelId.trim() || !Number.isFinite(Date.parse(input.now)) || !Number.isFinite(this.#config.timeoutMs ?? 15_000) || (this.#config.timeoutMs ?? 15_000) <= 0) {
+    if (!providerId.trim() || !modelId.trim() || !Number.isFinite(Date.parse(input.now)) || !Number.isInteger(this.#config.timeoutMs ?? 30_000) || (this.#config.timeoutMs ?? 30_000) < 1_000 || (this.#config.timeoutMs ?? 30_000) > 45_000) {
       throw new AIProviderError("INVALID_CONFIG", "AI provider configuration or timestamp is invalid");
     }
     endpoint.pathname = endpoint.pathname.replace(/\/$/, "") + (endpoint.pathname.endsWith("/chat/completions") ? "" : "/chat/completions");
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), this.#config.timeoutMs ?? 15_000);
+    const timeout = setTimeout(() => controller.abort(), this.#config.timeoutMs ?? 30_000);
     let response: Response;
     try {
       response = await this.#fetch(endpoint, {
@@ -92,7 +92,7 @@ export class OpenAICompatibleAIProvider {
       throw new AIProviderError("HTTP_ERROR", `AI provider returned HTTP ${response.status}`);
     }
     let body: unknown;
-    try { body = await response.json(); } catch { clearTimeout(timeout); throw new AIProviderError("INVALID_RESPONSE", "AI provider returned invalid JSON"); }
+    try { body = await response.json(); } catch (error) { clearTimeout(timeout); if (error instanceof Error && error.name === "AbortError") throw new AIProviderError("TIMEOUT", "AI provider response body timed out"); throw new AIProviderError("INVALID_RESPONSE", "AI provider returned invalid JSON"); }
     clearTimeout(timeout);
     const choices = typeof body === "object" && body !== null ? (body as { choices?: unknown }).choices : undefined;
     const first = Array.isArray(choices) ? choices[0] : undefined;
