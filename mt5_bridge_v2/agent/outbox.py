@@ -40,6 +40,9 @@ class Outbox:
             db.execute("""INSERT INTO command_ledger(idempotency_key,state,result_json,updated_at) VALUES(?,?,?,?)
               ON CONFLICT(idempotency_key) DO UPDATE SET state=excluded.state,result_json=excluded.result_json,updated_at=excluded.updated_at""",
               (key,state,json.dumps(payload),now))
+    def unresolved(self):
+        with self.connect() as db:
+            return [dict(r) for r in db.execute("SELECT idempotency_key,state,result_json FROM command_ledger WHERE state IN ('SUBMITTING','UNKNOWN') ORDER BY updated_at")]
     def pending_results(self,limit=50):
         with self.connect() as db:
             return [dict(r) for r in db.execute("SELECT * FROM results WHERE delivered=0 ORDER BY updated_at LIMIT ?",(limit,))]
