@@ -919,12 +919,25 @@ export function createAppServer(env = process.env) {
       const intervals={M1:"1m",M5:"5m",M15:"15m",H1:"1h"}, tf=(url.searchParams.get("timeframe")||"M1").toUpperCase();
       if(!intervals[tf])return sendJson(res,400,{error:"INVALID_TIMEFRAME"});
       const n=Number(url.searchParams.get("count")||300),count=Number.isInteger(n)?Math.max(50,Math.min(1000,n)):300;
+      const base=(typeof env.BIQUOTE_BASE_URL==="string"&&env.BIQUOTE_BASE_URL.trim()?env.BIQUOTE_BASE_URL.trim():"https://biquote.io").replace(/\/+$/,"");
+      let failure="BIQUOTE_NETWORK_ERROR";
       try {
-        const r=await fetch("https://biquote.io/api/XAUUSD/ohlc?interval="+intervals[tf]+"&limit="+count,{signal:AbortSignal.timeout(8000)});
-        if(r.ok){const d=await r.json();const candles=(Array.isArray(d.bars)?d.bars:[]).map(b=>({time:Math.floor(Date.parse(b.openTime)/1000),open:Number(b.open),high:Number(b.high),low:Number(b.low),close:Number(b.close),isOpen:Boolean(b.isOpen)})).filter(b=>Number.isFinite(b.time)&&[b.open,b.high,b.low,b.close].every(Number.isFinite)).sort((x,y)=>x.time-y.time).filter((b,i,x)=>!i||b.time>x[i-1].time);
-          if(candles.length>=35)return sendJson(res,200,{ok:true,provider:"BIQUOTE",symbol:"XAUUSD",timeframe:tf,count:candles.length,candles,updatedAt:new Date().toISOString()});}
-      }catch{}
-      return sendJson(res,503,{error:"MARKET_DATA_UNAVAILABLE",provider:"BIQUOTE",message:"تعذر جلب 35 شمعة مغلقة على الأقل من Biquote. جسر MT5 ليس مصدرًا بديلًا للسكانر."});
+        const r=await fetch(base+"/api/XAUUSD/ohlc?interval="+intervals[tf]+"&limit="+count,{signal:AbortSignal.timeout(8000),headers:{accept:"application/json"}});
+        if(!r.ok) failure="BIQUOTE_HTTP_"+r.status;
+        else {
+          let d;
+          try { d=await r.json(); } catch { failure="BIQUOTE_INVALID_JSON"; }
+          if(d!==undefined) {
+            if(!d||!Array.isArray(d.bars)) failure="BIQUOTE_INVALID_SCHEMA";
+            else {
+              const candles=d.bars.map(b=>({time:Math.floor(Date.parse(b.openTime)/1000),open:Number(b.open),high:Number(b.high),low:Number(b.low),close:Number(b.close),isOpen:Boolean(b.isOpen)})).filter(b=>Number.isFinite(b.time)&&[b.open,b.high,b.low,b.close].every(Number.isFinite)).sort((x,y)=>x.time-y.time).filter((b,i,x)=>!i||b.time>x[i-1].time);
+              if(candles.length>=35)return sendJson(res,200,{ok:true,provider:"BIQUOTE",symbol:"XAUUSD",timeframe:tf,count:candles.length,candles,updatedAt:new Date().toISOString()});
+              failure="BIQUOTE_INSUFFICIENT_VALID_CANDLES";
+            }
+          }
+        }
+      } catch(error) { failure=error?.name==="TimeoutError"||error?.name==="AbortError"?"BIQUOTE_TIMEOUT":"BIQUOTE_NETWORK_ERROR"; }
+      return sendJson(res,503,{error:"MARKET_DATA_UNAVAILABLE",provider:"BIQUOTE",diagnosticCode:failure,message:"تعذر جلب 35 شمعة صالحة على الأقل من Biquote. جسر MT5 ليس مصدرًا بديلًا للسكانر."});
     }
     if (method === "POST" && url.pathname === "/api/mt5/demo-execute-signal") {
       // Explicit demo test order: do not wait for a scanner BUY/SELL signal.
