@@ -66,3 +66,47 @@ test('manual scanner uses Biquote candles first and structured AI without auto-e
   assert.ok(['M1_TREND_CONTINUATION_V1','M1_PULLBACK_RECLAIM_V1','M1_RANGE_BREAKOUT_V1'].includes(data.analysis.evidence[0].strategyId));
   assert.ok(aiCalls>=1,'AI adapter should be called when the deterministic technical setup is ready');
 });
+
+
+test('manual scanner produces an analysis without any MT5 bridge configured', async t => {
+  let aiCalls=0;
+  const biquote=createServer((req,res)=>{
+    const url=new URL(req.url,'http://127.0.0.1');
+    if(url.pathname!=='/api/XAUUSD/ohlc'){res.writeHead(404);res.end('{}');return;}
+    const tf={'1m':'M1','5m':'M5','15m':'M15','1h':'H1'}[url.searchParams.get('interval')];
+    if(!tf){res.writeHead(400);res.end('{}');return;}
+    const minutes={M1:1,M5:5,M15:15,H1:60}[tf];
+    const rows=candles(tf,Number(url.searchParams.get('limit')),minutes).map(bar=>({
+      openTime:bar.openTime,open:bar.open,high:bar.high,low:bar.low,close:bar.close,
+      tickVolume:bar.tickVolume,isOpen:false
+    }));
+    res.setHeader('content-type','application/json');res.end(JSON.stringify({bars:rows}));
+  });
+  const ai=createServer(async(req,res)=>{
+    let raw='';for await(const chunk of req)raw+=chunk;
+    aiCalls++;
+    const request=JSON.parse(raw);
+    const user=JSON.parse(request.messages.find(message=>message.role==='user').content);
+    const direction=user.evidence?.[0]?.direction;
+    const outcome=direction==='BUY'||direction==='SELL'?direction:'WAIT';
+    res.setHeader('content-type','application/json');
+    res.end(JSON.stringify({choices:[{message:{content:JSON.stringify({outcome,rationale:'No-MT5 integration fixture',rationaleCodes:['TEST_NO_MT5']})}}]}));
+  });
+  const biquoteUrl=await listen(biquote), aiUrl=await listen(ai);
+  const app=createAppServer({
+    BIQUOTE_BASE_URL:biquoteUrl,AI_API_KEY:'test-key',AI_BASE_URL:aiUrl+'/v1',
+    AI_PROVIDER_ID:'fixture',AI_MODEL_ID:'fixture-model'
+  });
+  const appUrl=await listen(app);
+  t.after(async()=>{await close(app);await close(biquote);await close(ai);});
+  const aiConfig=await fetch(appUrl+'/api/ai/config',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({providerId:'fixture',modelId:'fixture-model'})});
+  assert.equal(aiConfig.status,200);
+  const response=await fetch(appUrl+'/api/scan',{method:'POST'});
+  const data=await response.json();
+  assert.equal(response.status,200,JSON.stringify(data));
+  assert.equal(data.execution,'NOT_SUBMITTED');
+  assert.equal(data.run.triggerType,'MANUAL');
+  assert.equal(data.chartCandles.length,60);
+  assert.ok(aiCalls>=1,'AI analysis must run without MT5');
+  assert.ok(['BUY','SELL','WAIT'].includes(data.status));
+});
