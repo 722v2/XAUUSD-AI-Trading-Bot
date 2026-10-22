@@ -86,7 +86,7 @@ class OrderExecutor:
     def reconcile_uncertain(self, key: str, saved: dict) -> dict | None:
         """Resolve only when broker history proves the matching deal; absence is never proof of non-execution."""
         if self.mt5 is None: return None
-        comment=saved.get("comment")
+        comment=saved.get("comment") or (saved.get("details") or {}).get("comment")
         if not isinstance(comment,str) or not comment.startswith("XAUAI-"): return None
         try:
             end=datetime.now(timezone.utc)
