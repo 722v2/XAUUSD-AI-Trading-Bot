@@ -3,8 +3,14 @@ import tempfile
 import unittest
 from pathlib import Path
 from mt5_bridge_v2.agent.outbox import Outbox
+from mt5_bridge_v2.agent.order_executor import _finite_positive
 
 class BridgeV2OutboxTests(unittest.TestCase):
+    def test_order_numbers_must_be_finite_positive_numbers(self):
+        self.assertTrue(_finite_positive(0.01))
+        self.assertFalse(_finite_positive(0))
+        self.assertFalse(_finite_positive(float("nan")))
+        self.assertFalse(_finite_positive(True))
     def test_idempotency_ledger_survives_restart(self):
         with tempfile.TemporaryDirectory() as directory:
             path=str(Path(directory)/"outbox.sqlite3")
