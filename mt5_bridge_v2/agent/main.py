@@ -8,6 +8,7 @@ from .config import load_config
 from .outbox import Outbox
 from .session import MT5Session
 from .health import snapshot, utc_now
+from .order_executor import OrderExecutor
 
 try:
     import MetaTrader5 as mt5
@@ -19,6 +20,7 @@ class Agent:
         self.config=load_config()
         self.outbox=Outbox(self.config.database_path)
         self.session=MT5Session(mt5,self.config.terminal_path)
+        self.executor=OrderExecutor(mt5,self.outbox,self.config.symbol)
         self.last_error="STARTING"
         self.stop=threading.Event()
         self.lock=threading.RLock()
@@ -71,9 +73,8 @@ class Agent:
         if command.get("kind")!="EXECUTE_ORDER" or command.get("environment")!="DEMO":
             result={"commandId":command_id,"idempotencyKey":key,"state":"REJECTED","code":"DEMO_ONLY_OR_UNSUPPORTED_COMMAND","details":{},"completedAt":utc_now()}
             self.outbox.enqueue_result(command_id,key,"REJECTED",result); return
-        self.outbox.mark(key,"UNKNOWN",{"code":"EXECUTION_ADAPTER_NOT_ENABLED"})
-        result={"commandId":command_id,"idempotencyKey":key,"state":"REJECTED","code":"EXECUTION_ADAPTER_NOT_ENABLED","details":{"message":"V2 execution adapter is intentionally gated until server-side idempotency and reconciliation tests pass"},"completedAt":utc_now()}
-        self.outbox.enqueue_result(command_id,key,"REJECTED",result)
+        result=self.executor.execute(command)
+        self.outbox.enqueue_result(command_id,key,result["state"],result)
     def run(self):
         ok,reason=self.session.connect(); self.last_error=None if ok else reason
         print(f"[startup] agent={self.config.agent_id}; demo_session={'connected' if ok else reason}; live trading disabled",flush=True)
