@@ -62,7 +62,12 @@ class Agent:
         prior=self.outbox.command_state(key)
         if prior:
             if prior["state"] in ("SUBMITTING","UNKNOWN"):
-                result={"commandId":command_id,"idempotencyKey":key,"state":"UNKNOWN","code":"RECOVERY_REQUIRES_RECONCILIATION","details":{"previousState":prior["state"],"automaticRetry":False},"completedAt":utc_now()}
+                try: saved=json.loads(prior.get("result_json") or "{}")
+                except Exception: saved={}
+                details={"previousState":prior["state"],"automaticRetry":False}
+                if isinstance(saved.get("comment"),str): details["comment"]=saved["comment"]
+                if isinstance((saved.get("details") or {}).get("comment"),str): details["comment"]=saved["details"]["comment"]
+                result={"commandId":command_id,"idempotencyKey":key,"state":"UNKNOWN","code":"RECOVERY_REQUIRES_RECONCILIATION","details":details,"completedAt":utc_now()}
                 self.outbox.enqueue_result(command_id,key,"UNKNOWN",result)
             else:
                 print(f"[command] duplicate key refused; state={prior['state']}",flush=True)
