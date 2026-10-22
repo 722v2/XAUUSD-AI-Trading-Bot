@@ -27,6 +27,9 @@ async function refreshHealth() {
     const health = await api("/api/health");
     setStatus("market-status",health.marketData.state);
     $("market-value").textContent = health.marketData.label;
+    setStatus("bridge-status",health.mt5?.state || "NOT_READY");
+    $("bridge-value").textContent = health.mt5?.label || "MT5 غير متصل";
+    $("bridge-detail").textContent = health.mt5?.reason || "لم يصل تأكيد من الجسر";
     setStatus("ai-status",health.ai.state);
     $("ai-value").textContent = health.ai.label;
     setStatus("db-status",health.database.state);
@@ -500,5 +503,5 @@ function drawMarketCandles(data){
 }
 async function loadMarketCandles(){if(marketChartBusy)return;marketChartBusy=true;try{drawMarketCandles(await api("/api/market/candles?timeframe="+marketChartTimeframe+"&count=300"));}catch(e){$("market-chart-status").textContent="غير متاح";$("market-chart-status").className="status-tag error-tag";$("market-chart-feedback").textContent=e.message;}finally{marketChartBusy=false;}}
 document.querySelectorAll(".timeframe-button").forEach(b=>b.addEventListener("click",()=>{marketChartTimeframe=b.dataset.timeframe;document.querySelectorAll(".timeframe-button").forEach(x=>x.classList.toggle("active",x===b));void loadMarketCandles();}));
-const demoBuyButton=$("demo-market-buy");if(demoBuyButton)demoBuyButton.addEventListener("click",async()=>{if(!confirm("سيُشغّل هذا دورة تحليل جديدة على Demo. لن يُرسل أمر إلا إذا صدرت إشارة BUY/SELL واجتازت فحوصات المخاطر والحساب. هل تريد المتابعة؟"))return;demoBuyButton.disabled=true;$("demo-buy-feedback").textContent="جارٍ تحليل السوق والتحقق من المخاطر…";try{const r=await api("/api/mt5/demo-execute-signal",{method:"POST",body:"{}"});const state=r.status||r.decision?.outcome||"اكتمل الفحص";$("demo-buy-feedback").textContent=r.execution==="CONFIRMED"?"أكد MT5 تنفيذ الإشارة.":r.execution==="NOT_SUBMITTED"?"اكتمل التحليل دون إرسال أمر: "+(r.message||state):(r.message||state);renderAnalysis(r);await loadScanLog();await loadPositions();}catch(e){$("demo-buy-feedback").textContent="لم يتم تأكيد تنفيذ: "+(e.data?.message||e.message);renderAnalysis(e.data);await loadScanLog();}finally{demoBuyButton.disabled=false;}});
+const demoBuyButton=$("demo-market-buy");if(demoBuyButton)demoBuyButton.addEventListener("click",async()=>{if(!confirm("سيُرسل أمر BUY مباشرًا على حساب Demo، دون انتظار إشارة BUY/SELL من السكانر. الحجم 0.01 lot أو الحد الأدنى للوسيط، ووقف/هدف حماية تلقائيان. لا يمكن استخدام هذا الزر على Live. هل تريد المتابعة؟"))return;demoBuyButton.disabled=true;$("demo-buy-feedback").textContent="جارٍ التحقق من جسر MT5 وإرسال أمر Demo…";try{const r=await api("/api/mt5/demo-execute-signal",{method:"POST",body:"{}"});$("demo-buy-feedback").textContent=r.execution==="CONFIRMED"?"أكد MT5 تنفيذ BUY التجريبية.":r.execution==="RECONCILIATION_REQUIRED"?"نتيجة التنفيذ غير مؤكدة؛ افحص سجل MT5 قبل أي محاولة أخرى.":(r.message||r.error||"لم يؤكد الوسيط تنفيذ الأمر.");}catch(e){$("demo-buy-feedback").textContent="لم يتم تأكيد تنفيذ: "+(e.data?.message||e.message);}finally{demoBuyButton.disabled=false;void refreshHealth();void loadPositions();}});
 void loadMarketCandles();setInterval(()=>void loadMarketCandles(),15000);
