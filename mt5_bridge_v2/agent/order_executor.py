@@ -1,6 +1,7 @@
 from __future__ import annotations
 import hashlib
 import math
+from datetime import datetime, timedelta, timezone
 from typing import Any
 from .outbox import Outbox
 from .health import utc_now
@@ -61,10 +62,10 @@ class OrderExecutor:
                 return result("REJECTED","ORDER_CHECK_REJECTED",{"retcode":getattr(check,"retcode",None),"comment":str(getattr(check,"comment",""))[:200]})
             # Persist before the only broker submission attempt. If the process crashes after this point,
             # the same idempotency key is never automatically resubmitted.
-            self.outbox.mark(key,"SUBMITTING",{"comment":comment,"request":request})
+            self.outbox.mark(key,"SUBMITTING",{"commandId":command_id,"idempotencyKey":key,"comment":comment,"request":request})
             sent=self.mt5.order_send(request)
             if sent is None:
-                self.outbox.mark(key,"UNKNOWN",{"code":"ORDER_SEND_NO_RESPONSE","comment":comment})
+                self.outbox.mark(key,"UNKNOWN",{"commandId":command_id,"idempotencyKey":key,"code":"ORDER_SEND_NO_RESPONSE","comment":comment})
                 return result("UNKNOWN","ORDER_SEND_NO_RESPONSE",{"comment":comment,"reconcileRequired":True})
             retcode=getattr(sent,"retcode",None)
             if retcode in (done_code,getattr(self.mt5,"TRADE_RETCODE_DONE_PARTIAL",10010)):
@@ -73,11 +74,40 @@ class OrderExecutor:
                 return result("FILLED","BROKER_EXECUTION_CONFIRMED",details)
             if retcode==placed_code:
                 details={"brokerSymbol":broker_symbol,"order":getattr(sent,"order",None),"comment":comment,"retcode":retcode}
-                self.outbox.mark(key,"UNKNOWN",details)
+                self.outbox.mark(key,"UNKNOWN",{"commandId":command_id,"idempotencyKey":key,**details})
                 return result("UNKNOWN","ORDER_PLACED_NOT_FILLED",{"reconcileRequired":True,**details})
             details={"retcode":retcode,"comment":str(getattr(sent,"comment",""))[:200],"brokerSymbol":broker_symbol}
             self.outbox.mark(key,"REJECTED",details)
             return result("REJECTED","BROKER_REJECTED",details)
         except Exception as exc:
-            self.outbox.mark(key,"UNKNOWN",{"code":"EXECUTION_EXCEPTION","exceptionType":type(exc).__name__})
+            self.outbox.mark(key,"UNKNOWN",{"commandId":command_id,"idempotencyKey":key,"code":"EXECUTION_EXCEPTION","exceptionType":type(exc).__name__})
             return result("UNKNOWN","EXECUTION_EXCEPTION",{"reconcileRequired":True})
+
+    def reconcile_uncertain(self, key: str, saved: dict) -> dict | None:
+        """Resolve only when broker history proves the matching deal; absence is never proof of non-execution."""
+        if self.mt5 is None: return None
+        comment=saved.get("comment")
+        if not isinstance(comment,str) or not comment.startswith("XAUAI-"): return None
+        try:
+            end=datetime.now(timezone.utc)
+            start=end-timedelta(days=7)
+            deals=self.mt5.history_deals_get(start,end) or []
+            matches=[d for d in deals if getattr(d,"comment",None)==comment and str(getattr(d,"symbol","")).upper().startswith("XAUUSD")]
+            if matches:
+                deal=matches[-1]
+                details={"comment":comment,"deal":getattr(deal,"ticket",None),"order":getattr(deal,"order",None),"volume":getattr(deal,"volume",None),"price":getattr(deal,"price",None),"reconciledFromHistory":True}
+                self.outbox.mark(key,"FILLED",details)
+                return {"state":"FILLED","code":"BROKER_DEAL_FOUND_DURING_RECONCILIATION","details":details}
+            orders=self.mt5.history_orders_get(start,end) or []
+            matching=[o for o in orders if getattr(o,"comment",None)==comment and str(getattr(o,"symbol","")).upper().startswith("XAUUSD")]
+            if matching:
+                order=matching[-1]
+                terminal_states={getattr(self.mt5,"ORDER_STATE_CANCELED",-100),getattr(self.mt5,"ORDER_STATE_REJECTED",-101),getattr(self.mt5,"ORDER_STATE_EXPIRED",-102)}
+                state=getattr(order,"state",None)
+                if state in terminal_states:
+                    details={"comment":comment,"order":getattr(order,"ticket",None),"brokerState":state,"reconciledFromHistory":True}
+                    self.outbox.mark(key,"REJECTED",details)
+                    return {"state":"REJECTED","code":"BROKER_ORDER_TERMINAL_WITHOUT_FILL","details":details}
+            return None
+        except Exception:
+            return None
