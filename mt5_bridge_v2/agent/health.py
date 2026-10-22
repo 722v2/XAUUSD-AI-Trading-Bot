@@ -15,8 +15,11 @@ def snapshot(mt5: Any, symbol: str, environment: str, last_error: str | None) ->
         account_ok=bool(account and getattr(account,"login",None))
         selected=None
         if terminal_ok and account_ok:
-            names=[getattr(x,"name","") for x in (mt5.symbols_get() or [])]
-            selected=next((n for n in names if str(n).upper()=="XAUUSD.M"),None) or next((n for n in names if str(n).upper()=="XAUUSD"),None)
+            names=[str(getattr(x,"name","")) for x in (mt5.symbols_get() or [])]
+            configured=symbol.strip()
+            selected=next((n for n in names if n.upper()==configured.upper()),None)
+            if selected is None and configured.upper()=="XAUUSD":
+                selected=next((n for n in names if n.upper()=="XAUUSD"),None) or next((n for n in names if n.upper().startswith("XAUUSD.")),None)
             if selected: mt5.symbol_select(selected,True)
         mode=getattr(account,"trade_mode",None) if account else None
         demo_mode=getattr(mt5,"ACCOUNT_TRADE_MODE_DEMO",0)
