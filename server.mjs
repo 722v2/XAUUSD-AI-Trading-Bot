@@ -649,19 +649,33 @@ export function createAppServer(env = process.env) {
       }
       let notification = {sent:0,failed:0,reason:"NO_DIRECTIONAL_DECISION"};
       if (decision.outcome === "BUY" || decision.outcome === "SELL") {
+        const signalEntry = Number.isFinite(evidence.entryPrice) ? evidence.entryPrice : null;
+        const signalStop = Number.isFinite(evidence.stopLoss) ? evidence.stopLoss : null;
+        const signalTarget = Number.isFinite(evidence.takeProfit) ? evidence.takeProfit : null;
+        const priceText = value => value === null ? "غير متاح" : value.toFixed(3);
+        const signalMessage = [
+          "📊 إشارة XAUUSD — " + decision.outcome,
+          "منطقة الدخول: " + (Number.isFinite(evidence.entryZoneLow) && Number.isFinite(evidence.entryZoneHigh)
+            ? priceText(evidence.entryZoneLow) + " – " + priceText(evidence.entryZoneHigh)
+            : signalEntry === null ? "غير متاحة" : priceText(signalEntry)),
+          "سعر الدخول المرجعي: " + priceText(signalEntry),
+          "وقف الخسارة SL: " + priceText(signalStop),
+          "هدف الربح TP: " + priceText(signalTarget),
+          "الاستراتيجية: " + String(evidence.strategyId || "غير محددة"),
+          "حالة التنفيذ: قيد التقييم؛ قد تُرسل الإشارة حتى إذا لم تُنفّذ الصفقة.",
+          "هذه إشارة تحليلية وليست تأكيدًا بفتح صفقة."
+        ].join("\\n");
         notification = await queueNotificationToEnabled(
-          "XAUUSD "+decision.outcome+" — قرار تحليلي بعد توافق التحليل الفني وAI. هذه ليست رسالة تأكيد تنفيذ؛ راجع حالة الوسيط في لوحة التحكم.",
+          signalMessage,
           "TRADE_DECISION","decision:"+candidateKey+":"+decision.outcome
         );
       }
       let execution = "NOT_SUBMITTED";
       let executionDetail = "التنفيذ الآلي غير مفعّل.";
       if ((decision.outcome === "BUY" || decision.outcome === "SELL") && autoTradingEnabled) {
-        if (notification.failed > 0 || notification.reason === "OUTBOX_UNAVAILABLE") {
-          autoTradingEnabled=false;
-          const entry=record("FAILED","NOTIFICATION_OUTBOX_UNAVAILABLE");
-          return {status:503,body:{error:"NOTIFICATION_OUTBOX_UNAVAILABLE",message:"تعذر ضمان تسجيل تنبيه القرار؛ تم منع إرسال الأمر.",decision,execution:"NOT_SUBMITTED",run:entry}};
-        }
+        // Signal delivery and broker execution are independent channels.
+        // A Telegram/outbox outage must not silently alter the trading decision;
+        // execution still follows its own persistence, freshness and risk checks.
         if (managedOpenPositionCount >= 1) {
           const entry=record("SKIPPED_OPEN_POSITION_EXISTS","MAX_ONE_BOT_POSITION");
           return {status:200,body:{status:"OPEN_POSITION_EXISTS",message:"يوجد مركز XAUUSD مفتوح للبوت؛ تمت إدارته ومنع فتح مركز ثانٍ.",decision,execution:"NOT_SUBMITTED",run:entry}};
@@ -830,10 +844,17 @@ export function createAppServer(env = process.env) {
           reasonCodes:decision.reasonCodes,analysis,assessment,decision,notification,execution,executionDetail,chartCandles:normalized.M1.slice(-60),run:entry
         }
       };
-    } catch {
-      await queueNotificationToEnabled("تنبيه النظام: فشلت دورة فحص XAUUSD. راجع سجل النظام قبل إعادة المحاولة.","SYSTEM_ALERT","scan-failure:"+Math.floor(Date.now()/300000));
-      const entry=record("FAILED","UNEXPECTED_SCAN_FAILURE");
-      return {status:503,body:{error:"SCAN_FAILED",message:"فشل الفحص؛ تم تسجيله دون إعلان نجاح.",run:entry}};
+    } catch (error) {
+      const diagnosticCode = error && typeof error.code === "string" && /^[A-Z0-9_]{1,64}$/.test(error.code)
+        ? error.code : "UNEXPECTED_SCAN_FAILURE";
+      const diagnosticMessage = error instanceof Error ? error.message.slice(0,240) : "Unknown scanner error";
+      process.stderr.write("[scanner] run="+runId+" code="+diagnosticCode+" message="+diagnosticMessage.replace(/[\\r\\n]/g," ")+"\\n");
+      await queueNotificationToEnabled(
+        "تنبيه السكانر XAUUSD: فشلت دورة الفحص. السبب: "+diagnosticCode+". التفاصيل: "+diagnosticMessage.slice(0,160)+". راجع سجل Render.",
+        "SYSTEM_ALERT","scan-failure:"+diagnosticCode+":"+Math.floor(Date.now()/900000)
+      );
+      const entry=record("FAILED",diagnosticCode,{diagnosticMessage});
+      return {status:503,body:{error:"SCAN_FAILED",message:"فشل الفحص؛ تم تسجيل السبب التشخيصي.",run:entry}};
     } finally {
       if (supabase && dbRunCreated && finalEntry) {
         const status = finalEntry.status === "FAILED" || finalEntry.status === "RECONCILIATION_REQUIRED" ? "FAILED"
