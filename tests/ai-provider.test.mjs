@@ -33,3 +33,12 @@ test('decision coordinator blocks technical/AI direction conflicts', () => {
   assert.equal(coordinateTechnicalAndAI(evidence,{...base,outcome:'BUY'}).outcome,'BUY');
   assert.equal(coordinateTechnicalAndAI([],{...base,outcome:'WAIT'}).outcome,'REJECT');
 });
+
+test('AI provider timeout is bounded and aborts stalled requests with a diagnostic code', async () => {
+  const invalidTimeout = new OpenAICompatibleAIProvider({...config,timeoutMs:45001}, async () => response({}));
+  await assert.rejects(invalidTimeout.assess({symbol:'XAUUSD',evidence,now:'2026-10-16T12:00:00Z'}), e => e instanceof AIProviderError && e.code === 'INVALID_CONFIG');
+  const stalled = new OpenAICompatibleAIProvider({...config,timeoutMs:1000}, async (_url, init) => new Promise((_resolve, reject) => {
+    init.signal.addEventListener('abort', () => reject(Object.assign(new Error('aborted'), {name:'AbortError'})), {once:true});
+  }));
+  await assert.rejects(stalled.assess({symbol:'XAUUSD',evidence,now:'2026-10-16T12:00:00Z'}), e => e instanceof AIProviderError && e.code === 'TIMEOUT');
+});
