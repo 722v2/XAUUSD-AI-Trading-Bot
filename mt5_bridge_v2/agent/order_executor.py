@@ -52,7 +52,7 @@ class OrderExecutor:
               "type":getattr(self.mt5,"ORDER_TYPE_BUY") if direction=="BUY" else getattr(self.mt5,"ORDER_TYPE_SELL"),
               "price":round(price,digits),"sl":round(float(sl),digits),"tp":round(float(tp),digits),
               "deviation":20,"magic":2601022,"comment":comment,"type_time":getattr(self.mt5,"ORDER_TIME_GTC"),
-              "type_filling":getattr(info,"filling_mode",getattr(self.mt5,"ORDER_FILLING_IOC",1))}
+              "type_filling":getattr(self.mt5,"ORDER_FILLING_IOC",1)}
             check=self.mt5.order_check(request)
             if check is None: return result("REJECTED","ORDER_CHECK_NO_RESPONSE")
             done_code=getattr(self.mt5,"TRADE_RETCODE_DONE",10009)
