@@ -1,0 +1,99 @@
+from __future__ import annotations
+import json, sys, time, threading
+from datetime import datetime, timezone
+from urllib.error import HTTPError, URLError
+from urllib.request import Request, urlopen
+
+from .config import load_config
+from .outbox import Outbox
+from .session import MT5Session
+from .health import snapshot, utc_now
+
+try:
+    import MetaTrader5 as mt5
+except ImportError:
+    mt5=None
+
+class Agent:
+    def __init__(self):
+        self.config=load_config()
+        self.outbox=Outbox(self.config.database_path)
+        self.session=MT5Session(mt5,self.config.terminal_path)
+        self.last_error="STARTING"
+        self.stop=threading.Event()
+        self.lock=threading.RLock()
+    def request(self,path,method="GET",payload=None,timeout=15):
+        raw=None if payload is None else json.dumps(payload,separators=(",",":")).encode()
+        req=Request(self.config.server_url+path,data=raw,method=method,headers={"X-Bridge-Token":self.config.token,"X-Agent-Id":self.config.agent_id,"Accept":"application/json","Content-Type":"application/json","User-Agent":"XAUUSD-MT5-Bridge/2.0"})
+        try:
+            with urlopen(req,timeout=timeout) as resp:
+                data=resp.read(1_048_576)
+                return resp.status, json.loads(data.decode()) if data else {}
+        except HTTPError as exc:
+            try: body=json.loads(exc.read(65536).decode())
+            except Exception: body={"error":"INVALID_ERROR_RESPONSE"}
+            return exc.code,body
+        except (URLError,TimeoutError,OSError) as exc:
+            self.last_error="RENDER_TRANSPORT_ERROR"
+            print(f"[transport] {type(exc).__name__}; retrying",flush=True)
+            return 503,{"error":self.last_error}
+    def heartbeat(self):
+        state=snapshot(mt5,self.config.symbol,self.config.environment,self.last_error)
+        state["agentId"]=self.config.agent_id
+        status,body=self.request("/api/bridge/v1/heartbeat","POST",state,timeout=8)
+        if status==200:
+            self.last_error=None
+            if state["executionReady"]: print(f"[health] connected; environment=DEMO; symbol={state['brokerSymbol']}; heartbeat accepted",flush=True)
+            else: print(f"[health] not ready: {state['lastErrorCode']}; heartbeat accepted",flush=True)
+        else: print(f"[health] heartbeat rejected: HTTP {status} {body.get('error','HTTP_ERROR')}",flush=True)
+    def flush_results(self):
+        for row in self.outbox.pending_results():
+            try: payload=json.loads(row["payload"])
+            except Exception: continue
+            status,body=self.request(f"/api/bridge/v1/commands/{row['command_id']}/result","POST",payload,timeout=8)
+            if status==200: self.outbox.mark_delivered(row["command_id"])
+            elif status not in (404,409): print(f"[outbox] result delivery pending: HTTP {status} {body.get('error','HTTP_ERROR')}",flush=True)
+    def handle_command(self,command):
+        if not isinstance(command,dict): return
+        command_id=command.get("id"); key=command.get("idempotencyKey")
+        if not isinstance(command_id,str) or not isinstance(key,str) or not key: return
+        prior=self.outbox.command_state(key)
+        if prior:
+            print(f"[command] duplicate key refused; state={prior['state']}",flush=True)
+            return
+        expires=command.get("expiresAt")
+        try:
+            if expires and datetime.fromisoformat(expires.replace("Z","+00:00")) < datetime.now(timezone.utc):
+                result={"commandId":command_id,"idempotencyKey":key,"state":"EXPIRED","code":"COMMAND_EXPIRED","details":{},"completedAt":utc_now()}
+                self.outbox.enqueue_result(command_id,key,"EXPIRED",result); return
+        except ValueError:
+            self.outbox.mark(key,"REJECTED",{"code":"INVALID_EXPIRY"}); return
+        if command.get("kind")!="EXECUTE_ORDER" or command.get("environment")!="DEMO":
+            result={"commandId":command_id,"idempotencyKey":key,"state":"REJECTED","code":"DEMO_ONLY_OR_UNSUPPORTED_COMMAND","details":{},"completedAt":utc_now()}
+            self.outbox.enqueue_result(command_id,key,"REJECTED",result); return
+        self.outbox.mark(key,"UNKNOWN",{"code":"EXECUTION_ADAPTER_NOT_ENABLED"})
+        result={"commandId":command_id,"idempotencyKey":key,"state":"REJECTED","code":"EXECUTION_ADAPTER_NOT_ENABLED","details":{"message":"V2 execution adapter is intentionally gated until server-side idempotency and reconciliation tests pass"},"completedAt":utc_now()}
+        self.outbox.enqueue_result(command_id,key,"REJECTED",result)
+    def run(self):
+        ok,reason=self.session.connect(); self.last_error=None if ok else reason
+        print(f"[startup] agent={self.config.agent_id}; demo_session={'connected' if ok else reason}; live trading disabled",flush=True)
+        last_heartbeat=0.0
+        while not self.stop.is_set():
+            now=time.monotonic()
+            if now-last_heartbeat>=self.config.heartbeat_seconds:
+                self.heartbeat(); last_heartbeat=now
+            self.flush_results()
+            status,body=self.request("/api/bridge/v1/commands/next?agentId="+self.config.agent_id,timeout=12)
+            if status==200 and isinstance(body.get("command"),dict): self.handle_command(body["command"])
+            elif status not in (200,204,404): print(f"[commands] poll failed: HTTP {status} {body.get('error','HTTP_ERROR')}",flush=True)
+            self.stop.wait(self.config.poll_seconds)
+        self.session.close()
+
+def main():
+    try: Agent().run()
+    except KeyboardInterrupt: pass
+    except Exception as exc:
+        print(f"FATAL: {type(exc).__name__}: {exc}",file=sys.stderr,flush=True)
+        return 2
+    return 0
+if __name__=="__main__": raise SystemExit(main())
