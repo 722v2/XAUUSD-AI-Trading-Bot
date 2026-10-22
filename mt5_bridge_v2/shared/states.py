@@ -1,0 +1,16 @@
+from enum import StrEnum
+
+class AgentState(StrEnum):
+    STARTING = "STARTING"
+    CONNECTED = "CONNECTED"
+    DEGRADED = "DEGRADED"
+    DISCONNECTED = "DISCONNECTED"
+
+class CommandState(StrEnum):
+    PENDING = "PENDING"
+    CLAIMED = "CLAIMED"
+    SUBMITTING = "SUBMITTING"
+    FILLED = "FILLED"
+    REJECTED = "REJECTED"
+    UNKNOWN = "UNKNOWN"
+    EXPIRED = "EXPIRED"

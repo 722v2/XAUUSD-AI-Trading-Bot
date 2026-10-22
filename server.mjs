@@ -9,6 +9,7 @@ import {
   OpenAICompatibleAIProvider, coordinateTechnicalAndAI, prepareExecutionIntent, atr, managePositionStop
 } from "./dist/index.js";
 import { runHistoricalBacktest } from "./server/backtest-engine.mjs";
+import { createBridgeV2Api, readBridgeV2Status, submitBridgeV2Order } from "./server/bridge-v2-api.mjs";
 
 const root = fileURLToPath(new URL("./web/", import.meta.url)).replace(/[\\/]+$/, "");
 const MIME = { ".html":"text/html; charset=utf-8", ".css":"text/css; charset=utf-8", ".js":"text/javascript; charset=utf-8", ".svg":"image/svg+xml" };
@@ -170,6 +171,7 @@ export function createAppServer(env = process.env) {
   const telegram = new TelegramBotClient(env.TELEGRAM_BOT_TOKEN);
   const supabase = configuredSupabase(env);
   const bridge = configuredBridge(env);
+  const bridgeV2Api = createBridgeV2Api(env);
   const relayJobs = [];
   const relayWaiters = new Map();
   const relayResults = new Map();
@@ -896,6 +898,9 @@ export function createAppServer(env = process.env) {
   const server = createServer(async (req,res) => {
     const url = new URL(req.url ?? "/", "http://localhost");
     const method = req.method ?? "GET";
+    if (url.pathname.startsWith("/api/bridge/v1/")) {
+      if (await bridgeV2Api(req,res,method,url)) return;
+    }
     const isRelayRoute = url.pathname.startsWith("/api/mt5/relay/");
     if (isRelayRoute) {
       const supplied = req.headers["x-bridge-token"];
@@ -966,27 +971,24 @@ export function createAppServer(env = process.env) {
       // Explicit demo test order: do not wait for a scanner BUY/SELL signal.
       // This endpoint can never submit a LIVE order.
       if(executionEnvironment!=="DEMO")return sendJson(res,403,{error:"DEMO_ACCOUNT_REQUIRED",message:"الزر التجريبي يعمل على Demo فقط؛ اختر Demo أولًا."});
-      if(!bridge)return sendJson(res,503,{error:"MT5_BRIDGE_NOT_CONFIGURED",message:"جسر MT5 غير مضبوط على الخادم."});
-      const health=await bridge.health();
-      if(!health.ok)return sendJson(res,503,{error:"MT5_BRIDGE_UNREACHABLE",message:"تعذر الاتصال بجسر MT5 عبر Render Relay. شغّل outbound agent وتأكد من اتصاله."});
-      if(health.value.state!=="CONNECTED"||health.value.environment!=="DEMO"||health.value.executionReady!==true||!health.value.accountLogin)
-        return sendJson(res,403,{error:"DEMO_ACCOUNT_NOT_READY",message:"الجسر لا يؤكد حساب Demo متصلًا وجاهزًا للتنفيذ."});
-      const [quote,spec]=await Promise.all([bridge.quote(),bridge.symbolSpec()]);
-      if(!quote.ok||!spec.ok)return sendJson(res,503,{error:"MT5_MARKET_INFO_UNAVAILABLE",message:"الجسر متصل لكن تعذر قراءة سعر XAUUSD أو مواصفات العقد."});
-      const q=quote.value,sp=spec.value;
+       let health;
+      try { health=await readBridgeV2Status(env); } catch {}
+      if(!health?.ready||health.environment!=="DEMO"||!health.accountLogin||!health.quote||!health.symbolSpec)
+        return sendJson(res,503,{error:"DEMO_ACCOUNT_NOT_READY",message:"Bridge V2 لا يؤكد نبضًا حديثًا وحساب Demo وسعرًا صالحًا من MT5.",bridgeState:health?.state??"NOT_CONFIGURED",reason:health?.reason??"BRIDGE_V2_STORAGE_UNAVAILABLE"});
+      const q=health.quote,sp=health.symbolSpec;
       const direction="BUY";
       const volume=Math.max(sp.volumeMin,Math.min(0.01,sp.volumeMax));
-      const tick=sp.tickSize;
+      const tick=sp.point;
       const entry=q.ask;
       const distance=Math.max(5,((sp.stopsLevelPoints||0)*sp.point)+2*tick);
-      const roundPrice=value=>Number(value.toFixed(sp.priceDigits));
+      const roundPrice=value=>Number(value.toFixed(sp.digits));
       const stopLoss=roundPrice(entry-distance);
       const takeProfit=roundPrice(entry+distance);
       if(![entry,stopLoss,takeProfit,volume,tick].every(Number.isFinite)||tick<=0||!(stopLoss<entry&&entry<takeProfit))
         return sendJson(res,503,{error:"MT5_ORDER_GEOMETRY_INVALID",message:"تعذر إنشاء أسعار دخول ووقف وخروج صالحة وفق مواصفات الوسيط."});
       const now=new Date().toISOString();
       const intent={id:randomUUID(),idempotencyKey:"manual-demo-test:"+randomUUID(),opportunityId:"manual-demo-test",decisionId:"manual-demo-test",environment:"DEMO",symbol:"XAUUSD",direction,volume,stopLoss,takeProfit,createdAt:now};
-      const submitted=await bridge.submitOrder({intent});
+      const submitted=await submitBridgeV2Order(env,intent);
       if(!submitted.ok)return sendJson(res,submitted.errorCode==="RECONCILIATION_REQUIRED"?202:503,{error:submitted.errorCode,message:submitted.message,execution:"NOT_CONFIRMED",direction,volume,stopLoss,takeProfit});
       return sendJson(res,submitted.value.state==="CONFIRMED"?200:submitted.value.state==="RECONCILIATION_REQUIRED"?202:422,{execution:submitted.value.state,direction,volume,stopLoss,takeProfit,brokerOrderId:submitted.value.brokerOrderId,message:submitted.value.state==="CONFIRMED"?"تم تأكيد أمر BUY التجريبي من MT5.":submitted.value.error||"لم يؤكد الوسيط تنفيذ الأمر."});
     }
@@ -994,12 +996,12 @@ export function createAppServer(env = process.env) {
       await hydrateSettings();
       let databaseState = "NOT_CONFIGURED";
       if (supabase) { try { await supabase.readCurrent(); databaseState = "CONNECTED"; } catch { databaseState = "DISCONNECTED"; } }
-      let bridgeHealth = null;
-      if (bridge) { const result=await bridge.health(); if (result.ok) bridgeHealth=result.value; }
+      let bridgeV2Health=null;
+      try { bridgeV2Health=await readBridgeV2Status(env); } catch {}
       const marketState = "BIQUOTE_PRIMARY";
       return sendJson(res,200,{
         marketData:{state:marketState,label:"Biquote · مصدر بيانات السكانر",reason:"التحليل والإشارات تعتمد على Biquote؛ جسر MT5 مطلوب للتنفيذ وإدارة الصفقات فقط."},
-        mt5:{state:!bridge?"NOT_CONFIGURED":bridgeHealth?.state??"NOT_READY",label:bridgeHealth?.state==="CONNECTED"?"MT5 "+executionEnvironment+" متصل":"MT5 غير متصل",reason:bridgeHealth?.reason??"جسر MT5 غير مضبوط؛ إشارات Biquote لا تتوقف بسببه."},
+        mt5:{state:bridgeV2Health?.state??"NOT_CONFIGURED",label:bridgeV2Health?.ready?"MT5 Demo متصل وجاهز":"MT5 غير جاهز",reason:bridgeV2Health?.reason??"Bridge V2 storage unavailable; apply migration and start the Windows agent.",lastSeenAt:bridgeV2Health?.lastSeenAt??null,heartbeatAgeMs:bridgeV2Health?.heartbeatAgeMs??null,executionReady:bridgeV2Health?.ready===true},
         ai:{state:!aiConfigured?"NOT_CONFIGURED":aiProbePassed?"CONNECTED":"CONFIGURED_NOT_TESTED",label:!aiConfigured?"لم يتم الاتصال":aiProbePassed?"AI متصل":"إعدادات موجودة · الاتصال يحتاج اختبارًا"},
         database:{state:databaseState,label:databaseState==="CONNECTED"?"Supabase متصل":"Supabase غير متصل"},
         telegram:{state:telegram.configured?"CONFIGURED":"NOT_CONFIGURED",label:telegram.configured?"البوت مهيأ":"التنبيهات غير جاهزة"},

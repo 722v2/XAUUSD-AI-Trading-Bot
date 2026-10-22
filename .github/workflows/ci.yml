@@ -27,6 +27,13 @@ jobs:
         with:
           python-version: '3.12'
       - name: Install Python bridge dependencies
-        run: python -m pip install -r mt5_bridge/requirements.txt
+        run: |
+          python -m pip install -r mt5_bridge/requirements.txt
+          python -m pip install -r mt5_bridge_v2/requirements.txt
+      # Bridge V2 must remain importable without a Windows MT5 terminal on CI.
+      - name: Compile rebuilt bridge modules
+        run: python -m compileall -q mt5_bridge_v2
+      - name: Validate Bridge V2 imports
+        run: python -c "from mt5_bridge_v2.agent.main import Agent; from mt5_bridge_v2.agent.order_executor import OrderExecutor; print('Bridge V2 imports OK')"
       - name: Test MT5 bridge and relay safety contracts
         run: python -m unittest discover -s tests_python -v
