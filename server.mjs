@@ -498,22 +498,24 @@ export function createAppServer(env = process.env) {
       // Only an armed execution cycle is allowed to depend on the MT5 bridge.
       let health = null;
       if (autoTradingEnabled) {
+        // If the bridge drops after execution was armed, disarm execution but
+        // continue this scan in signal-only mode instead of losing the signal cycle.
         if (!bridge) {
           autoTradingEnabled=false;
-          const entry=record("EXECUTION_NOT_READY","MT5_BRIDGE_NOT_CONFIGURED");
-          return {status:503,body:{error:"EXECUTION_NOT_READY",message:"السكانر التحليلي مستقل، لكن تنفيذ الصفقات يتطلب جسر MT5؛ لم يتم إرسال أمر.",execution:"NOT_SUBMITTED",run:entry}};
-        }
-        health = await bridge.health();
-        if (!health.ok || health.value.state !== "CONNECTED" || health.value.environment !== executionEnvironment) {
-          autoTradingEnabled=false;
-          const entry=record("EXECUTION_NOT_READY",health.ok?health.value.reason:health.message);
-          return {status:503,body:{error:"MT5_NOT_READY",message:"الجسر غير جاهز للتنفيذ؛ لم يتم إرسال أمر. التحليل وحده لا يحتاج MT5.",execution:"NOT_SUBMITTED",run:entry}};
-        }
-        const reconciliation=await reconcilePendingExecutionIntents(health.value);
-        if (!reconciliation.ok) {
-          autoTradingEnabled=false;
-          const entry=record("RECONCILIATION_REQUIRED",reconciliation.reason);
-          return {status:503,body:{error:"RECONCILIATION_REQUIRED",message:"هناك نية تنفيذ سابقة تحتاج مصالحة؛ تم منع أي دخول جديد.",run:entry}};
+          await queueNotificationToEnabled("تم إيقاف التنفيذ الآلي لـ XAUUSD لأن جسر MT5 غير مضبوط. سيستمر السكانر التحليلي عبر Biquote دون إرسال أوامر.","SYSTEM_ALERT","execution-disarmed-no-bridge:"+new Date().toISOString().slice(0,10));
+        } else {
+          const bridgeCheck = await bridge.health();
+          if (!bridgeCheck.ok || bridgeCheck.value.state !== "CONNECTED" || bridgeCheck.value.environment !== executionEnvironment) {
+            autoTradingEnabled=false;
+            await queueNotificationToEnabled("تم إيقاف التنفيذ الآلي لـ XAUUSD لأن جسر MT5 غير جاهز. سيستمر السكانر عبر Biquote بإصدار التحليل والإشارات فقط.","SYSTEM_ALERT","execution-disarmed-bridge-unavailable:"+new Date().toISOString().slice(0,10));
+          } else {
+            health = bridgeCheck;
+            const reconciliation=await reconcilePendingExecutionIntents(health.value);
+            if (!reconciliation.ok) {
+              autoTradingEnabled=false;
+              await queueNotificationToEnabled("تم إيقاف التنفيذ الآلي لـ XAUUSD بسبب حاجة سجل التنفيذ إلى المصالحة: "+reconciliation.reason+". سيستمر التحليل دون إرسال أوامر.","SYSTEM_ALERT","execution-disarmed-reconciliation:"+new Date().toISOString().slice(0,10));
+            }
+          }
         }
       }
       const timeframes = ["M1","M5","M15","H1"];
