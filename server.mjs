@@ -523,9 +523,9 @@ export function createAppServer(env = process.env) {
       for (const [timeframe,result] of fetched) {
         if (!result.ok) {
           const entry=record("NO_ANALYSIS","MARKET_DATA_UNAVAILABLE",{timeframe,error:result.message,providerErrors:result.providerErrors||null});
-          return {status:503,body:{error:"MARKET_DATA_UNAVAILABLE",message:"تعذر جلب شموع كافية من Biquote أو MT5؛ لم يتم إنشاء إشارة.",run:entry}};
+          return {status:503,body:{error:"MARKET_DATA_UNAVAILABLE",message:"تعذر جلب شموع كافية من Biquote؛ لم يتم إنشاء إشارة.",run:entry}};
         }
-        // Biquote is the primary scanner feed, matching the chart; MT5 candles are fallback only.
+        // Biquote is the scanner feed; MT5 is not a market-data fallback for analysis.
         // Freshness and closed-bar validation remain mandatory before analysis.
         const bars = normalizeClosedCandles(result.value.candles,timeframe,35);
         if (!bars.ok) {
