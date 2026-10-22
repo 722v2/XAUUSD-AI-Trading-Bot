@@ -45,7 +45,8 @@
       <section id="overview" class="section">
         <div class="section-heading"><div><h2>حالة النظام</h2><p>الحالة الفعلية للخدمات من الخادم</p></div><span id="last-updated" class="muted">جارٍ التحديث…</span></div>
         <div class="status-grid">
-          <article class="status-card"><div class="card-top"><span class="card-icon gold">◈</span><span id="market-status" class="status-tag muted-tag">غير مهيأ</span></div><p>بيانات السوق</p><h3 id="market-value">MT5 غير متصل</h3><small>المصدر المطلوب: MT5</small></article>
+          <article class="status-card"><div class="card-top"><span class="card-icon gold">◈</span><span id="market-status" class="status-tag muted-tag">جارٍ الفحص</span></div><p>بيانات السوق</p><h3 id="market-value">Biquote</h3><small>مصدر شموع السكانر فقط</small></article>
+          <article class="status-card"><div class="card-top"><span class="card-icon blue">⇄</span><span id="bridge-status" class="status-tag muted-tag">جارٍ الفحص</span></div><p>جسر MT5</p><h3 id="bridge-value">لم يتم تأكيد الاتصال</h3><small id="bridge-detail">الاتصال مطلوب للتنفيذ فقط</small></article>
           <article class="status-card"><div class="card-top"><span class="card-icon violet">✳</span><span id="ai-status" class="status-tag muted-tag">غير مهيأ</span></div><p>مزود الذكاء الاصطناعي</p><h3 id="ai-value">لم يتم الاتصال</h3><small>المفتاح يبقى على الخادم</small></article>
           <article class="status-card"><div class="card-top"><span class="card-icon blue">▣</span><span id="db-status" class="status-tag muted-tag">غير مهيأ</span></div><p>قاعدة البيانات</p><h3 id="db-value">Supabase</h3><small>الإعدادات والسجل الدائم</small></article>
           <article class="status-card"><div class="card-top"><span class="card-icon teal">➤</span><span id="telegram-status" class="status-tag muted-tag">غير مهيأ</span></div><p>Telegram</p><h3 id="telegram-value">التنبيهات غير جاهزة</h3><small>يدعم عدة محادثات</small></article>
@@ -53,7 +54,7 @@
       </section>
 
       <section id="market-chart" class="section panel">
-        <div class="section-heading"><div><h2>شارت الذهب · XAUUSD</h2><p>مصدر Biquote تلقائيًا، وMT5 بديل عند تعذر البيانات</p></div><span id="market-chart-status" class="status-tag muted-tag">جارٍ التحميل</span></div>
+        <div class="section-heading"><div><h2>شارت الذهب · XAUUSD</h2><p>Biquote هو المصدر الوحيد للشموع؛ حالة الجسر منفصلة</p></div><span id="market-chart-status" class="status-tag muted-tag">جارٍ التحميل</span></div>
         <div class="chart-toolbar"><div class="chart-timeframes"><button class="secondary-button timeframe-button active" data-timeframe="M1" type="button">M1</button><button class="secondary-button timeframe-button" data-timeframe="M5" type="button">M5</button><button class="secondary-button timeframe-button" data-timeframe="M15" type="button">M15</button><button class="secondary-button timeframe-button" data-timeframe="H1" type="button">H1</button></div><div class="chart-quote"><span>آخر إغلاق</span><strong id="chart-last-price">—</strong></div></div>
         <div id="market-candlestick-chart" role="img" aria-label="شارت شموع الذهب"></div><p id="market-chart-feedback" class="muted" role="status">تحميل الشموع…</p>
       </section>
@@ -126,7 +127,7 @@
       </section>
 
       <section id="mt5" class="section panel">
-      <section class="section panel demo-buy-panel"><div class="section-heading"><div><h3>تنفيذ إشارة على Demo</h3><p>يشغّل دورة تحليل جديدة، ولا يرسل أمرًا إلا إذا وافقت الإشارة ونجحت جميع فحوصات المخاطر.</p></div><span class="status-tag warn-tag">Demo فقط</span></div><p class="positions-warning">لا يوجد أمر شراء ثابت. الاتجاه وSL/TP والحجم تُحدد من الإشارة ومواصفات الوسيط، ويظل Risk Engine وحدود الخسارة اليومية وحواجز الحساب إلزامية.</p><div class="scanner-actions"><button id="demo-market-buy" class="primary-button" type="button">فحص وتنفيذ الإشارة — Demo</button><span id="demo-buy-feedback" class="muted" role="status">لم يتم طلب تنفيذ.</span></div></section>
+      <section class="section panel demo-buy-panel"><div class="section-heading"><div><h3>تنفيذ إشارة على Demo</h3><p>يرسل أمر BUY مباشرًا على Demo بحجم 0.01 lot أو الحد الأدنى للوسيط، دون انتظار إشارة السكانر.</p></div><span class="status-tag warn-tag">Demo فقط</span></div><p class="positions-warning">لا يوجد أمر شراء ثابت. الاتجاه وSL/TP والحجم تُحدد من الإشارة ومواصفات الوسيط، ويظل Risk Engine وحدود الخسارة اليومية وحواجز الحساب إلزامية.</p><div class="scanner-actions"><button id="demo-market-buy" class="primary-button" type="button">إرسال صفقة BUY تجريبية مباشرة</button><span id="demo-buy-feedback" class="muted" role="status">لم يتم طلب تنفيذ.</span></div></section>
         <div class="section-heading"><div><h2>اتصال MT5</h2><p>إرسال الأوامر يتطلب حساب Hedging مطابقًا للبيئة المختارة. Live يبقى محجوبًا ما لم يُفعّل صراحةً على الخادم والجسر.</p></div><span id="execution-status" class="status-tag muted-tag">معطّل</span></div>
         <div class="connection-row"><div class="connection-symbol">MT5</div><div class="connection-copy"><b id="mt5-title">جسر MT5 غير متصل</b><p id="mt5-detail">لم يتم تأكيد حساب تجريبي أو مواصفات الرمز XAUUSD.</p></div><span id="mt5-environment-badge" class="status-tag muted-tag">Demo</span></div>
         <div class="safety-strip"><span>⛨</span><p><b>حماية التنفيذ مفعّلة</b><br>Demo وLive مدعومان في الجسر. Live يبقى محجوبًا حتى تفعيله صراحةً على Render وجهاز MT5، مع مطابقة نوع الحساب والتأكيد قبل التشغيل.</p></div>
