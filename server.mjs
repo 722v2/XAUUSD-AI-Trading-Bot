@@ -72,6 +72,12 @@ function aiProviderCatalogFromEnv(env) {
   }
   return catalog;
 }
+function aiRequestTimeoutMs(env) {
+  const raw=env.AI_REQUEST_TIMEOUT_MS;
+  if (raw === undefined || raw === "") return 30_000;
+  const value=Number(raw);
+  return Number.isInteger(value) && value >= 1_000 && value <= 45_000 ? value : 30_000;
+}
 function configuredAI(env, catalog, providerId, modelId) {
   const provider=catalog.find(item=>item.id===providerId);
   if (!provider || !provider.models.some(model=>model.id===modelId)) return null;
@@ -80,7 +86,7 @@ function configuredAI(env, catalog, providerId, modelId) {
   try {
     return new OpenAICompatibleAIProvider({
       providerId:provider.id,modelId,
-      baseUrl:provider.baseUrl,apiKey,timeoutMs:15000,assessmentTtlMs:60000
+      baseUrl:provider.baseUrl,apiKey,timeoutMs:aiRequestTimeoutMs(env),assessmentTtlMs:60000
     });
   } catch { return null; }
 }
@@ -191,7 +197,7 @@ export function createAppServer(env = process.env) {
     if (typeof baseUrl!=="string" || !allowedAIBaseUrl(baseUrl) || typeof apiKey!=="string" || !apiKey.trim()) return null;
     const allowedModels=(env.AI_ALLOWED_MODELS||"").split(",").map(value=>value.trim()).filter(Boolean);
     if (allowedModels.length && !allowedModels.includes(modelId)) return null;
-    try { return new OpenAICompatibleAIProvider({providerId,modelId,baseUrl,apiKey,timeoutMs:15000,assessmentTtlMs:60000}); }
+    try { return new OpenAICompatibleAIProvider({providerId,modelId,baseUrl,apiKey,timeoutMs:aiRequestTimeoutMs(env),assessmentTtlMs:60000}); }
     catch { return null; }
   }
   const enabledChats = new Set();
