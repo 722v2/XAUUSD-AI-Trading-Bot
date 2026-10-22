@@ -112,6 +112,8 @@ export function createBridgeV2Api(env=process.env,fetchImpl=fetch) {
       if(method==="GET"&&url.pathname==="/api/bridge/v1/commands/next") {
         const agentId=url.searchParams.get("agentId");
         if(!agentId||!/^[A-Za-z0-9._-]{1,80}$/.test(agentId)){json(res,400,{error:"INVALID_AGENT_ID"});return true;}
+        const staleClaimCutoff=new Date(Date.now()-60000).toISOString();
+        await store.request("/bridge_commands?agent_id=eq."+encodeURIComponent(agentId)+"&status=eq.CLAIMED&claimed_at=lt."+encodeURIComponent(staleClaimCutoff),{method:"PATCH",body:JSON.stringify({status:"UNKNOWN",result:{code:"CLAIM_LEASE_EXPIRED_REQUIRES_RECONCILIATION"}})}).catch(()=>[]);
         const rows=await store.request("/bridge_commands?agent_id=eq."+encodeURIComponent(agentId)+"&status=eq.PENDING&expires_at=gt."+encodeURIComponent(new Date().toISOString())+"&select=id,idempotency_key,kind,environment,payload,expires_at&order=created_at.asc&limit=1");
         const c=rows[0];if(!c){json(res,200,{command:null});return true;}
         const claimed=await store.request("/bridge_commands?id=eq."+encodeURIComponent(c.id)+"&status=eq.PENDING",{method:"PATCH",body:JSON.stringify({status:"CLAIMED",claimed_at:new Date().toISOString()})});
