@@ -664,7 +664,7 @@ export function createAppServer(env = process.env) {
           "الاستراتيجية: " + String(evidence.strategyId || "غير محددة"),
           "حالة التنفيذ: قيد التقييم؛ قد تُرسل الإشارة حتى إذا لم تُنفّذ الصفقة.",
           "هذه إشارة تحليلية وليست تأكيدًا بفتح صفقة."
-        ].join("\\n");
+        ].join("\n");
         notification = await queueNotificationToEnabled(
           signalMessage,
           "TRADE_DECISION","decision:"+candidateKey+":"+decision.outcome
@@ -848,7 +848,7 @@ export function createAppServer(env = process.env) {
       const diagnosticCode = error && typeof error.code === "string" && /^[A-Z0-9_]{1,64}$/.test(error.code)
         ? error.code : "UNEXPECTED_SCAN_FAILURE";
       const diagnosticMessage = error instanceof Error ? error.message.slice(0,240) : "Unknown scanner error";
-      process.stderr.write("[scanner] run="+runId+" code="+diagnosticCode+" message="+diagnosticMessage.replace(/[\\r\\n]/g," ")+"\\n");
+      process.stderr.write("[scanner] run="+runId+" code="+diagnosticCode+" message="+diagnosticMessage.replace(/[\r\n]/g," ")+"\n");
       await queueNotificationToEnabled(
         "تنبيه السكانر XAUUSD: فشلت دورة الفحص. السبب: "+diagnosticCode+". التفاصيل: "+diagnosticMessage.slice(0,160)+". راجع سجل Render.",
         "SYSTEM_ALERT","scan-failure:"+diagnosticCode+":"+Math.floor(Date.now()/900000)
