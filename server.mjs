@@ -313,6 +313,29 @@ export function createAppServer(env = process.env) {
     } catch {}
   }
 
+  function startScanner() {
+    if (scannerEnabled || !aiProvider) return false;
+    scannerEnabled=true;
+    if (scannerTimer) clearTimeout(scannerTimer);
+    const scheduleAtNextClosedM1=()=>{
+      if (!scannerEnabled) return;
+      const nowMs=Date.now();
+      const delay=60000-(nowMs%60000)+2000;
+      nextScheduledScanAt=nowMs+delay;
+      scannerTimer=setTimeout(async()=>{
+        if (!scannerEnabled) return;
+        try { if (await enforceScheduledDailyRiskGuard()) await runAndStoreScan("SCHEDULED"); }
+        finally { scheduleAtNextClosedM1(); }
+      },delay);
+      scannerTimer.unref?.();
+    };
+    void (async()=>{
+      try { if (await enforceScheduledDailyRiskGuard()) await runAndStoreScan("SCHEDULED"); }
+      finally { scheduleAtNextClosedM1(); }
+    })();
+    return true;
+  }
+
 
   async function manageOpenPositions(normalized, health) {
     if (!autoTradingEnabled) return {ok:true,changed:0};
@@ -1131,11 +1154,7 @@ export function createAppServer(env = process.env) {
         return sendJson(res,200,{ok:true,enabled:false});
       }
       if (!aiProvider) return sendJson(res,409,{error:"AI_NOT_CONFIGURED",message:"اضبط مزود AI قبل تفعيل السكانر؛ اتصال MT5 غير مطلوب للتحليل والإشارات."});
-      scannerEnabled=true;
-      if (scannerTimer) clearInterval(scannerTimer);
-      nextScheduledScanAt=Date.now()+60000;
-      const scheduleAtNextClosedM1=()=>{ if (!scannerEnabled) return; const nowMs=Date.now(); const delay=60000-(nowMs%60000)+2000; nextScheduledScanAt=nowMs+delay; scannerTimer=setTimeout(async()=>{ if (!scannerEnabled) return; try { if (await enforceScheduledDailyRiskGuard()) await runAndStoreScan("SCHEDULED"); } finally { scheduleAtNextClosedM1(); } },delay); scannerTimer.unref?.(); };
-      void (async()=>{ if (await enforceScheduledDailyRiskGuard()) await runAndStoreScan("SCHEDULED"); })().finally(()=>scheduleAtNextClosedM1());
+      startScanner();
       return sendJson(res,200,{ok:true,enabled:true,intervalSeconds:60});
     }
     if (method === "POST" && url.pathname === "/api/trading/environment") {
@@ -1327,6 +1346,16 @@ export function createAppServer(env = process.env) {
       res.writeHead(200,{"content-type":MIME[extname(target)]??"application/octet-stream","cache-control":"no-cache","content-length":data.length});
       if (method==="HEAD") res.end(); else res.end(data);
     } catch { sendJson(res,404,{error:"NOT_FOUND"}); }
+  });
+  server.once("listening",()=>{
+    void hydrateSettings().then(()=>{
+      if (aiProvider) {
+        startScanner();
+        process.stdout.write("Scanner auto-started from persisted AI configuration; auto-trading remains disabled.\\n");
+      } else {
+        process.stdout.write("Scanner auto-start skipped: no restorable AI configuration.\\n");
+      }
+    });
   });
   return server;
 }
