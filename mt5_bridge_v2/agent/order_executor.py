@@ -67,10 +67,14 @@ class OrderExecutor:
                 self.outbox.mark(key,"UNKNOWN",{"code":"ORDER_SEND_NO_RESPONSE","comment":comment})
                 return result("UNKNOWN","ORDER_SEND_NO_RESPONSE",{"comment":comment,"reconcileRequired":True})
             retcode=getattr(sent,"retcode",None)
-            if retcode in (done_code,placed_code,getattr(self.mt5,"TRADE_RETCODE_DONE_PARTIAL",10010)):
+            if retcode in (done_code,getattr(self.mt5,"TRADE_RETCODE_DONE_PARTIAL",10010)):
                 details={"brokerSymbol":broker_symbol,"order":getattr(sent,"order",None),"deal":getattr(sent,"deal",None),"volume":getattr(sent,"volume",volume),"price":getattr(sent,"price",price),"comment":comment}
                 self.outbox.mark(key,"FILLED",details)
-                return result("FILLED","BROKER_ACCEPTED",details)
+                return result("FILLED","BROKER_EXECUTION_CONFIRMED",details)
+            if retcode==placed_code:
+                details={"brokerSymbol":broker_symbol,"order":getattr(sent,"order",None),"comment":comment,"retcode":retcode}
+                self.outbox.mark(key,"UNKNOWN",details)
+                return result("UNKNOWN","ORDER_PLACED_NOT_FILLED",{"reconcileRequired":True,**details})
             details={"retcode":retcode,"comment":str(getattr(sent,"comment",""))[:200],"brokerSymbol":broker_symbol}
             self.outbox.mark(key,"REJECTED",details)
             return result("REJECTED","BROKER_REJECTED",details)
