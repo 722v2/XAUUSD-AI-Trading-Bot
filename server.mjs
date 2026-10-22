@@ -1,5 +1,5 @@
 import { createServer } from "node:http";
-import { randomUUID, timingSafeEqual } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { extname, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -27,15 +27,6 @@ async function readJson(req,maxBytes=16384) {
   if (!chunks.length) return {};
   try { const value=JSON.parse(Buffer.concat(chunks).toString("utf8")); if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error(); return value; }
   catch { throw Object.assign(new Error("Invalid JSON body"),{status:400}); }
-}
-function basicAuthMatches(header, username, password) {
-  if (!username || !password || typeof header !== "string" || !header.startsWith("Basic ")) return false;
-  let supplied;
-  try { supplied=Buffer.from(header.slice(6).trim(),"base64").toString("utf8"); } catch { return false; }
-  const expected=username+":"+password;
-  const a=Buffer.from(supplied);
-  const b=Buffer.from(expected);
-  return a.length===b.length && timingSafeEqual(a,b);
 }
 function configuredSupabase(env) {
   if (!env.SUPABASE_URL || !env.SUPABASE_SERVICE_ROLE_KEY) return null;
@@ -879,9 +870,6 @@ export function createAppServer(env = process.env) {
   const telegramPollTimer=telegram.configured?setInterval(()=>{void pollTelegramUpdates();},5000):null;
   telegramPollTimer?.unref?.();
   if (telegram.configured) setTimeout(()=>{void pollTelegramUpdates();},250).unref?.();
-  const dashboardUsername=typeof env.DASHBOARD_USERNAME==="string"?env.DASHBOARD_USERNAME:"";
-  const dashboardPassword=typeof env.DASHBOARD_PASSWORD==="string"?env.DASHBOARD_PASSWORD:"";
-  const dashboardAuthEnabled=Boolean(dashboardUsername && dashboardPassword);
   const server = createServer(async (req,res) => {
     const url = new URL(req.url ?? "/", "http://localhost");
     const method = req.method ?? "GET";
@@ -926,11 +914,6 @@ export function createAppServer(env = process.env) {
         return sendJson(res,result.status,result.body);
       }
       return sendJson(res,404,{error:"NOT_FOUND"});
-    }
-    if (dashboardAuthEnabled && !basicAuthMatches(req.headers.authorization,dashboardUsername,dashboardPassword)) {
-      res.writeHead(401,{"content-type":"text/plain; charset=utf-8","www-authenticate":'Basic realm="XAUUSD Dashboard", charset="UTF-8"',"cache-control":"no-store"});
-      res.end("Dashboard authentication required.");
-      return;
     }
     if (method === "GET" && url.pathname === "/api/market/candles") {
       const intervals={M1:"1m",M5:"5m",M15:"15m",H1:"1h"}, tf=(url.searchParams.get("timeframe")||"M1").toUpperCase();
@@ -1326,13 +1309,7 @@ export function createAppServer(env = process.env) {
 }
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const host = process.env.HOST ?? "127.0.0.1";
-  const hasDashboardAuth=Boolean(process.env.DASHBOARD_USERNAME?.trim() && process.env.DASHBOARD_PASSWORD?.trim());
-  if (!["127.0.0.1","localhost","::1"].includes(host) && !hasDashboardAuth) {
-    process.stderr.write("Remote dashboard binding requires DASHBOARD_USERNAME and DASHBOARD_PASSWORD.\n");
-    process.exitCode = 1;
-  } else {
-    const port = Number(process.env.PORT ?? 3000);
-    const server = createAppServer();
-    server.listen(port,host,()=>process.stdout.write("XAUUSD dashboard listening on "+host+":"+port+"\n"));
-  }
+  const port = Number(process.env.PORT ?? 3000);
+  const server = createAppServer();
+  server.listen(port,host,()=>process.stdout.write("XAUUSD dashboard listening on "+host+":"+port+"\n"));
 }
