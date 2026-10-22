@@ -30,5 +30,7 @@ jobs:
         run: |
           python -m pip install -r mt5_bridge/requirements.txt
           python -m pip install -r mt5_bridge_v2/requirements.txt
+      - name: Compile rebuilt bridge modules
+        run: python -m compileall -q mt5_bridge_v2
       - name: Test MT5 bridge and relay safety contracts
         run: python -m unittest discover -s tests_python -v
