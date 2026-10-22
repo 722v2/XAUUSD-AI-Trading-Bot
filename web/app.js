@@ -1,7 +1,7 @@
 const $ = (id) => document.getElementById(id);
 const scanLog = [];
 const labels = {
-  CONNECTED: ["متصل", "ok-tag"], ARMED_LIVE: ["مفعّل · Live", "error-tag"], CONFIGURED: ["مهيأ", "ok-tag"], CONFIGURED_NOT_TESTED: ["مهيأ · غير مختبر", "warn-tag"],
+  CONNECTED: ["متصل", "ok-tag"], BIQUOTE_PRIMARY: ["Biquote · مصدر أساسي", "ok-tag"], READY_TO_ENABLE: ["جاهز للتفعيل", "ok-tag"], ARMED_LIVE: ["مفعّل · Live", "error-tag"], CONFIGURED: ["مهيأ", "ok-tag"], CONFIGURED_NOT_TESTED: ["مهيأ · غير مختبر", "warn-tag"],
   DISCONNECTED: ["غير متصل", "error-tag"], NOT_CONFIGURED: ["غير مهيأ", "muted-tag"], NOT_READY: ["غير جاهز", "warn-tag"],
   DEGRADED: ["متدهور", "warn-tag"], HEALTHY: ["سليم", "ok-tag"], DISABLED: ["معطّل", "muted-tag"], ARMED_DEMO: ["مفعّل · Demo", "warn-tag"]
 };
@@ -41,8 +41,8 @@ async function refreshHealth() {
     $("auto-trading-toggle").textContent = health.execution.state === "ARMED_DEMO" || health.execution.state === "ARMED_LIVE" ? "إيقاف التنفيذ الآلي ("+ (health.execution.environment||"DEMO") +")" : "تفعيل التنفيذ الآلي ("+(health.execution.environment||"DEMO")+")";
     $("scanner-title").textContent = health.scanner.label;
     $("scanner-detail").textContent = health.scanner.reason;
-    $("mt5-title").textContent = health.marketData.label;
-    $("mt5-detail").textContent = health.marketData.reason;
+    $("mt5-title").textContent = health.mt5?.label || "MT5 غير متصل";
+    $("mt5-detail").textContent = health.mt5?.reason || "جسر MT5 مطلوب للتنفيذ فقط؛ لا يؤثر على فحص Biquote.";
     const envMode=health.execution.environment||"DEMO";
     if ($("execution-environment")) $("execution-environment").value=envMode;
     if ($("mt5-environment-badge")) { $("mt5-environment-badge").textContent=envMode; $("mt5-environment-badge").className="status-tag "+(envMode==="LIVE"?"error-tag":"muted-tag"); }
