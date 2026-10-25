@@ -330,7 +330,7 @@ export function createAppServer(env = process.env) {
       if (validRiskSettings(current.riskSettings)) riskSettings = Object.freeze({...current.riskSettings});
       const storedProvider=typeof current.aiProviderId==="string"?current.aiProviderId:null;
       const storedModel=typeof current.aiModelId==="string"?current.aiModelId:null;
-      const restored=storedProvider && storedModel ? buildConfiguredAI(storedProvider,storedModel) : null;
+      const restored=storedProvider && storedModel ? configuredAI(env,aiCatalog,storedProvider,storedModel) : null;
       if (restored) {
         config.aiProviderId=storedProvider;
         config.aiModelId=storedModel;
