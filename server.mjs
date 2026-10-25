@@ -486,17 +486,17 @@ export function createAppServer(env = process.env) {
         if(unique.length>=35) {
           const candles=unique.slice(-count).map(row=>({symbol:"XAUUSD",timeframe,openTime:new Date(row.opened).toISOString(),closeTime:new Date(row.opened+duration*1000).toISOString(),open:row.values[0],high:row.values[1],low:row.values[2],close:row.values[3],tickVolume:Number.isFinite(row.tickVolume)?Math.max(0,Math.trunc(row.tickVolume)):0,isClosed:true}));
           const latest=candles[candles.length-1];
-          process.stdout.write("[scanner] "+JSON.stringify({event:"market_data_ok",provider:"BIQUOTE",timeframe,requested:count,receivedBars:Array.isArray(payload?.bars)?payload.bars.length:0,validClosedBars:unique.length,returnedBars:candles.length,latestClosedBarTime:latest?.closeTime??null,latestBarAgeMs:latest?Date.now()-Date.parse(latest.closeTime):null,elapsedMs:Date.now()-fetchStartedAt})+"\\n");
+          process.stdout.write("[scanner] "+JSON.stringify({event:"market_data_ok",provider:"BIQUOTE",timeframe,requested:count,receivedBars:Array.isArray(payload?.bars)?payload.bars.length:0,validClosedBars:unique.length,returnedBars:candles.length,latestClosedBarTime:latest?.closeTime??null,latestBarAgeMs:latest?Date.now()-Date.parse(latest.closeTime):null,elapsedMs:Date.now()-fetchStartedAt})+"\n");
           return {ok:true,value:{candles},provider:"BIQUOTE"};
         }
         biquoteError="BIQUOTE_INSUFFICIENT_CLOSED_CANDLES";
-        process.stdout.write("[scanner] "+JSON.stringify({event:"market_data_failed",provider:"BIQUOTE",timeframe,code:biquoteError,receivedBars:Array.isArray(payload?.bars)?payload.bars.length:0,validClosedBars:unique.length,elapsedMs:Date.now()-fetchStartedAt})+"\\n");
+        process.stdout.write("[scanner] "+JSON.stringify({event:"market_data_failed",provider:"BIQUOTE",timeframe,code:biquoteError,receivedBars:Array.isArray(payload?.bars)?payload.bars.length:0,validClosedBars:unique.length,elapsedMs:Date.now()-fetchStartedAt})+"\n");
       }
     } catch(error) { biquoteError=error?.name==="TimeoutError"||error?.name==="AbortError"?"BIQUOTE_TIMEOUT":"BIQUOTE_PARSE_OR_NETWORK_ERROR"; }
     // Scanner market data is intentionally independent of MT5. The bridge is an
     // execution adapter only; a provider outage must be reported, never hidden by
     // silently switching the scanner to broker candles.
-    process.stdout.write("[scanner] "+JSON.stringify({event:"market_data_failed",provider:"BIQUOTE",timeframe,code:biquoteError,elapsedMs:Date.now()-fetchStartedAt})+"\\n");
+    process.stdout.write("[scanner] "+JSON.stringify({event:"market_data_failed",provider:"BIQUOTE",timeframe,code:biquoteError,elapsedMs:Date.now()-fetchStartedAt})+"\n");
     return {ok:false,message:biquoteError,providerErrors:{biquote:biquoteError}};
   }
 
@@ -505,7 +505,7 @@ export function createAppServer(env = process.env) {
     scanInFlight = true;
     const runId = randomUUID();
     const startedAt = new Date().toISOString();
-    process.stdout.write("[scanner] "+JSON.stringify({event:"cycle_start",runId,triggerType,startedAt,autoTradingEnabled,aiConfigured:Boolean(aiProvider),marketDataProvider:"BIQUOTE"})+"\\n");
+    process.stdout.write("[scanner] "+JSON.stringify({event:"cycle_start",runId,triggerType,startedAt,autoTradingEnabled,aiConfigured:Boolean(aiProvider),marketDataProvider:"BIQUOTE"})+"\n");
     let finalEntry = null;
     let dbRunCreated = false;
     const record = (status, reason, extra = {}) => {
@@ -514,7 +514,7 @@ export function createAppServer(env = process.env) {
       finalEntry = entry;
       // Render logs are the durable diagnostic trail when dashboard memory resets or
       // Supabase is unavailable. Never log credentials, prompts, or raw provider payloads.
-      process.stdout.write("[scanner] "+JSON.stringify({event:"cycle_result",...entry})+"\\n");
+      process.stdout.write("[scanner] "+JSON.stringify({event:"cycle_result",...entry})+"\n");
       return entry;
     };
     try {
@@ -956,7 +956,7 @@ export function createAppServer(env = process.env) {
       if ((method === "GET" || method === "POST") && url.pathname.startsWith("/api/mt5/relay/proxy/")) {
         const path = url.pathname.slice("/api/mt5/relay/proxy".length) || "/";
         const allowedPath = /^\/(health|market\/(quote|spec|candles)|orders(\/lookup)?|positions(\/modify|\/close)?|environment|risk\/daily)(\?.*)?$/.test(path+url.search);
-        if (!allowedPath || path.startsWith("//") || path.includes("..") || path.includes("\\\\") || /[\\r\\n]/.test(path)) return sendJson(res,400,{error:"INVALID_RELAY_PATH"});
+        if (!allowedPath || path.startsWith("//") || path.includes("..") || path.includes("\\\\") || /[\\r\n]/.test(path)) return sendJson(res,400,{error:"INVALID_RELAY_PATH"});
         if (relayJobs.length >= 100 || relayWaiters.size >= 100) return sendJson(res,503,{error:"MT5_RELAY_BUSY"});
         let body = null;
         if (method === "POST") { try { body=await readJson(req); } catch(error) { return sendJson(res,error.status??400,{error:"INVALID_BODY"}); } }
@@ -1389,9 +1389,9 @@ export function createAppServer(env = process.env) {
     void hydrateSettings().then(()=>{
       if (aiProvider) {
         startScanner();
-        process.stdout.write("Scanner auto-started from persisted AI configuration; auto-trading remains disabled.\\n");
+        process.stdout.write("Scanner auto-started from persisted AI configuration; auto-trading remains disabled.\n");
       } else {
-        process.stdout.write("Scanner auto-start skipped: no restorable AI configuration.\\n");
+        process.stdout.write("Scanner auto-start skipped: no restorable AI configuration.\n");
       }
     });
   });
