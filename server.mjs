@@ -1002,7 +1002,7 @@ export function createAppServer(env = process.env) {
       if ((method === "GET" || method === "POST") && url.pathname.startsWith("/api/mt5/relay/proxy/")) {
         const path = url.pathname.slice("/api/mt5/relay/proxy".length) || "/";
         const allowedPath = /^\/(health|market\/(quote|spec|candles)|orders(\/lookup)?|positions(\/modify|\/close)?|environment|risk\/daily)(\?.*)?$/.test(path+url.search);
-        const unsafePath=path.startsWith("//")||path.includes("..")||path.includes("\\\\")||/[\\r\\n]/.test(path);
+        const unsafePath=path.startsWith("//")||path.includes("..")||path.includes("\\")||path.includes("\r")||path.includes("\n");
         if (!allowedPath || unsafePath) {
           // Log only the path and query parameter names; never log credentials or request bodies.
           process.stderr.write("[mt5-relay] rejected path "+JSON.stringify({pathname:url.pathname,forwardedPath:path,queryKeys:[...url.searchParams.keys()],allowedPath,unsafePath})+"\n");
