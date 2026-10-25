@@ -463,6 +463,7 @@ export function createAppServer(env = process.env) {
     const intervals={M1:"1m",M5:"5m",M15:"15m",H1:"1h"};
     const seconds={M1:60,M5:300,M15:900,H1:3600};
     if(!intervals[timeframe])return {ok:false,message:"INVALID_TIMEFRAME"};
+    const fetchStartedAt=Date.now();
     let biquoteError="BIQUOTE_UNAVAILABLE";
     try {
       const base=typeof env.BIQUOTE_BASE_URL==="string"&&env.BIQUOTE_BASE_URL.trim()?env.BIQUOTE_BASE_URL.trim():"https://biquote.io";
@@ -484,14 +485,18 @@ export function createAppServer(env = process.env) {
         const unique=rows.filter((row,index)=>index===0||row.opened!==rows[index-1].opened);
         if(unique.length>=35) {
           const candles=unique.slice(-count).map(row=>({symbol:"XAUUSD",timeframe,openTime:new Date(row.opened).toISOString(),closeTime:new Date(row.opened+duration*1000).toISOString(),open:row.values[0],high:row.values[1],low:row.values[2],close:row.values[3],tickVolume:Number.isFinite(row.tickVolume)?Math.max(0,Math.trunc(row.tickVolume)):0,isClosed:true}));
+          const latest=candles[candles.length-1];
+          process.stdout.write("[scanner] "+JSON.stringify({event:"market_data_ok",provider:"BIQUOTE",timeframe,requested:count,receivedBars:Array.isArray(payload?.bars)?payload.bars.length:0,validClosedBars:unique.length,returnedBars:candles.length,latestClosedBarTime:latest?.closeTime??null,latestBarAgeMs:latest?Date.now()-Date.parse(latest.closeTime):null,elapsedMs:Date.now()-fetchStartedAt})+"\\n");
           return {ok:true,value:{candles},provider:"BIQUOTE"};
         }
         biquoteError="BIQUOTE_INSUFFICIENT_CLOSED_CANDLES";
+        process.stdout.write("[scanner] "+JSON.stringify({event:"market_data_failed",provider:"BIQUOTE",timeframe,code:biquoteError,receivedBars:Array.isArray(payload?.bars)?payload.bars.length:0,validClosedBars:unique.length,elapsedMs:Date.now()-fetchStartedAt})+"\\n");
       }
     } catch(error) { biquoteError=error?.name==="TimeoutError"||error?.name==="AbortError"?"BIQUOTE_TIMEOUT":"BIQUOTE_PARSE_OR_NETWORK_ERROR"; }
     // Scanner market data is intentionally independent of MT5. The bridge is an
     // execution adapter only; a provider outage must be reported, never hidden by
     // silently switching the scanner to broker candles.
+    process.stdout.write("[scanner] "+JSON.stringify({event:"market_data_failed",provider:"BIQUOTE",timeframe,code:biquoteError,elapsedMs:Date.now()-fetchStartedAt})+"\\n");
     return {ok:false,message:biquoteError,providerErrors:{biquote:biquoteError}};
   }
 
@@ -500,12 +505,16 @@ export function createAppServer(env = process.env) {
     scanInFlight = true;
     const runId = randomUUID();
     const startedAt = new Date().toISOString();
+    process.stdout.write("[scanner] "+JSON.stringify({event:"cycle_start",runId,triggerType,startedAt,autoTradingEnabled,aiConfigured:Boolean(aiProvider),marketDataProvider:"BIQUOTE"})+"\\n");
     let finalEntry = null;
     let dbRunCreated = false;
     const record = (status, reason, extra = {}) => {
       const entry = {id:runId,at:startedAt,triggerType,status,reason,...(supabase && !dbRunCreated ? {persistenceWarning:true} : {}),...extra};
       scannerRuns = [entry,...scannerRuns].slice(0,50);
       finalEntry = entry;
+      // Render logs are the durable diagnostic trail when dashboard memory resets or
+      // Supabase is unavailable. Never log credentials, prompts, or raw provider payloads.
+      process.stdout.write("[scanner] "+JSON.stringify({event:"cycle_result",...entry})+"\\n");
       return entry;
     };
     try {
