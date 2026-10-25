@@ -989,7 +989,12 @@ export function createAppServer(env = process.env) {
       if ((method === "GET" || method === "POST") && url.pathname.startsWith("/api/mt5/relay/proxy/")) {
         const path = url.pathname.slice("/api/mt5/relay/proxy".length) || "/";
         const allowedPath = /^\/(health|market\/(quote|spec|candles)|orders(\/lookup)?|positions(\/modify|\/close)?|environment|risk\/daily)(\?.*)?$/.test(path+url.search);
-        if (!allowedPath || path.startsWith("//") || path.includes("..") || path.includes("\\\\") || /[\\r\n]/.test(path)) return sendJson(res,400,{error:"INVALID_RELAY_PATH"});
+        const unsafePath=path.startsWith("//")||path.includes("..")||path.includes("\\\\")||/[\\r\\n]/.test(path);
+        if (!allowedPath || unsafePath) {
+          // Log only the path and query parameter names; never log credentials or request bodies.
+          process.stderr.write("[mt5-relay] rejected path "+JSON.stringify({pathname:url.pathname,forwardedPath:path,queryKeys:[...url.searchParams.keys()],allowedPath,unsafePath})+"\\n");
+          return sendJson(res,400,{error:"INVALID_RELAY_PATH"});
+        }
         if (relayJobs.length >= 100 || relayWaiters.size >= 100) return sendJson(res,503,{error:"MT5_RELAY_BUSY"});
         let body = null;
         if (method === "POST") { try { body=await readJson(req); } catch(error) { return sendJson(res,error.status??400,{error:"INVALID_BODY"}); } }
