@@ -112,11 +112,15 @@ export function createBridgeV2Api(env=process.env,fetchImpl=fetch) {
         if(typeof body.agentId!=="string"||!/^[A-Za-z0-9._-]{1,80}$/.test(body.agentId)||body.environment!=="DEMO"||
           typeof body.terminalConnected!=="boolean"||typeof body.accountConnected!=="boolean"||typeof body.executionReady!=="boolean"||
           !["STARTING","CONNECTED","DEGRADED","DISCONNECTED"].includes(body.state)) {json(res,400,{error:"INVALID_HEARTBEAT"});return true;}
+        const existing=await store.request("/bridge_agents?agent_id=eq."+encodeURIComponent(body.agentId)+"&select=payload&limit=1");
+        const oldPayload=isObject(existing[0]?.payload)?existing[0].payload:{};
+        const marketCandles=isObject(oldPayload.marketCandles)?oldPayload.marketCandles:null;
+        const nextPayload={...body,...(marketCandles?{marketCandles}:{})};
         const rows=await store.request("/bridge_agents?on_conflict=agent_id",{method:"POST",headers:{Prefer:"resolution=merge-duplicates,return=representation"},body:JSON.stringify({
           agent_id:body.agentId,state:body.state,environment:"DEMO",terminal_connected:body.terminalConnected,account_connected:body.accountConnected,
           execution_ready:body.executionReady,broker_symbol:typeof body.brokerSymbol==="string"?body.brokerSymbol:null,
           account_login:typeof body.accountLogin==="string"?body.accountLogin:null,last_error_code:typeof body.lastErrorCode==="string"?body.lastErrorCode:null,
-          last_seen_at:new Date().toISOString(),payload:body
+          last_seen_at:new Date().toISOString(),payload:nextPayload
         })});
         json(res,200,{ok:true,agentId:body.agentId,acceptedAt:new Date().toISOString(),executionReady:Boolean(rows[0]?.execution_ready)});return true;
       }
