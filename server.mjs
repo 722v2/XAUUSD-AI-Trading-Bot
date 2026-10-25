@@ -459,12 +459,14 @@ export function createAppServer(env = process.env) {
     return {ok:true};
   }
   let latestScanView=null;
-  async function fetchScannerCandles(timeframe,count) {
+  async function fetchScannerCandles(timeframe,count,maxM1AgeMs=20000) {
     const intervals={M1:"1m",M5:"5m",M15:"15m",H1:"1h"};
     const seconds={M1:60,M5:300,M15:900,H1:3600};
+    const maxAgeMs={M1:maxM1AgeMs,M5:420000,M15:1200000,H1:5400000};
     if(!intervals[timeframe])return {ok:false,message:"INVALID_TIMEFRAME"};
     const fetchStartedAt=Date.now();
     let biquoteError="BIQUOTE_UNAVAILABLE";
+    let biquoteCandles=null;
     try {
       const base=typeof env.BIQUOTE_BASE_URL==="string"&&env.BIQUOTE_BASE_URL.trim()?env.BIQUOTE_BASE_URL.trim():"https://biquote.io";
       const endpoint=new URL("/api/XAUUSD/ohlc",base);
@@ -484,20 +486,43 @@ export function createAppServer(env = process.env) {
           .sort((a,b)=>a.opened-b.opened);
         const unique=rows.filter((row,index)=>index===0||row.opened!==rows[index-1].opened);
         if(unique.length>=35) {
-          const candles=unique.slice(-count).map(row=>({symbol:"XAUUSD",timeframe,openTime:new Date(row.opened).toISOString(),closeTime:new Date(row.opened+duration*1000).toISOString(),open:row.values[0],high:row.values[1],low:row.values[2],close:row.values[3],tickVolume:Number.isFinite(row.tickVolume)?Math.max(0,Math.trunc(row.tickVolume)):0,isClosed:true}));
-          const latest=candles[candles.length-1];
-          process.stdout.write("[scanner] "+JSON.stringify({event:"market_data_ok",provider:"BIQUOTE",timeframe,requested:count,receivedBars:Array.isArray(payload?.bars)?payload.bars.length:0,validClosedBars:unique.length,returnedBars:candles.length,latestClosedBarTime:latest?.closeTime??null,latestBarAgeMs:latest?Date.now()-Date.parse(latest.closeTime):null,elapsedMs:Date.now()-fetchStartedAt})+"\n");
-          return {ok:true,value:{candles},provider:"BIQUOTE"};
+          biquoteCandles=unique.slice(-count).map(row=>({symbol:"XAUUSD",timeframe,openTime:new Date(row.opened).toISOString(),closeTime:new Date(row.opened+duration*1000).toISOString(),open:row.values[0],high:row.values[1],low:row.values[2],close:row.values[3],tickVolume:Number.isFinite(row.tickVolume)?Math.max(0,Math.trunc(row.tickVolume)):0,isClosed:true}));
+          const latest=biquoteCandles[biquoteCandles.length-1];
+          const ageMs=Date.now()-Date.parse(latest.closeTime);
+          process.stdout.write("[scanner] "+JSON.stringify({event:"market_data_candidate",provider:"BIQUOTE",timeframe,requested:count,receivedBars:Array.isArray(payload?.bars)?payload.bars.length:0,validClosedBars:unique.length,returnedBars:biquoteCandles.length,latestClosedBarTime:latest.closeTime,latestBarAgeMs:ageMs,elapsedMs:Date.now()-fetchStartedAt})+"\n");
+          if(Number.isFinite(ageMs)&&ageMs>=-5000&&ageMs<=maxAgeMs[timeframe]) {
+            return {ok:true,value:{candles:biquoteCandles},provider:"BIQUOTE",latestBarAgeMs:ageMs};
+          }
+          biquoteError="BIQUOTE_STALE_CANDLES";
+        } else {
+          biquoteError="BIQUOTE_INSUFFICIENT_CLOSED_CANDLES";
         }
-        biquoteError="BIQUOTE_INSUFFICIENT_CLOSED_CANDLES";
-        process.stdout.write("[scanner] "+JSON.stringify({event:"market_data_failed",provider:"BIQUOTE",timeframe,code:biquoteError,receivedBars:Array.isArray(payload?.bars)?payload.bars.length:0,validClosedBars:unique.length,elapsedMs:Date.now()-fetchStartedAt})+"\n");
       }
     } catch(error) { biquoteError=error?.name==="TimeoutError"||error?.name==="AbortError"?"BIQUOTE_TIMEOUT":"BIQUOTE_PARSE_OR_NETWORK_ERROR"; }
-    // Scanner market data is intentionally independent of MT5. The bridge is an
-    // execution adapter only; a provider outage must be reported, never hidden by
-    // silently switching the scanner to broker candles.
-    process.stdout.write("[scanner] "+JSON.stringify({event:"market_data_failed",provider:"BIQUOTE",timeframe,code:biquoteError,elapsedMs:Date.now()-fetchStartedAt})+"\n");
-    return {ok:false,message:biquoteError,providerErrors:{biquote:biquoteError}};
+    // Biquote is preferred when its closed candles are fresh. If it is unavailable
+    // or stale, ask the authenticated outbound MT5 relay for broker candles. This
+    // is a data fallback only; it does not arm trading or bypass risk checks.
+    let bridgeError="MT5_CANDLE_FALLBACK_NOT_CONFIGURED";
+    if(bridge) {
+      try {
+        const broker=await bridge.candles(timeframe,count);
+        if(broker.ok&&Array.isArray(broker.value.candles)) {
+          const normalized=normalizeClosedCandles(broker.value.candles,timeframe,35);
+          if(normalized.ok) {
+            const candles=normalized.value;
+            const latest=candles[candles.length-1];
+            const ageMs=Date.now()-Date.parse(latest.closeTime);
+            if(Number.isFinite(ageMs)&&ageMs>=-5000&&ageMs<=maxAgeMs[timeframe]) {
+              process.stdout.write("[scanner] "+JSON.stringify({event:"market_data_ok",provider:"MT5_BROKER_FALLBACK",timeframe,requested:count,returnedBars:candles.length,latestClosedBarTime:latest.closeTime,latestBarAgeMs:ageMs,biquoteError,elapsedMs:Date.now()-fetchStartedAt})+"\n");
+              return {ok:true,value:{candles},provider:"MT5_BROKER_FALLBACK",latestBarAgeMs:ageMs,providerErrors:{biquote:biquoteError}};
+            }
+            bridgeError="MT5_CANDLES_STALE";
+          } else bridgeError="MT5_CANDLES_"+normalized.error;
+        } else bridgeError=broker.ok?"MT5_CANDLES_INVALID_RESPONSE":broker.errorCode==="UNAVAILABLE"?"MT5_CANDLE_RELAY_UNAVAILABLE":broker.message;
+      } catch { bridgeError="MT5_CANDLE_FALLBACK_ERROR"; }
+    }
+    process.stdout.write("[scanner] "+JSON.stringify({event:"market_data_failed",timeframe,biquoteError,bridgeError,biquoteLatestBarTime:biquoteCandles?.[biquoteCandles.length-1]?.closeTime??null,elapsedMs:Date.now()-fetchStartedAt})+"\n");
+    return {ok:false,message:biquoteError==="BIQUOTE_STALE_CANDLES"&&bridgeError==="MT5_CANDLE_FALLBACK_NOT_CONFIGURED"?"MARKET_DATA_STALE":biquoteError,providerErrors:{biquote:biquoteError,mt5:bridgeError}};
   }
 
   async function performScan(triggerType = "MANUAL") {
@@ -550,9 +575,9 @@ export function createAppServer(env = process.env) {
         }
       }
       const timeframes = ["M1","M5","M15","H1"];
-      const fetched = await Promise.all(timeframes.map(async timeframe => [timeframe,await fetchScannerCandles(timeframe,timeframe==="M1"?120:60)]));
-      const normalized = {};
       const freshness=scanFreshnessPolicy(triggerType);
+      const fetched = await Promise.all(timeframes.map(async timeframe => [timeframe,await fetchScannerCandles(timeframe,timeframe==="M1"?120:60,freshness.maxM1AgeMs)]));
+      const normalized = {};
       for (const [timeframe,result] of fetched) {
         if (!result.ok) {
           const entry=record("NO_ANALYSIS","MARKET_DATA_UNAVAILABLE",{timeframe,error:result.message,providerErrors:result.providerErrors||null});
@@ -980,28 +1005,13 @@ export function createAppServer(env = process.env) {
       return sendJson(res,404,{error:"NOT_FOUND"});
     }
     if (method === "GET" && url.pathname === "/api/market/candles") {
-      const intervals={M1:"1m",M5:"5m",M15:"15m",H1:"1h"}, tf=(url.searchParams.get("timeframe")||"M1").toUpperCase();
-      if(!intervals[tf])return sendJson(res,400,{error:"INVALID_TIMEFRAME"});
+      const tf=(url.searchParams.get("timeframe")||"M1").toUpperCase();
+      if(!["M1","M5","M15","H1"].includes(tf))return sendJson(res,400,{error:"INVALID_TIMEFRAME"});
       const n=Number(url.searchParams.get("count")||300),count=Number.isInteger(n)?Math.max(50,Math.min(1000,n)):300;
-      const base=(typeof env.BIQUOTE_BASE_URL==="string"&&env.BIQUOTE_BASE_URL.trim()?env.BIQUOTE_BASE_URL.trim():"https://biquote.io").replace(/\/+$/,"");
-      let failure="BIQUOTE_NETWORK_ERROR";
-      try {
-        const r=await fetch(base+"/api/XAUUSD/ohlc?interval="+intervals[tf]+"&limit="+count,{signal:AbortSignal.timeout(8000),headers:{accept:"application/json"}});
-        if(!r.ok) failure="BIQUOTE_HTTP_"+r.status;
-        else {
-          let d;
-          try { d=await r.json(); } catch { failure="BIQUOTE_INVALID_JSON"; }
-          if(d!==undefined) {
-            if(!d||!Array.isArray(d.bars)) failure="BIQUOTE_INVALID_SCHEMA";
-            else {
-              const candles=d.bars.map(b=>({time:Math.floor(Date.parse(b.openTime)/1000),open:Number(b.open),high:Number(b.high),low:Number(b.low),close:Number(b.close),isOpen:Boolean(b.isOpen)})).filter(b=>Number.isFinite(b.time)&&[b.open,b.high,b.low,b.close].every(Number.isFinite)).sort((x,y)=>x.time-y.time).filter((b,i,x)=>!i||b.time>x[i-1].time);
-              if(candles.length>=35)return sendJson(res,200,{ok:true,provider:"BIQUOTE",symbol:"XAUUSD",timeframe:tf,count:candles.length,candles,updatedAt:new Date().toISOString()});
-              failure="BIQUOTE_INSUFFICIENT_VALID_CANDLES";
-            }
-          }
-        }
-      } catch(error) { failure=error?.name==="TimeoutError"||error?.name==="AbortError"?"BIQUOTE_TIMEOUT":"BIQUOTE_NETWORK_ERROR"; }
-      return sendJson(res,503,{error:"MARKET_DATA_UNAVAILABLE",provider:"BIQUOTE",diagnosticCode:failure,message:"تعذر جلب 35 شمعة صالحة على الأقل من Biquote. جسر MT5 ليس مصدرًا بديلًا للسكانر."});
+      const result=await fetchScannerCandles(tf,count);
+      if(!result.ok)return sendJson(res,503,{error:"MARKET_DATA_UNAVAILABLE",providerErrors:result.providerErrors??null,diagnosticCode:result.message,message:"تعذر جلب شموع حديثة صالحة من Biquote أو جسر MT5؛ لم يتم عرض بيانات قديمة على أنها حديثة."});
+      const candles=result.value.candles.map(b=>({time:Math.floor(Date.parse(b.openTime)/1000),open:b.open,high:b.high,low:b.low,close:b.close,isOpen:false}));
+      return sendJson(res,200,{ok:true,provider:result.provider,symbol:"XAUUSD",timeframe:tf,count:candles.length,candles,updatedAt:new Date().toISOString(),latestClosedBarTime:result.value.candles[result.value.candles.length-1]?.closeTime??null,latestBarAgeMs:result.latestBarAgeMs});
     }
     if (method === "POST" && url.pathname === "/api/mt5/demo-execute-signal") {
       // Explicit demo test order: do not wait for a scanner BUY/SELL signal.
