@@ -992,7 +992,7 @@ export function createAppServer(env = process.env) {
         const unsafePath=path.startsWith("//")||path.includes("..")||path.includes("\\\\")||/[\\r\\n]/.test(path);
         if (!allowedPath || unsafePath) {
           // Log only the path and query parameter names; never log credentials or request bodies.
-          process.stderr.write("[mt5-relay] rejected path "+JSON.stringify({pathname:url.pathname,forwardedPath:path,queryKeys:[...url.searchParams.keys()],allowedPath,unsafePath})+"\\n");
+          process.stderr.write("[mt5-relay] rejected path "+JSON.stringify({pathname:url.pathname,forwardedPath:path,queryKeys:[...url.searchParams.keys()],allowedPath,unsafePath})+"\n");
           return sendJson(res,400,{error:"INVALID_RELAY_PATH"});
         }
         if (relayJobs.length >= 100 || relayWaiters.size >= 100) return sendJson(res,503,{error:"MT5_RELAY_BUSY"});
