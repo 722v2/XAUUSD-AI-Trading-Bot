@@ -98,6 +98,13 @@ class Agent:
                     print(f"[market-data] {timeframe}: publish rejected HTTP {status} {body.get('error','HTTP_ERROR')}",flush=True)
             except Exception as exc:
                 print(f"[market-data] {timeframe}: {type(exc).__name__}",flush=True)
+    def market_data_loop(self):
+        while not self.stop.is_set():
+            try:
+                self.market_data_sync()
+            except Exception as exc:
+                print(f"[market-data] sync failed: {type(exc).__name__}",flush=True)
+            self.stop.wait(30.0)
     def flush_results(self):
         for row in self.outbox.pending_results():
             try: payload=json.loads(row["payload"])
@@ -149,14 +156,12 @@ class Agent:
         ok,reason=self.session.connect(); self.last_error=None if ok else reason
         if ok: self.recover_uncertain_commands()
         print(f"[startup] agent={self.config.agent_id}; demo_session={'connected' if ok else reason}; live trading disabled",flush=True)
+        threading.Thread(target=self.market_data_loop,name="mt5-market-data",daemon=True).start()
         last_heartbeat=0.0
-        last_market_sync=0.0
         while not self.stop.is_set():
             now=time.monotonic()
             if now-last_heartbeat>=self.config.heartbeat_seconds:
                 self.heartbeat(); last_heartbeat=now
-            if now-last_market_sync>=30.0:
-                self.market_data_sync(); last_market_sync=now
             self.flush_results()
             status,body=self.request("/api/bridge/v1/commands/next?agentId="+self.config.agent_id,timeout=12)
             if status==200 and isinstance(body.get("command"),dict): self.handle_command(body["command"])
