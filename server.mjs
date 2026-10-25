@@ -39,9 +39,22 @@ function configuredBridge(env) {
   try {
     const endpoint=new URL(env.MT5_BRIDGE_URL);
     if (endpoint.username || endpoint.password || endpoint.search || endpoint.hash) return null;
-    // MT5BridgeClient appends this route for remote connections. Normalize an
-    // accidental existing or repeated suffix to avoid nested relay paths.
-    endpoint.pathname=endpoint.pathname.replace(/(?:\/api\/mt5\/relay\/proxy)+\/?$/,"") || "/";
+    // MT5BridgeClient appends the relay prefix itself. Accept the Render origin,
+    // the prefix, or one known bridge endpoint copied into the setting, then normalize
+    // to the origin. Reject all other paths rather than silently forwarding them.
+    const relayPrefix="/api/mt5/relay/proxy";
+    let path=endpoint.pathname.replace(/\/+$/,"");
+    const marker=path.indexOf(relayPrefix);
+    if(marker>=0) {
+      const prefix=path.slice(0,marker);
+      let tail=path.slice(marker+relayPrefix.length);
+      while(tail.startsWith(relayPrefix)) tail=tail.slice(relayPrefix.length);
+      if(tail && !/^\/(health|market\/(quote|spec|candles)|orders(\/lookup)?|positions(\/modify|\/close)?|environment|risk\/daily)$/.test(tail)) return null;
+      path=prefix;
+    } else if(path && path!=="/") {
+      return null;
+    }
+    endpoint.pathname=path||"/";
     if (!endpoint.pathname.startsWith("/") || endpoint.pathname.includes("..")) return null;
     const baseUrl=endpoint.toString().replace(/\/+$/,"");
     return new MT5BridgeClient({baseUrl,token:env.MT5_BRIDGE_TOKEN});
@@ -989,7 +1002,7 @@ export function createAppServer(env = process.env) {
       if ((method === "GET" || method === "POST") && url.pathname.startsWith("/api/mt5/relay/proxy/")) {
         const path = url.pathname.slice("/api/mt5/relay/proxy".length) || "/";
         const allowedPath = /^\/(health|market\/(quote|spec|candles)|orders(\/lookup)?|positions(\/modify|\/close)?|environment|risk\/daily)(\?.*)?$/.test(path+url.search);
-        const unsafePath=path.startsWith("//")||path.includes("..")||path.includes("\\\\")||/[\\r\\n]/.test(path);
+        const unsafePath=path.startsWith("//")||path.includes("..")||path.includes("\\")||path.includes("\r")||path.includes("\n");
         if (!allowedPath || unsafePath) {
           // Log only the path and query parameter names; never log credentials or request bodies.
           process.stderr.write("[mt5-relay] rejected path "+JSON.stringify({pathname:url.pathname,forwardedPath:path,queryKeys:[...url.searchParams.keys()],allowedPath,unsafePath})+"\n");
