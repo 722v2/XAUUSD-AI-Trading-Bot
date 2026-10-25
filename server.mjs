@@ -539,28 +539,8 @@ export function createAppServer(env = process.env) {
         } else bridgeError="BRIDGE_V2_"+normalized.error;
       } else bridgeError=brokerV2.errorCode||"BRIDGE_V2_CANDLES_UNAVAILABLE";
     } catch { bridgeError="BRIDGE_V2_CANDLES_ERROR"; }
-    // Legacy bridge remains a temporary compatibility fallback only; it is not
-    // the preferred data path and can be removed after V2 is running on Windows.
-    if(bridge) {
-      try {
-        const broker=await bridge.candles(timeframe,count);
-        if(broker.ok&&Array.isArray(broker.value.candles)) {
-          const normalized=normalizeClosedCandles(broker.value.candles,timeframe,35);
-          if(normalized.ok) {
-            const candles=normalized.value;
-            const latest=candles[candles.length-1];
-            const ageMs=Date.now()-Date.parse(latest.closeTime);
-            if(Number.isFinite(ageMs)&&ageMs>=-5000&&ageMs<=maxAgeMs[timeframe]) {
-              process.stdout.write("[scanner] "+JSON.stringify({event:"market_data_ok",provider:"MT5_BROKER_FALLBACK",timeframe,requested:count,returnedBars:candles.length,latestClosedBarTime:latest.closeTime,latestBarAgeMs:ageMs,biquoteError,elapsedMs:Date.now()-fetchStartedAt})+"\n");
-              return {ok:true,value:{candles},provider:"MT5_BROKER_FALLBACK",latestBarAgeMs:ageMs,providerErrors:{biquote:biquoteError}};
-            }
-            bridgeError="MT5_CANDLES_STALE";
-          } else bridgeError="MT5_CANDLES_"+normalized.error;
-        } else bridgeError=broker.ok?"MT5_CANDLES_INVALID_RESPONSE":broker.errorCode==="UNAVAILABLE"?"MT5_CANDLE_RELAY_UNAVAILABLE":broker.message;
-      } catch { bridgeError="MT5_CANDLE_FALLBACK_ERROR"; }
-    }
     process.stdout.write("[scanner] "+JSON.stringify({event:"market_data_failed",timeframe,biquoteError,bridgeError,biquoteLatestBarTime:biquoteCandles?.[biquoteCandles.length-1]?.closeTime??null,elapsedMs:Date.now()-fetchStartedAt})+"\n");
-    return {ok:false,message:biquoteError==="BIQUOTE_STALE_CANDLES"&&bridgeError==="MT5_CANDLE_FALLBACK_NOT_CONFIGURED"?"MARKET_DATA_STALE":biquoteError,providerErrors:{biquote:biquoteError,mt5:bridgeError}};
+    return {ok:false,message:biquoteError==="BIQUOTE_STALE_CANDLES"?"MARKET_DATA_STALE":biquoteError,providerErrors:{biquote:biquoteError,mt5:bridgeError}};
   }
 
   async function performScan(triggerType = "MANUAL") {
