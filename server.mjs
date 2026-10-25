@@ -36,8 +36,16 @@ function configuredSupabase(env) {
 }
 function configuredBridge(env) {
   if (!env.MT5_BRIDGE_URL || !env.MT5_BRIDGE_TOKEN) return null;
-  try { return new MT5BridgeClient({baseUrl:env.MT5_BRIDGE_URL,token:env.MT5_BRIDGE_TOKEN}); }
-  catch { return null; }
+  try {
+    const endpoint=new URL(env.MT5_BRIDGE_URL);
+    if (endpoint.username || endpoint.password || endpoint.search || endpoint.hash) return null;
+    // MT5BridgeClient appends this route for remote connections. Normalize an
+    // accidental existing or repeated suffix to avoid nested relay paths.
+    endpoint.pathname=endpoint.pathname.replace(/(?:\/api\/mt5\/relay\/proxy)+\/?$/,"") || "/";
+    if (!endpoint.pathname.startsWith("/") || endpoint.pathname.includes("..")) return null;
+    const baseUrl=endpoint.toString().replace(/\/+$/,"");
+    return new MT5BridgeClient({baseUrl,token:env.MT5_BRIDGE_TOKEN});
+  } catch { return null; }
 }
 function allowedAIBaseUrl(value) {
   try {
