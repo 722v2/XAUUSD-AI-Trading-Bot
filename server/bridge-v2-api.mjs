@@ -41,6 +41,26 @@ export async function readBridgeV2Status(env=process.env,agentId="windows-mt5-de
   const age=Date.now()-Date.parse(a.last_seen_at),alive=Number.isFinite(age)&&age<=30000;
   return {state:alive?a.state:"DISCONNECTED",ready:alive&&a.execution_ready===true,reason:alive?(a.last_error_code||"HEARTBEAT_OK"):"HEARTBEAT_STALE",lastSeenAt:a.last_seen_at,heartbeatAgeMs:Number.isFinite(age)?age:null,environment:a.environment,terminalConnected:alive&&a.terminal_connected,accountConnected:alive&&a.account_connected,executionReady:alive&&a.execution_ready,brokerSymbol:a.broker_symbol,accountLogin:a.account_login,quote:a.payload?.quote??null,symbolSpec:a.payload?.symbolSpec??null};
 }
+export async function readBridgeV2Candles(env,timeframe,count=120,fetchImpl=fetch) {
+  if(!["M1","M5","M15","H1"].includes(timeframe)||!Number.isInteger(count)||count<35||count>500) return {ok:false,errorCode:"INVALID_CANDLE_REQUEST"};
+  try {
+    const store=new BridgeStore(env,fetchImpl);
+    const agentId=env.MT5_AGENT_ID||"windows-mt5-demo-01";
+    const rows=await store.request("/bridge_agents?agent_id=eq."+encodeURIComponent(agentId)+"&select=environment,last_seen_at,payload&limit=1");
+    const agent=rows[0];
+    const heartbeatAge=agent?Date.now()-Date.parse(agent.last_seen_at):Infinity;
+    if(!agent||agent.environment!=="DEMO"||!Number.isFinite(heartbeatAge)||heartbeatAge>30000) return {ok:false,errorCode:"BRIDGE_V2_AGENT_STALE"};
+    const snapshot=agent.payload?.marketCandles?.[timeframe];
+    if(!snapshot||!Array.isArray(snapshot.candles)) return {ok:false,errorCode:"BRIDGE_V2_CANDLES_NOT_AVAILABLE"};
+    const candles=snapshot.candles.slice(-count);
+    if(candles.length<35) return {ok:false,errorCode:"BRIDGE_V2_INSUFFICIENT_CANDLES"};
+    return {ok:true,value:{symbol:"XAUUSD",timeframe,candles,updatedAt:snapshot.updatedAt??null}};
+  } catch(error) {
+    const code=error instanceof Error?error.message:"BRIDGE_V2_CANDLES_UNAVAILABLE";
+    return {ok:false,errorCode:code.startsWith("BRIDGE_STORAGE")?code:"BRIDGE_V2_CANDLES_UNAVAILABLE"};
+  }
+}
+
 export async function submitBridgeV2Order(env,intent,fetchImpl=fetch) {
   const store=new BridgeStore(env,fetchImpl);
   const agentId=env.MT5_AGENT_ID||"windows-mt5-demo-01";
@@ -92,13 +112,52 @@ export function createBridgeV2Api(env=process.env,fetchImpl=fetch) {
         if(typeof body.agentId!=="string"||!/^[A-Za-z0-9._-]{1,80}$/.test(body.agentId)||body.environment!=="DEMO"||
           typeof body.terminalConnected!=="boolean"||typeof body.accountConnected!=="boolean"||typeof body.executionReady!=="boolean"||
           !["STARTING","CONNECTED","DEGRADED","DISCONNECTED"].includes(body.state)) {json(res,400,{error:"INVALID_HEARTBEAT"});return true;}
+        const existing=await store.request("/bridge_agents?agent_id=eq."+encodeURIComponent(body.agentId)+"&select=payload&limit=1");
+        const oldPayload=isObject(existing[0]?.payload)?existing[0].payload:{};
+        const marketCandles=isObject(oldPayload.marketCandles)?oldPayload.marketCandles:null;
+        const nextPayload={...body,...(marketCandles?{marketCandles}:{})};
         const rows=await store.request("/bridge_agents?on_conflict=agent_id",{method:"POST",headers:{Prefer:"resolution=merge-duplicates,return=representation"},body:JSON.stringify({
           agent_id:body.agentId,state:body.state,environment:"DEMO",terminal_connected:body.terminalConnected,account_connected:body.accountConnected,
           execution_ready:body.executionReady,broker_symbol:typeof body.brokerSymbol==="string"?body.brokerSymbol:null,
           account_login:typeof body.accountLogin==="string"?body.accountLogin:null,last_error_code:typeof body.lastErrorCode==="string"?body.lastErrorCode:null,
-          last_seen_at:new Date().toISOString(),payload:body
+          last_seen_at:new Date().toISOString(),payload:nextPayload
         })});
         json(res,200,{ok:true,agentId:body.agentId,acceptedAt:new Date().toISOString(),executionReady:Boolean(rows[0]?.execution_ready)});return true;
+      }
+      if(method==="POST"&&url.pathname==="/api/bridge/v1/market/candles") {
+        const body=await readBody(req,100000);
+        const allowedTimeframes=["M1","M5","M15","H1"];
+        if(typeof body.agentId!=="string"||!/^[A-Za-z0-9._-]{1,80}$/.test(body.agentId)||
+          !allowedTimeframes.includes(body.timeframe)||!Array.isArray(body.candles)||body.candles.length<35||body.candles.length>500) {
+          json(res,400,{error:"INVALID_CANDLE_SNAPSHOT"});return true;
+        }
+        const clean=[];let previousOpen=-Infinity;const now=Date.now();
+        const durations={M1:60000,M5:300000,M15:900000,H1:3600000};
+        for(const bar of body.candles) {
+          if(!isObject(bar)||bar.symbol!=="XAUUSD"||bar.timeframe!==body.timeframe||bar.isClosed!==true||
+            typeof bar.openTime!=="string"||typeof bar.closeTime!=="string"||
+            ![bar.open,bar.high,bar.low,bar.close].every(x=>typeof x==="number"&&Number.isFinite(x)&&x>0)||
+            !(typeof bar.tickVolume==="number"&&Number.isFinite(bar.tickVolume)&&bar.tickVolume>=0)) {
+            json(res,400,{error:"INVALID_CANDLE_FIELDS"});return true;
+          }
+          const opened=Date.parse(bar.openTime),closed=Date.parse(bar.closeTime);
+          if(!Number.isFinite(opened)||!Number.isFinite(closed)||opened<=previousOpen||closed<=opened||
+            closed-opened!==durations[body.timeframe]||closed>now+5000||
+            bar.high<Math.max(bar.open,bar.close,bar.low)||bar.low>Math.min(bar.open,bar.close,bar.high)) {
+            json(res,400,{error:"INVALID_CANDLE_GEOMETRY_OR_TIME"});return true;
+          }
+          previousOpen=opened;
+          clean.push({symbol:"XAUUSD",timeframe:body.timeframe,openTime:new Date(opened).toISOString(),closeTime:new Date(closed).toISOString(),open:bar.open,high:bar.high,low:bar.low,close:bar.close,tickVolume:Math.trunc(bar.tickVolume),isClosed:true});
+        }
+        const store=new BridgeStore(env,fetchImpl);
+        const agents=await store.request("/bridge_agents?agent_id=eq."+encodeURIComponent(body.agentId)+"&select=agent_id,environment,last_seen_at,payload&limit=1");
+        const agent=agents[0],age=agent?Date.now()-Date.parse(agent.last_seen_at):Infinity;
+        if(!agent||agent.environment!=="DEMO"||!Number.isFinite(age)||age>30000) {json(res,409,{error:"BRIDGE_V2_AGENT_NOT_FRESH"});return true;}
+        const prior=isObject(agent.payload)?agent.payload:{};
+        const priorCandles=isObject(prior.marketCandles)?prior.marketCandles:{};
+        const nextPayload={...prior,marketCandles:{...priorCandles,[body.timeframe]:{candles:clean,updatedAt:new Date().toISOString()}}};
+        await store.request("/bridge_agents?agent_id=eq."+encodeURIComponent(body.agentId),{method:"PATCH",body:JSON.stringify({payload:nextPayload})});
+        json(res,200,{ok:true,timeframe:body.timeframe,acceptedBars:clean.length,latestClosedBarTime:clean[clean.length-1].closeTime});return true;
       }
       if(method==="GET"&&url.pathname==="/api/bridge/v1/status") {
         const agentId=url.searchParams.get("agentId")||"windows-mt5-demo-01";
