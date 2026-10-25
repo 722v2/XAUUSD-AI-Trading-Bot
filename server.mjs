@@ -9,7 +9,7 @@ import {
   OpenAICompatibleAIProvider, coordinateTechnicalAndAI, prepareExecutionIntent, atr, managePositionStop
 } from "./dist/index.js";
 import { runHistoricalBacktest } from "./server/backtest-engine.mjs";
-import { createBridgeV2Api, readBridgeV2Status, submitBridgeV2Order } from "./server/bridge-v2-api.mjs";
+import { createBridgeV2Api, readBridgeV2Status, readBridgeV2Candles, submitBridgeV2Order } from "./server/bridge-v2-api.mjs";
 
 const root = fileURLToPath(new URL("./web/", import.meta.url)).replace(/[\\/]+$/, "");
 const MIME = { ".html":"text/html; charset=utf-8", ".css":"text/css; charset=utf-8", ".js":"text/javascript; charset=utf-8", ".svg":"image/svg+xml" };
@@ -520,10 +520,27 @@ export function createAppServer(env = process.env) {
         }
       }
     } catch(error) { biquoteError=error?.name==="TimeoutError"||error?.name==="AbortError"?"BIQUOTE_TIMEOUT":"BIQUOTE_PARSE_OR_NETWORK_ERROR"; }
-    // Biquote is preferred when its closed candles are fresh. If it is unavailable
-    // or stale, ask the authenticated outbound MT5 relay for broker candles. This
-    // is a data fallback only; it does not arm trading or bypass risk checks.
-    let bridgeError="MT5_CANDLE_FALLBACK_NOT_CONFIGURED";
+    // Prefer the new outbound Bridge V2 feed over the legacy local bridge. The
+    // V2 agent publishes closed candles directly to the authenticated Render API.
+    let bridgeError="BRIDGE_V2_CANDLES_NOT_AVAILABLE";
+    try {
+      const brokerV2=await readBridgeV2Candles(env,timeframe,count);
+      if(brokerV2.ok&&Array.isArray(brokerV2.value.candles)) {
+        const normalized=normalizeClosedCandles(brokerV2.value.candles,timeframe,35);
+        if(normalized.ok) {
+          const candles=normalized.value;
+          const latest=candles[candles.length-1];
+          const ageMs=Date.now()-Date.parse(latest.closeTime);
+          if(Number.isFinite(ageMs)&&ageMs>=-5000&&ageMs<=maxAgeMs[timeframe]) {
+            process.stdout.write("[scanner] "+JSON.stringify({event:"market_data_ok",provider:"MT5_BRIDGE_V2",timeframe,requested:count,returnedBars:candles.length,latestClosedBarTime:latest.closeTime,latestBarAgeMs:ageMs,biquoteError,elapsedMs:Date.now()-fetchStartedAt})+"\n");
+            return {ok:true,value:{candles},provider:"MT5_BRIDGE_V2",latestBarAgeMs:ageMs,providerErrors:{biquote:biquoteError}};
+          }
+          bridgeError="BRIDGE_V2_CANDLES_STALE";
+        } else bridgeError="BRIDGE_V2_"+normalized.error;
+      } else bridgeError=brokerV2.errorCode||"BRIDGE_V2_CANDLES_UNAVAILABLE";
+    } catch { bridgeError="BRIDGE_V2_CANDLES_ERROR"; }
+    // Legacy bridge remains a temporary compatibility fallback only; it is not
+    // the preferred data path and can be removed after V2 is running on Windows.
     if(bridge) {
       try {
         const broker=await bridge.candles(timeframe,count);
