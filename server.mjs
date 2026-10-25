@@ -987,9 +987,16 @@ export function createAppServer(env = process.env) {
         return sendJson(res,200,{ok:true});
       }
       if ((method === "GET" || method === "POST") && url.pathname.startsWith("/api/mt5/relay/proxy/")) {
-        const path = url.pathname.slice("/api/mt5/relay/proxy".length) || "/";
-        const allowedPath = /^\/(health|market\/(quote|spec|candles)|orders(\/lookup)?|positions(\/modify|\/close)?|environment|risk\/daily)(\?.*)?$/.test(path+url.search);
-        if (!allowedPath || path.startsWith("//") || path.includes("..") || path.includes("\\\\") || /[\\r\n]/.test(path)) return sendJson(res,400,{error:"INVALID_RELAY_PATH"});
+        let path = url.pathname.slice("/api/mt5/relay/proxy".length) || "/";
+        // Be tolerant of an existing proxy suffix in MT5_BRIDGE_URL. Strip only
+        // repeated copies of this exact prefix, then enforce the same strict allowlist.
+        while (path.startsWith("/api/mt5/relay/proxy/")) path=path.slice("/api/mt5/relay/proxy".length) || "/";
+        const requestedPath=path+url.search;
+        const allowedPath = /^\/(health|market\/(quote|spec|candles)|orders(\/lookup)?|positions(\/modify|\/close)?|environment|risk\/daily)(\?.*)?$/.test(requestedPath);
+        if (!allowedPath || path.startsWith("//") || path.includes("..") || path.includes("\\\\") || /[\r\n]/.test(path)) {
+          process.stderr.write("[relay] "+JSON.stringify({event:"proxy_path_rejected",path:requestedPath.slice(0,180)})+"\n");
+          return sendJson(res,400,{error:"INVALID_RELAY_PATH"});
+        }
         if (relayJobs.length >= 100 || relayWaiters.size >= 100) return sendJson(res,503,{error:"MT5_RELAY_BUSY"});
         let body = null;
         if (method === "POST") { try { body=await readJson(req); } catch(error) { return sendJson(res,error.status??400,{error:"INVALID_BODY"}); } }
