@@ -48,6 +48,56 @@ class Agent:
             if state["executionReady"]: print(f"[health] connected; environment=DEMO; symbol={state['brokerSymbol']}; heartbeat accepted",flush=True)
             else: print(f"[health] not ready: {state['lastErrorCode']}; heartbeat accepted",flush=True)
         else: print(f"[health] heartbeat rejected: HTTP {status} {body.get('error','HTTP_ERROR')}",flush=True)
+    def market_data_sync(self):
+        if mt5 is None:
+            return
+        state=snapshot(mt5,self.config.symbol,self.config.environment,self.last_error)
+        symbol=state.get("brokerSymbol")
+        if not symbol:
+            return
+        frames={
+            "M1":(getattr(mt5,"TIMEFRAME_M1",None),60,120),
+            "M5":(getattr(mt5,"TIMEFRAME_M5",None),300,60),
+            "M15":(getattr(mt5,"TIMEFRAME_M15",None),900,60),
+            "H1":(getattr(mt5,"TIMEFRAME_H1",None),3600,60),
+        }
+        now=time.time()
+        for timeframe,(constant,duration,count) in frames.items():
+            if constant is None:
+                continue
+            try:
+                rates=mt5.copy_rates_from_pos(symbol,constant,1,count)
+                if rates is None:
+                    continue
+                candles=[]
+                for row in rates:
+                    opened=int(row["time"])
+                    closed=opened+duration
+                    if closed>now:
+                        continue
+                    values={name:float(row[name]) for name in ("open","high","low","close")}
+                    volume=max(0,int(row["tick_volume"]))
+                    if not all(value>0 and value<float("inf") for value in values.values()):
+                        continue
+                    candles.append({
+                        "symbol":"XAUUSD","timeframe":timeframe,
+                        "openTime":datetime.fromtimestamp(opened,timezone.utc).isoformat(timespec="milliseconds").replace("+00:00","Z"),
+                        "closeTime":datetime.fromtimestamp(closed,timezone.utc).isoformat(timespec="milliseconds").replace("+00:00","Z"),
+                        **values,"tickVolume":volume,"isClosed":True,
+                    })
+                candles.sort(key=lambda bar:bar["openTime"])
+                if len(candles)<35:
+                    print(f"[market-data] {timeframe}: insufficient closed bars ({len(candles)})",flush=True)
+                    continue
+                status,body=self.request("/api/bridge/v1/market/candles","POST",{
+                    "agentId":self.config.agent_id,"timeframe":timeframe,"candles":candles[-count:]
+                },timeout=8)
+                if status==200:
+                    print(f"[market-data] {timeframe}: published {body.get('acceptedBars',0)} closed bars",flush=True)
+                else:
+                    print(f"[market-data] {timeframe}: publish rejected HTTP {status} {body.get('error','HTTP_ERROR')}",flush=True)
+            except Exception as exc:
+                print(f"[market-data] {timeframe}: {type(exc).__name__}",flush=True)
     def flush_results(self):
         for row in self.outbox.pending_results():
             try: payload=json.loads(row["payload"])
@@ -100,10 +150,13 @@ class Agent:
         if ok: self.recover_uncertain_commands()
         print(f"[startup] agent={self.config.agent_id}; demo_session={'connected' if ok else reason}; live trading disabled",flush=True)
         last_heartbeat=0.0
+        last_market_sync=0.0
         while not self.stop.is_set():
             now=time.monotonic()
             if now-last_heartbeat>=self.config.heartbeat_seconds:
                 self.heartbeat(); last_heartbeat=now
+            if now-last_market_sync>=30.0:
+                self.market_data_sync(); last_market_sync=now
             self.flush_results()
             status,body=self.request("/api/bridge/v1/commands/next?agentId="+self.config.agent_id,timeout=12)
             if status==200 and isinstance(body.get("command"),dict): self.handle_command(body["command"])
