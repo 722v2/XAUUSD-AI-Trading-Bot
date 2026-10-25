@@ -459,10 +459,10 @@ export function createAppServer(env = process.env) {
     return {ok:true};
   }
   let latestScanView=null;
-  async function fetchScannerCandles(timeframe,count) {
+  async function fetchScannerCandles(timeframe,count,maxM1AgeMs=20000) {
     const intervals={M1:"1m",M5:"5m",M15:"15m",H1:"1h"};
     const seconds={M1:60,M5:300,M15:900,H1:3600};
-    const maxAgeMs={M1:90000,M5:420000,M15:1200000,H1:5400000};
+    const maxAgeMs={M1:maxM1AgeMs,M5:420000,M15:1200000,H1:5400000};
     if(!intervals[timeframe])return {ok:false,message:"INVALID_TIMEFRAME"};
     const fetchStartedAt=Date.now();
     let biquoteError="BIQUOTE_UNAVAILABLE";
@@ -575,9 +575,9 @@ export function createAppServer(env = process.env) {
         }
       }
       const timeframes = ["M1","M5","M15","H1"];
-      const fetched = await Promise.all(timeframes.map(async timeframe => [timeframe,await fetchScannerCandles(timeframe,timeframe==="M1"?120:60)]));
-      const normalized = {};
       const freshness=scanFreshnessPolicy(triggerType);
+      const fetched = await Promise.all(timeframes.map(async timeframe => [timeframe,await fetchScannerCandles(timeframe,timeframe==="M1"?120:60,freshness.maxM1AgeMs)]));
+      const normalized = {};
       for (const [timeframe,result] of fetched) {
         if (!result.ok) {
           const entry=record("NO_ANALYSIS","MARKET_DATA_UNAVAILABLE",{timeframe,error:result.message,providerErrors:result.providerErrors||null});
