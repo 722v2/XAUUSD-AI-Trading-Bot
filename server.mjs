@@ -324,22 +324,36 @@ export function createAppServer(env = process.env) {
 
   async function hydrateSettings() {
     if (settingsHydrated) return;
-    if (!supabase) { settingsHydrated=true; return; }
-    try {
-      const current = await supabase.readCurrent();
-      if (validRiskSettings(current.riskSettings)) riskSettings = Object.freeze({...current.riskSettings});
-      const storedProvider=typeof current.aiProviderId==="string"?current.aiProviderId:null;
-      const storedModel=typeof current.aiModelId==="string"?current.aiModelId:null;
-      const restored=storedProvider && storedModel ? (configuredAI(env,aiCatalog,storedProvider,storedModel) || buildConfiguredAI(storedProvider,storedModel)) : null;
-      if (restored) {
-        config.aiProviderId=storedProvider;
-        config.aiModelId=storedModel;
-        aiProvider=restored;
-        aiConfigured=true;
-        aiProbePassed=false;
-      }
-      settingsHydrated=true;
-    } catch {}
+    let current = {};
+    if (supabase) {
+      try { current = await supabase.readCurrent(); }
+      catch { current = {}; }
+    }
+    if (validRiskSettings(current.riskSettings)) riskSettings = Object.freeze({...current.riskSettings});
+    const storedProvider=typeof current.aiProviderId==="string"?current.aiProviderId:null;
+    const storedModel=typeof current.aiModelId==="string"?current.aiModelId:null;
+    let restored=storedProvider && storedModel
+      ? (configuredAI(env,aiCatalog,storedProvider,storedModel) || buildConfiguredAI(storedProvider,storedModel))
+      : null;
+    let selectedProvider=storedProvider;
+    let selectedModel=storedModel;
+    // A fresh Render instance may have no Supabase selection to restore. Use only
+    // an explicitly configured provider+model pair from server environment; never
+    // silently select the first catalog model or invent a provider.
+    if (!restored && typeof env.AI_PROVIDER_ID==="string" && typeof env.AI_MODEL_ID==="string") {
+      selectedProvider=env.AI_PROVIDER_ID.trim();
+      selectedModel=env.AI_MODEL_ID.trim();
+      restored=configuredAI(env,aiCatalog,selectedProvider,selectedModel) ||
+        buildConfiguredAI(selectedProvider,selectedModel);
+    }
+    if (restored) {
+      config.aiProviderId=selectedProvider;
+      config.aiModelId=selectedModel;
+      aiProvider=restored;
+      aiConfigured=true;
+      aiProbePassed=false;
+    }
+    settingsHydrated=true;
   }
 
   function startScanner() {
