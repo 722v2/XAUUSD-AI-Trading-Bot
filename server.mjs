@@ -99,6 +99,18 @@ function aiRequestTimeoutMs(env) {
   const value=Number(raw);
   return Number.isInteger(value) && value >= 1_000 && value <= 45_000 ? value : 30_000;
 }
+export function startupAISelections(current, env) {
+  const selections=[];
+  const add=(providerId,modelId,source)=>{
+    if(typeof providerId!=="string"||typeof modelId!=="string"||!providerId.trim()||!modelId.trim())return;
+    const pair={providerId:providerId.trim(),modelId:modelId.trim(),source};
+    if(!selections.some(item=>item.providerId===pair.providerId&&item.modelId===pair.modelId))selections.push(pair);
+  };
+  add(current?.aiProviderId,current?.aiModelId,"PERSISTED");
+  // Environment fallback must be an explicit pair; never pick a catalog default.
+  add(env?.AI_PROVIDER_ID,env?.AI_MODEL_ID,"ENVIRONMENT");
+  return selections;
+}
 function configuredAI(env, catalog, providerId, modelId) {
   const provider=catalog.find(item=>item.id===providerId);
   if (!provider || !provider.models.some(model=>model.id===modelId)) return null;
@@ -324,22 +336,32 @@ export function createAppServer(env = process.env) {
 
   async function hydrateSettings() {
     if (settingsHydrated) return;
-    if (!supabase) { settingsHydrated=true; return; }
-    try {
-      const current = await supabase.readCurrent();
-      if (validRiskSettings(current.riskSettings)) riskSettings = Object.freeze({...current.riskSettings});
-      const storedProvider=typeof current.aiProviderId==="string"?current.aiProviderId:null;
-      const storedModel=typeof current.aiModelId==="string"?current.aiModelId:null;
-      const restored=storedProvider && storedModel ? (configuredAI(env,aiCatalog,storedProvider,storedModel) || buildConfiguredAI(storedProvider,storedModel)) : null;
+    let current = {};
+    if (supabase) {
+      try { current = await supabase.readCurrent(); }
+      catch { current = {}; }
+    }
+    if (validRiskSettings(current.riskSettings)) riskSettings = Object.freeze({...current.riskSettings});
+    let restored=null;
+    let selectedProvider=null;
+    let selectedModel=null;
+    for (const selection of startupAISelections(current,env)) {
+      restored=configuredAI(env,aiCatalog,selection.providerId,selection.modelId) ||
+        buildConfiguredAI(selection.providerId,selection.modelId);
       if (restored) {
-        config.aiProviderId=storedProvider;
-        config.aiModelId=storedModel;
-        aiProvider=restored;
-        aiConfigured=true;
-        aiProbePassed=false;
+        selectedProvider=selection.providerId;
+        selectedModel=selection.modelId;
+        break;
       }
-      settingsHydrated=true;
-    } catch {}
+    }
+    if (restored) {
+      config.aiProviderId=selectedProvider;
+      config.aiModelId=selectedModel;
+      aiProvider=restored;
+      aiConfigured=true;
+      aiProbePassed=false;
+    }
+    settingsHydrated=true;
   }
 
   function startScanner() {
@@ -1419,6 +1441,10 @@ export function createAppServer(env = process.env) {
     } catch { sendJson(res,404,{error:"NOT_FOUND"}); }
   });
   server.once("listening",()=>{
+    if (env.SCANNER_AUTO_START === "false") {
+      process.stdout.write("Scanner auto-start disabled by explicit environment setting.\\n");
+      return;
+    }
     void hydrateSettings().then(()=>{
       if (aiProvider) {
         startScanner();
