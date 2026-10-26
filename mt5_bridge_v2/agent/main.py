@@ -39,17 +39,32 @@ class Agent:
             self.last_error="RENDER_TRANSPORT_ERROR"
             print(f"[transport] {type(exc).__name__}; retrying",flush=True)
             return 503,{"error":self.last_error}
+    def ensure_session(self):
+        # Retry after terminal restarts or broker disconnects.
+        with self.lock:
+            ok,reason=self.session.connect()
+            if ok:
+                if self.last_error not in (None,"STARTING"): print("[health] MT5 session recovered",flush=True)
+                self.last_error=None
+                return True
+            if self.last_error!=reason: print(f"[health] MT5 session unavailable: {reason}; will retry",flush=True)
+            self.last_error=reason
+            return False
     def heartbeat(self):
+        self.ensure_session()
         state=snapshot(mt5,self.config.symbol,self.config.environment,self.last_error)
         state["agentId"]=self.config.agent_id
         status,body=self.request("/api/bridge/v1/heartbeat","POST",state,timeout=8)
         if status==200:
-            self.last_error=None
-            if state["executionReady"]: print(f"[health] connected; environment=DEMO; symbol={state['brokerSymbol']}; heartbeat accepted",flush=True)
-            else: print(f"[health] not ready: {state['lastErrorCode']}; heartbeat accepted",flush=True)
+            if state["executionReady"]:
+                self.last_error=None
+                print(f"[health] connected; environment=DEMO; symbol={state['brokerSymbol']}; heartbeat accepted",flush=True)
+            else:
+                self.last_error=state.get("lastErrorCode") or self.last_error or "MT5_NOT_READY"
+                print(f"[health] not ready: {state['lastErrorCode']}; heartbeat accepted",flush=True)
         else: print(f"[health] heartbeat rejected: HTTP {status} {body.get('error','HTTP_ERROR')}",flush=True)
     def market_data_sync(self):
-        if mt5 is None:
+        if mt5 is None or not self.ensure_session():
             return
         state=snapshot(mt5,self.config.symbol,self.config.environment,self.last_error)
         symbol=state.get("brokerSymbol")
@@ -153,9 +168,10 @@ class Agent:
             self.outbox.enqueue_result(command_id,row["idempotency_key"],reconciled["state"],payload)
             print(f"[reconcile] broker history matched an uncertain order; state={reconciled['state']}",flush=True)
     def run(self):
-        ok,reason=self.session.connect(); self.last_error=None if ok else reason
+        ok=self.ensure_session()
+        reason="CONNECTED" if ok else self.last_error
         if ok: self.recover_uncertain_commands()
-        print(f"[startup] agent={self.config.agent_id}; demo_session={'connected' if ok else reason}; live trading disabled",flush=True)
+        print(f"[startup] agent={self.config.agent_id}; demo_session={'connected' if ok else reason}; live trading disabled; reconnect=enabled",flush=True)
         threading.Thread(target=self.market_data_loop,name="mt5-market-data",daemon=True).start()
         last_heartbeat=0.0
         while not self.stop.is_set():
