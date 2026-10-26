@@ -1441,6 +1441,10 @@ export function createAppServer(env = process.env) {
     } catch { sendJson(res,404,{error:"NOT_FOUND"}); }
   });
   server.once("listening",()=>{
+    if (env.SCANNER_AUTO_START === "false") {
+      process.stdout.write("Scanner auto-start disabled by explicit environment setting.\\n");
+      return;
+    }
     void hydrateSettings().then(()=>{
       if (aiProvider) {
         startScanner();
