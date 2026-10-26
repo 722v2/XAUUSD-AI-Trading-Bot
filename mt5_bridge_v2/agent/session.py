@@ -7,6 +7,13 @@ class MT5Session:
     def connect(self) -> tuple[bool,str]:
         if self.mt5 is None: return False,"MT5_PACKAGE_MISSING"
         try:
+            # Keep a healthy terminal initialized; retry initialization after disconnects.
+            terminal=self.mt5.terminal_info()
+            account=self.mt5.account_info()
+            if terminal and getattr(terminal,"connected",False) and account:
+                if getattr(account,"trade_mode",None)!=getattr(self.mt5,"ACCOUNT_TRADE_MODE_DEMO",0):
+                    return False,"DEMO_ACCOUNT_REQUIRED"
+                return True,"CONNECTED"
             ok=self.mt5.initialize(path=self.terminal_path) if self.terminal_path else self.mt5.initialize()
             if not ok: return False,"MT5_INITIALIZE_FAILED"
             terminal=self.mt5.terminal_info()
