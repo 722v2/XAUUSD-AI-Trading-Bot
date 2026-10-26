@@ -570,7 +570,7 @@ export function createAppServer(env = process.env) {
     scanInFlight = true;
     const runId = randomUUID();
     const startedAt = new Date().toISOString();
-    process.stdout.write("[scanner] "+JSON.stringify({event:"cycle_start",runId,triggerType,startedAt,autoTradingEnabled,aiConfigured:Boolean(aiProvider),marketDataProvider:"BIQUOTE"})+"\n");
+    process.stdout.write("[scanner] "+JSON.stringify({event:"cycle_start",runId,triggerType,startedAt,autoTradingEnabled,aiConfigured:Boolean(aiProvider),aiProviderId:config.aiProviderId,aiModelId:config.aiModelId,aiRequestTimeoutMs:aiRequestTimeoutMs(env),marketDataProvider:"BIQUOTE"})+"\n");
     let finalEntry = null;
     let dbRunCreated = false;
     const record = (status, reason, extra = {}) => {
@@ -928,7 +928,7 @@ export function createAppServer(env = process.env) {
       const diagnosticCode = error && typeof error.code === "string" && /^[A-Z0-9_]{1,64}$/.test(error.code)
         ? error.code : "UNEXPECTED_SCAN_FAILURE";
       const diagnosticMessage = error instanceof Error ? error.message.slice(0,240) : "Unknown scanner error";
-      process.stderr.write("[scanner] run="+runId+" code="+diagnosticCode+" message="+diagnosticMessage.replace(/[\r\n]/g," ")+"\n");
+      process.stderr.write("[scanner] run="+runId+" code="+diagnosticCode+" provider="+String(config.aiProviderId||"not-configured")+" model="+String(config.aiModelId||"not-configured")+" message="+diagnosticMessage.replace(/[\r\n]/g," ")+"\n");
       await queueNotificationToEnabled(
         "تنبيه السكانر XAUUSD: فشلت دورة الفحص. السبب: "+diagnosticCode+". التفاصيل: "+diagnosticMessage.slice(0,160)+". راجع سجل Render.",
         "SYSTEM_ALERT","scan-failure:"+diagnosticCode+":"+Math.floor(Date.now()/900000)
