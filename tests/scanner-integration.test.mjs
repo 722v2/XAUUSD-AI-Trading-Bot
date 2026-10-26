@@ -50,7 +50,7 @@ test('manual scanner uses Biquote candles first and structured AI without auto-e
     res.end(JSON.stringify({choices:[{message:{content:JSON.stringify({outcome,rationale:'Test fixture response',rationaleCodes:['TEST_FIXTURE']})}}]}));
   });
   const bridgeUrl=await listen(bridge), aiUrl=await listen(ai);
-  const app=createAppServer({MT5_BRIDGE_URL:bridgeUrl,MT5_BRIDGE_TOKEN:'bridge-test-token',BIQUOTE_BASE_URL:bridgeUrl,AI_API_KEY:'test-key',AI_BASE_URL:aiUrl+'/v1',AI_PROVIDER_ID:'fixture',AI_MODEL_ID:'fixture-model'});
+  const app=createAppServer({MT5_BRIDGE_URL:bridgeUrl,MT5_BRIDGE_TOKEN:'bridge-test-token',BIQUOTE_BASE_URL:bridgeUrl,AI_API_KEY:'test-key',AI_BASE_URL:aiUrl+'/v1',AI_PROVIDER_ID:'fixture',AI_MODEL_ID:'fixture-model',SCANNER_AUTO_START:'false'});
   const appUrl=await listen(app);
   t.after(async()=>{await close(app);await close(bridge);await close(ai);});
   const aiConfig=await fetch(appUrl+'/api/ai/config',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({providerId:'fixture',modelId:'fixture-model'})});
@@ -95,7 +95,7 @@ test('manual scanner produces an analysis without any MT5 bridge configured', as
   const biquoteUrl=await listen(biquote), aiUrl=await listen(ai);
   const app=createAppServer({
     BIQUOTE_BASE_URL:biquoteUrl,AI_API_KEY:'test-key',AI_BASE_URL:aiUrl+'/v1',
-    AI_PROVIDER_ID:'fixture',AI_MODEL_ID:'fixture-model'
+    AI_PROVIDER_ID:'fixture',AI_MODEL_ID:'fixture-model',SCANNER_AUTO_START:'false'
   });
   const appUrl=await listen(app);
   t.after(async()=>{await close(app);await close(biquote);await close(ai);});
