@@ -9,7 +9,7 @@ import {
   OpenAICompatibleAIProvider, coordinateTechnicalAndAI, prepareExecutionIntent, atr, managePositionStop
 } from "./dist/index.js";
 import { runHistoricalBacktest } from "./server/backtest-engine.mjs";
-import { createBridgeV2Api, readBridgeV2Status, readBridgeV2Candles, submitBridgeV2Order } from "./server/bridge-v2-api.mjs";
+import { createBridgeV2Api, readBridgeV2Status, readBridgeV2Candles, readBridgeV2Positions, readBridgeV2DailyRisk, submitBridgeV2Order } from "./server/bridge-v2-api.mjs";
 
 const root = fileURLToPath(new URL("./web/", import.meta.url)).replace(/[\\/]+$/, "");
 const MIME = { ".html":"text/html; charset=utf-8", ".css":"text/css; charset=utf-8", ".js":"text/javascript; charset=utf-8", ".svg":"image/svg+xml" };
@@ -211,6 +211,18 @@ export function createAppServer(env = process.env) {
   const supabase = configuredSupabase(env);
   const bridge = configuredBridge(env);
   const bridgeV2Api = createBridgeV2Api(env);
+  async function readBridgePositions() {
+    const v2=await readBridgeV2Positions(env);
+    if(v2.ok) return v2;
+    if(bridge) return bridge.positions();
+    return {ok:false,status:503,errorCode:v2.errorCode||"BRIDGE_POSITIONS_UNAVAILABLE",message:"MT5 positions are unavailable from Bridge V2."};
+  }
+  async function readBridgeDailyRisk() {
+    const v2=await readBridgeV2DailyRisk(env);
+    if(v2.ok) return v2;
+    if(bridge) return bridge.dailyRisk();
+    return {ok:false,status:503,errorCode:v2.errorCode||"BRIDGE_DAILY_RISK_UNAVAILABLE",message:"MT5 daily risk telemetry is unavailable from Bridge V2."};
+  }
   const relayJobs = [];
   const relayWaiters = new Map();
   const relayResults = new Map();
@@ -392,7 +404,7 @@ export function createAppServer(env = process.env) {
     if (!autoTradingEnabled) return {ok:true,changed:0};
     if (!supabase || !bridge || !health.accountLogin) return {ok:false,reason:"POSITION_MANAGER_PREREQUISITES_MISSING"};
     try {
-      const [livePositions,quote,spec] = await Promise.all([bridge.positions(),bridge.quote(),bridge.symbolSpec()]);
+      const [livePositions,quote,spec] = await Promise.all([readBridgePositions(),bridge.quote(),bridge.symbolSpec()]);
       if (!livePositions.ok || !quote.ok || !spec.ok || livePositions.value.environment!==executionEnvironment || livePositions.value.accountLogin!==health.accountLogin) {
         return {ok:false,reason:"POSITION_RECONCILIATION_UNAVAILABLE"};
       }
@@ -807,7 +819,7 @@ export function createAppServer(env = process.env) {
           const entry=record("RISK_REJECTED","DAILY_RISK_LIMITS_NOT_CONFIGURED");
           return {status:409,body:{status:"RISK_REJECTED",message:"تم إيقاف التنفيذ الآلي: احفظ حد الخسارة اليومية وعدد الخسائر المتتالية من قسم المخاطر في لوحة التحكم.",execution:"NOT_SUBMITTED",run:entry}};
         }
-        const dailyRisk=await bridge.dailyRisk();
+        const dailyRisk=await readBridgeDailyRisk();
         if (!dailyRisk.ok || dailyRisk.value.accountLogin!==String(health.value.accountLogin) ||
             dailyRisk.value.source!=="MT5_CLOSED_DEALS_BOT_MAGIC" ||
             !Number.isFinite(dailyRisk.value.balance) || dailyRisk.value.balance<=0 ||
@@ -958,7 +970,7 @@ export function createAppServer(env = process.env) {
     if (!health.ok || health.value.state!=="CONNECTED" || health.value.environment!==executionEnvironment || !health.value.accountLogin) {
       return {ok:false,code:"MT5_ACCOUNT_NOT_CONFIRMED"};
     }
-    const result=await bridge.dailyRisk();
+    const result=await readBridgeDailyRisk();
     if (!result.ok) return {ok:false,code:"DAILY_RISK_HISTORY_UNAVAILABLE"};
     return evaluateDailyRiskGuard({},result.value,health.value.accountLogin,riskSettings);
   }
@@ -1291,7 +1303,7 @@ export function createAppServer(env = process.env) {
       if (!scannerEnabled || !bridge || !aiProvider || !supabase || !riskSettings) return sendJson(res,409,{error:"EXECUTION_PREREQUISITES_MISSING",message:"يلزم تفعيل السكانر وضبط MT5 وAI والمخاطرة وSupabase قبل التنفيذ الآلي."});
       const health=await bridge.health();
       if (!health.ok || health.value.state!=="CONNECTED" || health.value.environment!==executionEnvironment || !health.value.accountLogin || health.value.executionReady!==true) return sendJson(res,409,{error:"MT5_ACCOUNT_NOT_CONFIRMED",message:"يلزم حساب MT5 مطابق لبيئة التنفيذ ومن نوع Hedging مع تأكيد الجاهزية؛ التنفيذ الآلي ما زال متوقفًا."});
-      const positions=await bridge.positions();
+      const positions=await readBridgePositions();
       if (!positions.ok || positions.value.positions.some(position=>!position.ownedByBot)) return sendJson(res,409,{error:"UNOWNED_XAUUSD_POSITION_CONFLICT",message:"يوجد مركز XAUUSD لا يمكن تأكيد ملكيته للبوت؛ أغلقه أو افحصه يدويًا قبل تفعيل التنفيذ الآلي."});
       try { await supabase.readCurrent(); } catch { return sendJson(res,503,{error:"PERSISTENCE_UNAVAILABLE",message:"قاعدة البيانات غير متاحة؛ التنفيذ الآلي مرفوض."}); }
       try {
@@ -1310,7 +1322,7 @@ export function createAppServer(env = process.env) {
       const health=await bridge.health();
       if (!health.ok || health.value.state!=="CONNECTED" || health.value.environment!==executionEnvironment) return sendJson(res,503,{error:"MT5_ACCOUNT_NOT_READY",positions:[]});
       if (health.value.executionReady!==true) return sendJson(res,409,{error:"HEDGING_ACCOUNT_REQUIRED",message:"عرض وإدارة صفقات البوت يتطلب حساب MT5 Demo من نوع Hedging.",positions:[]});
-      const result=await bridge.positions();
+      const result=await readBridgePositions();
       if (!result.ok) return sendJson(res,503,{error:result.message,positions:[]});
       return sendJson(res,200,{positions:result.value.positions.filter(position=>position.ownedByBot).map(({ownedByBot,...position})=>position),ownershipConflict:result.value.positions.some(position=>!position.ownedByBot),environment:executionEnvironment});
     }
