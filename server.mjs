@@ -226,7 +226,8 @@ export function createAppServer(env = process.env) {
   async function readBridgeHealth() {
     try {
       const v2=await readBridgeV2Status(env);
-      if(v2) return {ok:true,value:{state:v2.state,reason:v2.reason,environment:"DEMO",liveTradingEnabled:false,accountLogin:v2.accountLogin,executionReady:v2.ready===true}};
+      if(v2?.ready===true) return {ok:true,value:{state:v2.state,reason:v2.reason,environment:"DEMO",liveTradingEnabled:false,accountLogin:v2.accountLogin,executionReady:true}};
+      if(!bridge&&v2) return {ok:true,value:{state:v2.state,reason:v2.reason,environment:"DEMO",liveTradingEnabled:false,accountLogin:v2.accountLogin,executionReady:false}};
     } catch {}
     if(bridge) return bridge.health();
     return {ok:false,status:503,errorCode:"BRIDGE_HEALTH_UNAVAILABLE",message:"MT5 health is unavailable from Bridge V2."};
@@ -234,7 +235,7 @@ export function createAppServer(env = process.env) {
   async function readBridgeQuote() {
     try {
       const v2=await readBridgeV2Status(env);
-      if(v2?.quote) return {ok:true,value:{symbol:"XAUUSD",bid:v2.quote.bid,ask:v2.quote.ask,tickTime:v2.quote.tickTime,receivedAt:v2.quote.tickTime}};
+      if(v2?.ready===true&&v2.quote) return {ok:true,value:{symbol:"XAUUSD",bid:v2.quote.bid,ask:v2.quote.ask,tickTime:v2.quote.tickTime,receivedAt:v2.quote.tickTime}};
     } catch {}
     if(bridge) return bridge.quote();
     return {ok:false,status:503,errorCode:"BRIDGE_QUOTE_UNAVAILABLE",message:"MT5 quote is unavailable from Bridge V2."};
@@ -243,7 +244,7 @@ export function createAppServer(env = process.env) {
     try {
       const v2=await readBridgeV2Status(env);
       const spec=v2?.symbolSpec;
-      if(spec) return {ok:true,value:{symbol:"XAUUSD",tickSize:spec.tickSize??spec.point,tickValuePerLot:spec.tickValuePerLot,volumeMin:spec.volumeMin,volumeMax:spec.volumeMax,volumeStep:spec.volumeStep,priceDigits:spec.digits,point:spec.point,stopsLevelPoints:spec.stopsLevelPoints}};
+      if(v2?.ready===true&&spec) return {ok:true,value:{symbol:"XAUUSD",tickSize:spec.tickSize??spec.point,tickValuePerLot:spec.tickValuePerLot,volumeMin:spec.volumeMin,volumeMax:spec.volumeMax,volumeStep:spec.volumeStep,priceDigits:spec.digits,point:spec.point,stopsLevelPoints:spec.stopsLevelPoints}};
     } catch {}
     if(bridge) return bridge.symbolSpec();
     return {ok:false,status:503,errorCode:"BRIDGE_SYMBOL_SPEC_UNAVAILABLE",message:"MT5 symbol specification is unavailable from Bridge V2."};
