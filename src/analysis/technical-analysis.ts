@@ -84,6 +84,9 @@ export function analyzeClosedMarket(input: TechnicalAnalysisInput): TechnicalAna
     M15: trendContext(input.candles.M15, "M15", nowMs),
     H1: trendContext(input.candles.H1, "H1", nowMs)
   };
+  const higherTimeframeBias:"BULLISH"|"BEARISH"|"MIXED" =
+    Object.values(higherTimeframeContext).every(value=>value==="BULLISH") ? "BULLISH" :
+    Object.values(higherTimeframeContext).every(value=>value==="BEARISH") ? "BEARISH" : "MIXED";
   const trendStrength=Math.abs(e9-e21)/av;
   const bullishMomentum=mv.histogram>0 || (mv.histogram<=0 && previousMv!=null && mv.histogram>previousMv.histogram);
   const bearishMomentum=mv.histogram<0 || (mv.histogram>=0 && previousMv!=null && mv.histogram<previousMv.histogram);
@@ -98,7 +101,8 @@ export function analyzeClosedMarket(input: TechnicalAnalysisInput): TechnicalAna
   const selection=selectAdaptiveStrategy({
     trendStrength,ema9:e9,ema21:e21,ema21FiveBarsAgo,previousEma9,previousClose:previous.close,
     previousHigh:previous.high,previousLow:previous.low,currentOpen:latest.open,currentClose:latest.close,
-    priorRangeHigh,priorRangeLow,rsi14:rv,macdHistogram:mv.histogram,...(previousMv?{previousMacdHistogram:previousMv.histogram}:{}),atr14:av
+    priorRangeHigh,priorRangeLow,rsi14:rv,macdHistogram:mv.histogram,...(previousMv?{previousMacdHistogram:previousMv.histogram}:{}),
+    higherTimeframeBias,atr14:av
   });
   const trendUp=e9>e21 && e21>ema21FiveBarsAgo;
   const trendDown=e9<e21 && e21<ema21FiveBarsAgo;
@@ -112,6 +116,8 @@ export function analyzeClosedMarket(input: TechnicalAnalysisInput): TechnicalAna
     pullbackSell:trendDown&&previous.close>=previousEma9&&latest.close<e9&&currentBearish&&bearishMomentum&&rv<=55&&rv>25,
     breakoutBuy:latest.close>priorRangeHigh+0.1*av&&currentBullish&&mv.histogram>0&&rv>=55&&rv<80,
     breakoutSell:latest.close<priorRangeLow-0.1*av&&currentBearish&&mv.histogram<0&&rv<=45&&rv>20,
+    momentumRecoveryBuy:higherTimeframeBias==="BULLISH"&&trendStrength<0.25&&latest.close>previous.high&&currentBullish&&bullishMomentum&&rv>=45&&rv<=70&&e9>=e21-0.2*av,
+    momentumRecoverySell:higherTimeframeBias==="BEARISH"&&trendStrength<0.25&&latest.close<previous.low&&currentBearish&&bearishMomentum&&rv>=30&&rv<=55&&e9<=e21+0.2*av,
     closeBreaksPreviousHigh:latest.close>previous.high,
     closeBreaksPreviousLow:latest.close<previous.low,
     closeBreaksPriorRangeHigh:latest.close>priorRangeHigh+0.1*av,
@@ -135,7 +141,7 @@ export function analyzeClosedMarket(input: TechnicalAnalysisInput): TechnicalAna
   const evidence: TechnicalEvidence = {
     strategyId: selection.strategyId,
     direction,
-    evidenceCodes: ["CLOSED_M1_ONLY",...selection.evidenceCodes,direction==="BUY"?"MACD_HISTOGRAM_POSITIVE":"MACD_HISTOGRAM_NEGATIVE",direction==="BUY"?"RSI_BULLISH_RANGE":"RSI_BEARISH_RANGE","ATR_STRUCTURAL_DISTANCE_V1",...contextCodes],
+    evidenceCodes: ["CLOSED_M1_ONLY",...selection.evidenceCodes,selection.strategyId==="M1_MOMENTUM_RECOVERY_V1"?"MACD_MOMENTUM_RECOVERING":direction==="BUY"?"MACD_HISTOGRAM_POSITIVE":"MACD_HISTOGRAM_NEGATIVE",direction==="BUY"?"RSI_BULLISH_RANGE":"RSI_BEARISH_RANGE","ATR_STRUCTURAL_DISTANCE_V1",...contextCodes],
     entryPrice, stopLoss, takeProfit,
     createdAt: input.now as TechnicalEvidence["createdAt"],
     expiresAt: new Date(nowMs + 60_000).toISOString() as TechnicalEvidence["expiresAt"]
