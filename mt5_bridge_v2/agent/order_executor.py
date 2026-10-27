@@ -23,6 +23,13 @@ class OrderExecutor:
         if not isinstance(payload,dict) or command.get("environment")!="DEMO":
             return result("REJECTED","DEMO_ONLY_OR_INVALID_PAYLOAD")
         if self.mt5 is None: return result("REJECTED","MT5_PACKAGE_MISSING")
+        operation=payload.get("operation","OPEN_ORDER")
+        if operation=="MODIFY_POSITION":
+            return self.modify_position(command)
+        if operation=="CLOSE_POSITION":
+            return self.close_position(command)
+        if operation!="OPEN_ORDER":
+            return result("REJECTED","UNSUPPORTED_OPERATION")
         direction=payload.get("direction")
         volume=payload.get("volume"); sl=payload.get("stopLoss"); tp=payload.get("takeProfit")
         symbol=payload.get("symbol","XAUUSD")
@@ -90,6 +97,118 @@ class OrderExecutor:
         except Exception as exc:
             self.outbox.mark(key,"UNKNOWN",{"commandId":command_id,"idempotencyKey":key,"code":"EXECUTION_EXCEPTION","exceptionType":type(exc).__name__})
             return result("UNKNOWN","EXECUTION_EXCEPTION",{"reconcileRequired":True})
+
+
+    def _find_owned_position(self, ticket: Any):
+        if self.mt5 is None or isinstance(ticket,bool) or not isinstance(ticket,int) or ticket<=0:
+            return None
+        positions=self.mt5.positions_get(ticket=ticket) or []
+        for position in positions:
+            if int(getattr(position,"ticket",0))!=ticket:
+                continue
+            symbol=str(getattr(position,"symbol","")).upper()
+            comment=str(getattr(position,"comment",""))
+            if not symbol.startswith("XAUUSD"):
+                return None
+            if getattr(position,"magic",None)!=2601022 and not comment.startswith("XAUAI-"):
+                return None
+            return position
+        return None
+
+    def modify_position(self, command: dict) -> dict:
+        command_id=command["id"]; key=command["idempotencyKey"]; payload=command.get("payload")
+        def result(state,code,details=None):
+            return {"commandId":command_id,"idempotencyKey":key,"state":state,"code":code,"details":details or {},"completedAt":utc_now()}
+        if not isinstance(payload,dict) or command.get("environment")!="DEMO":
+            return result("REJECTED","DEMO_ONLY_OR_INVALID_PAYLOAD")
+        ticket=payload.get("ticket"); position=self._find_owned_position(ticket)
+        if position is None: return result("REJECTED","OWNED_POSITION_NOT_FOUND")
+        if self.mt5 is None: return result("REJECTED","MT5_PACKAGE_MISSING")
+        sl=payload.get("stopLoss",getattr(position,"sl",0)); tp=payload.get("takeProfit",getattr(position,"tp",0))
+        if not _finite_positive(sl) or not _finite_positive(tp):
+            return result("REJECTED","INVALID_STOP_TARGET")
+        try:
+            account=self.mt5.account_info(); tick=self.mt5.symbol_info_tick(position.symbol); info=self.mt5.symbol_info(position.symbol)
+            if not account or getattr(account,"trade_mode",None)!=getattr(self.mt5,"ACCOUNT_TRADE_MODE_DEMO",0):
+                return result("REJECTED","DEMO_ACCOUNT_REQUIRED")
+            if not tick or not info: return result("REJECTED","BROKER_MARKET_STATE_UNAVAILABLE")
+            direction="BUY" if getattr(position,"type",None)==getattr(self.mt5,"POSITION_TYPE_BUY",0) else "SELL"
+            current_price=float(tick.bid if direction=="BUY" else tick.ask)
+            current_sl=float(getattr(position,"sl",0) or 0); current_tp=float(getattr(position,"tp",0) or 0)
+            point=float(getattr(info,"point",0)); stops=float(getattr(info,"trade_stops_level",0))*point
+            if point<=0 or not math.isfinite(current_price): return result("REJECTED","INVALID_SYMBOL_POINT")
+            if direction=="BUY":
+                if not sl<current_price-stops or not (sl>=current_sl if current_sl>0 else True) or not tp>current_price+stops:
+                    return result("REJECTED","INVALID_OR_LOOSENED_BUY_STOPS")
+            else:
+                if not sl>current_price+stops or not (sl<=current_sl if current_sl>0 else True) or not tp<current_price-stops:
+                    return result("REJECTED","INVALID_OR_LOOSENED_SELL_STOPS")
+            request={"action":getattr(self.mt5,"TRADE_ACTION_SLTP"),"symbol":position.symbol,"position":ticket,"sl":round(float(sl),int(getattr(info,"digits",2))),"tp":round(float(tp),int(getattr(info,"digits",2))),"magic":2601022,"comment":str(getattr(position,"comment",""))[:31]}
+            check=self.mt5.order_check(request)
+            done_code=getattr(self.mt5,"TRADE_RETCODE_DONE",10009)
+            placed_code=getattr(self.mt5,"TRADE_RETCODE_PLACED",10008)
+            if check is None or getattr(check,"retcode",None) not in (done_code,placed_code,0):
+                return result("REJECTED","ORDER_CHECK_REJECTED",{"retcode":getattr(check,"retcode",None) if check else None})
+            self.outbox.mark(key,"SUBMITTING",{"commandId":command_id,"idempotencyKey":key,"operation":"MODIFY_POSITION","ticket":ticket,"request":request})
+            sent=self.mt5.order_send(request)
+            if sent is None:
+                self.outbox.mark(key,"UNKNOWN",{"commandId":command_id,"idempotencyKey":key,"operation":"MODIFY_POSITION","ticket":ticket})
+                return result("UNKNOWN","POSITION_MODIFY_NO_RESPONSE",{"ticket":ticket,"reconcileRequired":True})
+            if getattr(sent,"retcode",None)==done_code:
+                details={"ticket":ticket,"stopLoss":request["sl"],"takeProfit":request["tp"],"comment":str(getattr(sent,"comment",""))[:160]}
+                self.outbox.mark(key,"FILLED",details)
+                return result("FILLED","POSITION_MODIFIED",details)
+            details={"ticket":ticket,"retcode":getattr(sent,"retcode",None),"comment":str(getattr(sent,"comment",""))[:160]}
+            self.outbox.mark(key,"REJECTED",details)
+            return result("REJECTED","POSITION_MODIFY_REJECTED",details)
+        except Exception as exc:
+            self.outbox.mark(key,"UNKNOWN",{"commandId":command_id,"idempotencyKey":key,"operation":"MODIFY_POSITION","exceptionType":type(exc).__name__})
+            return result("UNKNOWN","POSITION_MODIFY_EXCEPTION",{"reconcileRequired":True})
+
+    def close_position(self, command: dict) -> dict:
+        command_id=command["id"]; key=command["idempotencyKey"]; payload=command.get("payload")
+        def result(state,code,details=None):
+            return {"commandId":command_id,"idempotencyKey":key,"state":state,"code":code,"details":details or {},"completedAt":utc_now()}
+        if not isinstance(payload,dict) or command.get("environment")!="DEMO":
+            return result("REJECTED","DEMO_ONLY_OR_INVALID_PAYLOAD")
+        ticket=payload.get("ticket"); position=self._find_owned_position(ticket)
+        if position is None: return result("REJECTED","OWNED_POSITION_NOT_FOUND")
+        if self.mt5 is None: return result("REJECTED","MT5_PACKAGE_MISSING")
+        try:
+            account=self.mt5.account_info(); tick=self.mt5.symbol_info_tick(position.symbol); info=self.mt5.symbol_info(position.symbol)
+            if not account or getattr(account,"trade_mode",None)!=getattr(self.mt5,"ACCOUNT_TRADE_MODE_DEMO",0):
+                return result("REJECTED","DEMO_ACCOUNT_REQUIRED")
+            if not tick or not info: return result("REJECTED","BROKER_MARKET_STATE_UNAVAILABLE")
+            is_buy=getattr(position,"type",None)==getattr(self.mt5,"POSITION_TYPE_BUY",0)
+            direction="SELL" if is_buy else "BUY"
+            price=float(tick.bid if is_buy else tick.ask)
+            volume=float(getattr(position,"volume",0))
+            if not _finite_positive(price) or not _finite_positive(volume): return result("REJECTED","INVALID_POSITION_STATE")
+            request={"action":getattr(self.mt5,"TRADE_ACTION_DEAL"),"symbol":position.symbol,"position":ticket,"volume":volume,
+              "type":getattr(self.mt5,"ORDER_TYPE_SELL") if is_buy else getattr(self.mt5,"ORDER_TYPE_BUY"),
+              "price":round(price,int(getattr(info,"digits",2))),"deviation":20,"magic":2601022,
+              "comment":"XAUAI-CLOSE-"+str(ticket),"type_time":getattr(self.mt5,"ORDER_TIME_GTC"),
+              "type_filling":getattr(info,"filling_mode",getattr(self.mt5,"ORDER_FILLING_IOC",1))}
+            check=self.mt5.order_check(request)
+            done_code=getattr(self.mt5,"TRADE_RETCODE_DONE",10009)
+            placed_code=getattr(self.mt5,"TRADE_RETCODE_PLACED",10008)
+            if check is None or getattr(check,"retcode",None) not in (done_code,placed_code,0):
+                return result("REJECTED","ORDER_CHECK_REJECTED",{"retcode":getattr(check,"retcode",None) if check else None})
+            self.outbox.mark(key,"SUBMITTING",{"commandId":command_id,"idempotencyKey":key,"operation":"CLOSE_POSITION","ticket":ticket,"comment":request["comment"],"request":request})
+            sent=self.mt5.order_send(request)
+            if sent is None:
+                self.outbox.mark(key,"UNKNOWN",{"commandId":command_id,"idempotencyKey":key,"operation":"CLOSE_POSITION","ticket":ticket,"comment":request["comment"]})
+                return result("UNKNOWN","POSITION_CLOSE_NO_RESPONSE",{"ticket":ticket,"reconcileRequired":True})
+            if getattr(sent,"retcode",None)==done_code:
+                details={"ticket":ticket,"order":getattr(sent,"order",None),"deal":getattr(sent,"deal",None),"volume":getattr(sent,"volume",volume),"price":getattr(sent,"price",price),"comment":request["comment"]}
+                self.outbox.mark(key,"FILLED",details)
+                return result("FILLED","POSITION_CLOSED",details)
+            details={"ticket":ticket,"retcode":getattr(sent,"retcode",None),"comment":str(getattr(sent,"comment",""))[:160]}
+            self.outbox.mark(key,"REJECTED",details)
+            return result("REJECTED","POSITION_CLOSE_REJECTED",details)
+        except Exception as exc:
+            self.outbox.mark(key,"UNKNOWN",{"commandId":command_id,"idempotencyKey":key,"operation":"CLOSE_POSITION","ticket":ticket,"exceptionType":type(exc).__name__})
+            return result("UNKNOWN","POSITION_CLOSE_EXCEPTION",{"reconcileRequired":True})
 
     def reconcile_uncertain(self, key: str, saved: dict) -> dict | None:
         """Resolve only when broker history proves the matching deal; absence is never proof of non-execution."""
