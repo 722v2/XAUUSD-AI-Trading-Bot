@@ -1019,12 +1019,20 @@ export function createAppServer(env = process.env) {
         return sendJson(res,200,{ok:true});
       }
       if ((method === "GET" || method === "POST") && url.pathname.startsWith("/api/mt5/relay/proxy/")) {
-        const path = url.pathname.slice("/api/mt5/relay/proxy".length) || "/";
+        const relayPrefix = "/api/mt5/relay/proxy";
+        let path = url.pathname.slice(relayPrefix.length) || "/";
+        // Strip only repeated copies of the known proxy prefix; the strict endpoint
+        // allowlist and traversal checks below remain authoritative.
+        let normalizedPrefixCount = 0;
+        while (path.startsWith(relayPrefix + "/") && normalizedPrefixCount < 4) {
+          path = path.slice(relayPrefix.length);
+          normalizedPrefixCount += 1;
+        }
         const allowedPath = /^\/(health|market\/(quote|spec|candles)|orders(\/lookup)?|positions(\/modify|\/close)?|environment|risk\/daily)(\?.*)?$/.test(path+url.search);
         const unsafePath=path.startsWith("//")||path.includes("..")||path.includes("\\")||path.includes("\r")||path.includes("\n");
         if (!allowedPath || unsafePath) {
           // Log only the path and query parameter names; never log credentials or request bodies.
-          process.stderr.write("[mt5-relay] rejected path "+JSON.stringify({pathname:url.pathname,forwardedPath:path,queryKeys:[...url.searchParams.keys()],allowedPath,unsafePath})+"\n");
+          process.stderr.write("[mt5-relay] rejected path "+JSON.stringify({pathname:url.pathname,forwardedPath:path,normalizedPrefixCount,queryKeys:[...url.searchParams.keys()],allowedPath,unsafePath})+"\n");
           return sendJson(res,400,{error:"INVALID_RELAY_PATH"});
         }
         if (relayJobs.length >= 100 || relayWaiters.size >= 100) return sendJson(res,503,{error:"MT5_RELAY_BUSY"});
