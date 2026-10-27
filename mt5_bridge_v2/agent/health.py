@@ -1,5 +1,5 @@
 from __future__ import annotations
-from datetime import datetime, timezone
+from datetime import datetime, time as dt_time, timezone
 from typing import Any
 
 def utc_now() -> str:
@@ -28,6 +28,49 @@ def snapshot(mt5: Any, symbol: str, environment: str, last_error: str | None) ->
         tick=mt5.symbol_info_tick(selected) if selected else None
         quote={"bid":float(tick.bid),"ask":float(tick.ask),"tickTime":utc_now()} if tick and getattr(tick,"bid",0)>0 and getattr(tick,"ask",0)>0 else None
         spec={"volumeMin":float(getattr(mt5.symbol_info(selected),"volume_min",0)),"volumeMax":float(getattr(mt5.symbol_info(selected),"volume_max",0)),"volumeStep":float(getattr(mt5.symbol_info(selected),"volume_step",0)),"digits":int(getattr(mt5.symbol_info(selected),"digits",2)),"point":float(getattr(mt5.symbol_info(selected),"point",0)),"stopsLevelPoints":int(getattr(mt5.symbol_info(selected),"trade_stops_level",0))} if selected and mt5.symbol_info(selected) else None
-        return {"state":"CONNECTED" if ready else "DEGRADED","terminalConnected":terminal_ok,"accountConnected":account_ok,"executionReady":bool(ready and quote and spec),"environment":"DEMO","brokerSymbol":selected,"accountLogin":str(getattr(account,"login","")) if account_ok else None,"quote":quote,"symbolSpec":spec,"lastErrorCode":None if ready and quote and spec else (last_error or ("MARKET_INFO_UNAVAILABLE" if ready else "NOT_DEMO_ACCOUNT" if account_ok and not is_demo else "MT5_NOT_READY")),"sentAt":utc_now()}
+        positions_snapshot=[]
+        if selected and hasattr(mt5,"positions_get"):
+            try:
+                for position in (mt5.positions_get(symbol=selected) or []):
+                    direction="BUY" if getattr(position,"type",None)==getattr(mt5,"POSITION_TYPE_BUY",0) else "SELL"
+                    magic=getattr(position,"magic",None)
+                    comment=str(getattr(position,"comment",""))
+                    positions_snapshot.append({
+                        "ticket":int(getattr(position,"ticket",0)),"symbol":"XAUUSD","direction":direction,
+                        "volume":float(getattr(position,"volume",0)),"entryPrice":float(getattr(position,"price_open",0)),
+                        "stopLoss":float(getattr(position,"sl",0)),"takeProfit":float(getattr(position,"tp",0)),
+                        "profit":float(getattr(position,"profit",0)),
+                        "openedAt":datetime.fromtimestamp(float(getattr(position,"time",0)),timezone.utc).isoformat(timespec="milliseconds").replace("+00:00","Z"),
+                        "ownedByBot":magic==2601022 or comment.startswith("XAUAI-"),"comment":comment
+                    })
+            except Exception:
+                positions_snapshot=[]
+        daily_risk=None
+        if account_ok and hasattr(mt5,"history_deals_get"):
+            try:
+                now=datetime.now(timezone.utc)
+                day_start=datetime.combine(now.date(),dt_time.min,tzinfo=timezone.utc)
+                deals=mt5.history_deals_get(day_start,now)
+                if deals is not None:
+                    close_entries={getattr(mt5,"DEAL_ENTRY_OUT",1),getattr(mt5,"DEAL_ENTRY_OUT_BY",3),getattr(mt5,"DEAL_ENTRY_INOUT",2)}
+                    closed=[]
+                    for deal in deals:
+                        if getattr(deal,"magic",None)!=2601022 or getattr(deal,"entry",None) not in close_entries:
+                            continue
+                        pnl=sum(float(getattr(deal,name,0) or 0) for name in ("profit","commission","swap","fee"))
+                        closed.append((int(getattr(deal,"time",0)),int(getattr(deal,"position_id",getattr(deal,"ticket",0))),pnl))
+                    by_position={}
+                    for stamp,position_id,pnl in closed:
+                        item=by_position.setdefault(position_id,{"time":stamp,"pnl":0.0})
+                        item["time"]=max(item["time"],stamp);item["pnl"]+=pnl
+                    ordered=sorted(by_position.values(),key=lambda item:item["time"])
+                    consecutive=0
+                    for item in reversed(ordered):
+                        if item["pnl"]<0: consecutive+=1
+                        else: break
+                    daily_risk={"accountLogin":str(getattr(account,"login","")),"currency":str(getattr(account,"currency","")),"balance":float(getattr(account,"balance",0)),"dailyNetPnl":sum(item["pnl"] for item in ordered),"consecutiveLosses":consecutive,"asOf":utc_now(),"dayStartUtc":day_start.isoformat(timespec="milliseconds").replace("+00:00","Z"),"source":"MT5_CLOSED_DEALS_BOT_MAGIC"}
+            except Exception:
+                daily_risk=None
+        return {"state":"CONNECTED" if ready else "DEGRADED","terminalConnected":terminal_ok,"accountConnected":account_ok,"executionReady":bool(ready and quote and spec),"environment":"DEMO","brokerSymbol":selected,"accountLogin":str(getattr(account,"login","")) if account_ok else None,"quote":quote,"symbolSpec":spec,"positions":positions_snapshot,"dailyRisk":daily_risk,"lastErrorCode":None if ready and quote and spec else (last_error or ("MARKET_INFO_UNAVAILABLE" if ready else "NOT_DEMO_ACCOUNT" if account_ok and not is_demo else "MT5_NOT_READY")),"sentAt":utc_now()}
     except Exception:
         return {"state":"DISCONNECTED","terminalConnected":False,"accountConnected":False,"executionReady":False,"environment":"DEMO","brokerSymbol":None,"lastErrorCode":"MT5_HEALTH_CHECK_FAILED","sentAt":utc_now()}
