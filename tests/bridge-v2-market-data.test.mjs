@@ -34,13 +34,13 @@ test("Bridge V2 reads recent closed candle snapshots from a fresh Demo agent",as
   assert.equal(result.value.timeframe,"M1");
 });
 
-test("Bridge V2 refuses stale agent heartbeats",async()=>{
+test("Bridge V2 serves fresh persisted candles despite a delayed heartbeat",async()=>{
   const fetchImpl=async()=>new Response(JSON.stringify([{environment:"DEMO",last_seen_at:new Date(Date.now()-60_000).toISOString(),payload:{marketCandles:{M1:{candles:candles()}}}}]),{
     status:200,headers:{"content-type":"application/json"}
   });
   const result=await readBridgeV2Candles(env,"M1",35,fetchImpl);
-  assert.equal(result.ok,false);
-  assert.equal(result.errorCode,"BRIDGE_V2_AGENT_STALE");
+  assert.equal(result.ok,true);
+  if(result.ok) assert.equal(result.value.candles.length,35);
 });
 
 test("Bridge V2 rejects invalid timeframe and count before database access",async()=>{
