@@ -21,6 +21,17 @@ export interface TechnicalAnalysisResult {
     readonly marketRegime: MarketRegime;
     readonly trendStrength: number;
     readonly higherTimeframeContext: Readonly<Record<"M5" | "M15" | "H1", TrendContext>>;
+    readonly triggerChecks: Readonly<{
+      trendUp: boolean; trendDown: boolean;
+      continuationBuy: boolean; continuationSell: boolean;
+      pullbackBuy: boolean; pullbackSell: boolean;
+      breakoutBuy: boolean; breakoutSell: boolean;
+      currentBullish: boolean; currentBearish: boolean;
+      closeBreaksPreviousHigh: boolean; closeBreaksPreviousLow: boolean;
+      closeBreaksPriorRangeHigh: boolean; closeBreaksPriorRangeLow: boolean;
+      macdPositive: boolean; macdNegative: boolean;
+      rsiInBuyRange: boolean; rsiInSellRange: boolean;
+    }>;
   };
   readonly evidence: readonly TechnicalEvidence[];
 }
@@ -86,7 +97,26 @@ export function analyzeClosedMarket(input: TechnicalAnalysisInput): TechnicalAna
     previousHigh:previous.high,previousLow:previous.low,currentOpen:latest.open,currentClose:latest.close,
     priorRangeHigh,priorRangeLow,rsi14:rv,macdHistogram:mv.histogram,atr14:av
   });
-  const metrics = { ema9:e9,ema21:e21,rsi14:rv,macd:mv.macd,macdSignal:mv.signal,macdHistogram:mv.histogram,atr14:av,marketRegime:selection?.regime ?? (trendStrength>=0.25?"TRENDING":"RANGING") as MarketRegime,trendStrength,higherTimeframeContext };
+  const trendUp=e9>e21 && e21>ema21FiveBarsAgo;
+  const trendDown=e9<e21 && e21<ema21FiveBarsAgo;
+  const currentBullish=latest.close>latest.open;
+  const currentBearish=latest.close<latest.open;
+  const triggerChecks={
+    trendUp,trendDown,currentBullish,currentBearish,
+    continuationBuy:latest.close>previous.high&&currentBullish&&e9>e21&&mv.histogram>0&&rv>=50&&rv<75,
+    continuationSell:latest.close<previous.low&&currentBearish&&e9<e21&&mv.histogram<0&&rv<=50&&rv>25,
+    pullbackBuy:trendUp&&previous.close<=previousEma9&&latest.close>e9&&currentBullish&&mv.histogram>0&&rv>=45&&rv<75,
+    pullbackSell:trendDown&&previous.close>=previousEma9&&latest.close<e9&&currentBearish&&mv.histogram<0&&rv<=55&&rv>25,
+    breakoutBuy:latest.close>priorRangeHigh+0.1*av&&currentBullish&&mv.histogram>0&&rv>=55&&rv<80,
+    breakoutSell:latest.close<priorRangeLow-0.1*av&&currentBearish&&mv.histogram<0&&rv<=45&&rv>20,
+    closeBreaksPreviousHigh:latest.close>previous.high,
+    closeBreaksPreviousLow:latest.close<previous.low,
+    closeBreaksPriorRangeHigh:latest.close>priorRangeHigh+0.1*av,
+    closeBreaksPriorRangeLow:latest.close<priorRangeLow-0.1*av,
+    macdPositive:mv.histogram>0,macdNegative:mv.histogram<0,
+    rsiInBuyRange:rv>=45&&rv<80,rsiInSellRange:rv<=55&&rv>20
+  };
+  const metrics = { ema9:e9,ema21:e21,rsi14:rv,macd:mv.macd,macdSignal:mv.signal,macdHistogram:mv.histogram,atr14:av,marketRegime:selection?.regime ?? (trendStrength>=0.25?"TRENDING":"RANGING") as MarketRegime,trendStrength,higherTimeframeContext,triggerChecks };
   if (!selection) return { status:"WAIT",reason:"NO_SETUP",evaluatedAt:input.now,latestClosedBarTime:latest.closeTime,metrics,evidence:EMPTY };
   const direction: Direction = selection.direction;
   const m15Context=higherTimeframeContext.M15, h1Context=higherTimeframeContext.H1;
