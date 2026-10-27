@@ -50,15 +50,20 @@ def snapshot(mt5: Any, symbol: str, environment: str, last_error: str | None) ->
             try:
                 now=datetime.now(timezone.utc)
                 day_start=datetime.combine(now.date(),dt_time.min,tzinfo=timezone.utc)
-                deals=mt5.history_deals_get(day_start,now)
+                history_start=now-timedelta(days=30)
+                deals=mt5.history_deals_get(history_start,now)
                 if deals is not None:
                     close_entries={getattr(mt5,"DEAL_ENTRY_OUT",1),getattr(mt5,"DEAL_ENTRY_OUT_BY",3),getattr(mt5,"DEAL_ENTRY_INOUT",2)}
                     closed=[]
+                    daily_net_pnl=0.0
                     for deal in deals:
                         if getattr(deal,"magic",None)!=2601022 or getattr(deal,"entry",None) not in close_entries:
                             continue
+                        stamp=int(getattr(deal,"time",0))
                         pnl=sum(float(getattr(deal,name,0) or 0) for name in ("profit","commission","swap","fee"))
-                        closed.append((int(getattr(deal,"time",0)),int(getattr(deal,"position_id",getattr(deal,"ticket",0))),pnl))
+                        closed.append((stamp,int(getattr(deal,"position_id",getattr(deal,"ticket",0))),pnl))
+                        if stamp>=int(day_start.timestamp()):
+                            daily_net_pnl+=pnl
                     by_position={}
                     for stamp,position_id,pnl in closed:
                         item=by_position.setdefault(position_id,{"time":stamp,"pnl":0.0})
@@ -68,7 +73,7 @@ def snapshot(mt5: Any, symbol: str, environment: str, last_error: str | None) ->
                     for item in reversed(ordered):
                         if item["pnl"]<0: consecutive+=1
                         else: break
-                    daily_risk={"accountLogin":str(getattr(account,"login","")),"currency":str(getattr(account,"currency","")),"balance":float(getattr(account,"balance",0)),"dailyNetPnl":sum(item["pnl"] for item in ordered),"consecutiveLosses":consecutive,"asOf":utc_now(),"dayStartUtc":day_start.isoformat(timespec="milliseconds").replace("+00:00","Z"),"source":"MT5_CLOSED_DEALS_BOT_MAGIC"}
+                    daily_risk={"accountLogin":str(getattr(account,"login","")),"currency":str(getattr(account,"currency","")),"balance":float(getattr(account,"balance",0)),"dailyNetPnl":daily_net_pnl,"consecutiveLosses":consecutive,"asOf":utc_now(),"dayStartUtc":day_start.isoformat(timespec="milliseconds").replace("+00:00","Z"),"source":"MT5_CLOSED_DEALS_BOT_MAGIC"}
             except Exception:
                 daily_risk=None
         return {"state":"CONNECTED" if ready else "DEGRADED","terminalConnected":terminal_ok,"accountConnected":account_ok,"executionReady":bool(ready and quote and spec),"environment":"DEMO","brokerSymbol":selected,"accountLogin":str(getattr(account,"login","")) if account_ok else None,"quote":quote,"symbolSpec":spec,"positions":positions_snapshot,"dailyRisk":daily_risk,"lastErrorCode":None if ready and quote and spec else (last_error or ("MARKET_INFO_UNAVAILABLE" if ready else "NOT_DEMO_ACCOUNT" if account_ok and not is_demo else "MT5_NOT_READY")),"sentAt":utc_now()}
