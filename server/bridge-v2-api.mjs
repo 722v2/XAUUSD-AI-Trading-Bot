@@ -6,6 +6,7 @@ function json(res,status,body) {
   res.end(raw);
 }
 function isObject(value) { return value !== null && typeof value === "object" && !Array.isArray(value); }
+function liveTradingEnabled(env) { return env.MT5_LIVE_TRADING_ENABLED === "true"; }
 function authorized(req,token) {
   const supplied=req.headers["x-bridge-token"];
   if(typeof token!=="string" || !token || typeof supplied!=="string") return false;
@@ -49,7 +50,7 @@ export async function readBridgeV2Candles(env,timeframe,count=120,fetchImpl=fetc
     const rows=await store.request("/bridge_agents?agent_id=eq."+encodeURIComponent(agentId)+"&select=environment,last_seen_at,payload&limit=1");
     const agent=rows[0];
     const heartbeatAge=agent?Date.now()-Date.parse(agent.last_seen_at):Infinity;
-    if(!agent||agent.environment!=="DEMO"||!Number.isFinite(heartbeatAge)||heartbeatAge>30000) return {ok:false,errorCode:"BRIDGE_V2_AGENT_STALE"};
+    if(!agent||!["DEMO","LIVE"].includes(agent.environment)||!Number.isFinite(heartbeatAge)||heartbeatAge>30000) return {ok:false,errorCode:"BRIDGE_V2_AGENT_STALE"};
     const snapshot=agent.payload?.marketCandles?.[timeframe];
     if(!snapshot||!Array.isArray(snapshot.candles)) return {ok:false,errorCode:"BRIDGE_V2_CANDLES_NOT_AVAILABLE"};
     const candles=snapshot.candles.slice(-count);
@@ -64,17 +65,18 @@ export async function readBridgeV2Candles(env,timeframe,count=120,fetchImpl=fetc
 export async function submitBridgeV2Order(env,intent,fetchImpl=fetch) {
   const store=new BridgeStore(env,fetchImpl);
   const agentId=env.MT5_AGENT_ID||"windows-mt5-demo-01";
-  if(intent.environment!=="DEMO"||intent.symbol!=="XAUUSD"||!["BUY","SELL"].includes(intent.direction)||
+  const environment=intent?.environment;
+  if((environment!=="DEMO"&&!(environment==="LIVE"&&liveTradingEnabled(env)))||intent.symbol!=="XAUUSD"||!["BUY","SELL"].includes(intent.direction)||
      !Number.isFinite(intent.volume)||intent.volume<=0||!Number.isFinite(intent.stopLoss)||intent.stopLoss<=0||
-     !Number.isFinite(intent.takeProfit)||intent.takeProfit<=0) return {ok:false,errorCode:"INVALID_ORDER",message:"Only validated XAUUSD Demo orders are accepted."};
+     !Number.isFinite(intent.takeProfit)||intent.takeProfit<=0) return {ok:false,errorCode:environment==="LIVE"&&!liveTradingEnabled(env)?"LIVE_TRADING_DISABLED":"INVALID_ORDER",message:environment==="LIVE"&&!liveTradingEnabled(env)?"Live execution is disabled on the server.":"Invalid XAUUSD order intent."};
   try {
     const agents=await store.request("/bridge_agents?agent_id=eq."+encodeURIComponent(agentId)+"&select=execution_ready,last_seen_at,environment&limit=1");
     const agent=agents[0],age=agent?Date.now()-Date.parse(agent.last_seen_at):Infinity;
-    if(!agent||agent.environment!=="DEMO"||agent.execution_ready!==true||!Number.isFinite(age)||age>30000)
-      return {ok:false,errorCode:"UNAVAILABLE",message:"MT5 Bridge V2 agent is not connected and Demo-ready."};
+    if(!agent||agent.environment!==environment||agent.execution_ready!==true||!Number.isFinite(age)||age>30000)
+      return {ok:false,errorCode:"UNAVAILABLE",message:"MT5 Bridge V2 agent is not connected and ready for the selected environment."};
     const expiresAt=new Date(Date.now()+45000).toISOString();
     const payload={symbol:"XAUUSD",direction:intent.direction,volume:intent.volume,stopLoss:intent.stopLoss,takeProfit:intent.takeProfit};
-    let rows=await store.request("/bridge_commands?on_conflict=idempotency_key",{method:"POST",headers:{Prefer:"resolution=ignore-duplicates,return=representation"},body:JSON.stringify({agent_id:agentId,idempotency_key:intent.idempotencyKey,kind:"EXECUTE_ORDER",environment:"DEMO",status:"PENDING",payload,created_at:new Date().toISOString(),expires_at:expiresAt})});
+    let rows=await store.request("/bridge_commands?on_conflict=idempotency_key",{method:"POST",headers:{Prefer:"resolution=ignore-duplicates,return=representation"},body:JSON.stringify({agent_id:agentId,idempotency_key:intent.idempotencyKey,kind:"EXECUTE_ORDER",environment,status:"PENDING",payload,created_at:new Date().toISOString(),expires_at:expiresAt})});
     let command=rows[0];
     if(!command) {
       const prior=await store.request("/bridge_commands?idempotency_key=eq."+encodeURIComponent(intent.idempotencyKey)+"&select=id,status,result&limit=1");
@@ -109,7 +111,7 @@ export function createBridgeV2Api(env=process.env,fetchImpl=fetch) {
     try {
       if(method==="POST"&&url.pathname==="/api/bridge/v1/heartbeat") {
         const body=await readBody(req);
-        if(typeof body.agentId!=="string"||!/^[A-Za-z0-9._-]{1,80}$/.test(body.agentId)||body.environment!=="DEMO"||
+        if(typeof body.agentId!=="string"||!/^[A-Za-z0-9._-]{1,80}$/.test(body.agentId)||!["DEMO","LIVE"].includes(body.environment)||
           typeof body.terminalConnected!=="boolean"||typeof body.accountConnected!=="boolean"||typeof body.executionReady!=="boolean"||
           !["STARTING","CONNECTED","DEGRADED","DISCONNECTED"].includes(body.state)) {json(res,400,{error:"INVALID_HEARTBEAT"});return true;}
         const existing=await store.request("/bridge_agents?agent_id=eq."+encodeURIComponent(body.agentId)+"&select=payload&limit=1");
@@ -117,7 +119,7 @@ export function createBridgeV2Api(env=process.env,fetchImpl=fetch) {
         const marketCandles=isObject(oldPayload.marketCandles)?oldPayload.marketCandles:null;
         const nextPayload={...body,...(marketCandles?{marketCandles}:{})};
         const rows=await store.request("/bridge_agents?on_conflict=agent_id",{method:"POST",headers:{Prefer:"resolution=merge-duplicates,return=representation"},body:JSON.stringify({
-          agent_id:body.agentId,state:body.state,environment:"DEMO",terminal_connected:body.terminalConnected,account_connected:body.accountConnected,
+          agent_id:body.agentId,state:body.state,environment:body.environment,terminal_connected:body.terminalConnected,account_connected:body.accountConnected,
           execution_ready:body.executionReady,broker_symbol:typeof body.brokerSymbol==="string"?body.brokerSymbol:null,
           account_login:typeof body.accountLogin==="string"?body.accountLogin:null,last_error_code:typeof body.lastErrorCode==="string"?body.lastErrorCode:null,
           last_seen_at:new Date().toISOString(),payload:nextPayload
@@ -152,7 +154,7 @@ export function createBridgeV2Api(env=process.env,fetchImpl=fetch) {
         const store=new BridgeStore(env,fetchImpl);
         const agents=await store.request("/bridge_agents?agent_id=eq."+encodeURIComponent(body.agentId)+"&select=agent_id,environment,last_seen_at,payload&limit=1");
         const agent=agents[0],age=agent?Date.now()-Date.parse(agent.last_seen_at):Infinity;
-        if(!agent||agent.environment!=="DEMO"||!Number.isFinite(age)||age>30000) {json(res,409,{error:"BRIDGE_V2_AGENT_NOT_FRESH"});return true;}
+        if(!agent||!["DEMO","LIVE"].includes(agent.environment)||!Number.isFinite(age)||age>30000) {json(res,409,{error:"BRIDGE_V2_AGENT_NOT_FRESH"});return true;}
         const prior=isObject(agent.payload)?agent.payload:{};
         const priorCandles=isObject(prior.marketCandles)?prior.marketCandles:{};
         const nextPayload={...prior,marketCandles:{...priorCandles,[body.timeframe]:{candles:clean,updatedAt:new Date().toISOString()}}};
