@@ -19,8 +19,8 @@ class Agent:
     def __init__(self):
         self.config=load_config()
         self.outbox=Outbox(self.config.database_path)
-        self.session=MT5Session(mt5,self.config.terminal_path)
-        self.executor=OrderExecutor(mt5,self.outbox,self.config.symbol)
+        self.session=MT5Session(mt5,self.config.terminal_path,self.config.environment)
+        self.executor=OrderExecutor(mt5,self.outbox,self.config.symbol,self.config.environment,self.config.live_trading_enabled)
         self.last_error="STARTING"
         self.stop=threading.Event()
         self.lock=threading.RLock()
@@ -58,7 +58,7 @@ class Agent:
         if status==200:
             if state["executionReady"]:
                 self.last_error=None
-                print(f"[health] connected; environment=DEMO; symbol={state['brokerSymbol']}; heartbeat accepted",flush=True)
+                print(f"[health] connected; environment={self.config.environment}; symbol={state['brokerSymbol']}; live_trading_enabled={self.config.live_trading_enabled}; heartbeat accepted",flush=True)
             else:
                 self.last_error=state.get("lastErrorCode") or self.last_error or "MT5_NOT_READY"
                 print(f"[health] not ready: {state['lastErrorCode']}; heartbeat accepted",flush=True)
@@ -151,8 +151,9 @@ class Agent:
                 self.outbox.enqueue_result(command_id,key,"EXPIRED",result); return
         except ValueError:
             self.outbox.mark(key,"REJECTED",{"code":"INVALID_EXPIRY"}); return
-        if command.get("kind")!="EXECUTE_ORDER" or command.get("environment")!="DEMO":
-            result={"commandId":command_id,"idempotencyKey":key,"state":"REJECTED","code":"DEMO_ONLY_OR_UNSUPPORTED_COMMAND","details":{},"completedAt":utc_now()}
+        if command.get("kind")!="EXECUTE_ORDER" or command.get("environment")!=self.config.environment or (self.config.environment=="LIVE" and not self.config.live_trading_enabled):
+            code="LIVE_TRADING_DISABLED" if self.config.environment=="LIVE" and not self.config.live_trading_enabled else "ENVIRONMENT_MISMATCH_OR_UNSUPPORTED_COMMAND"
+            result={"commandId":command_id,"idempotencyKey":key,"state":"REJECTED","code":code,"details":{},"completedAt":utc_now()}
             self.outbox.enqueue_result(command_id,key,"REJECTED",result); return
         result=self.executor.execute(command)
         self.outbox.enqueue_result(command_id,key,result["state"],result)
@@ -171,7 +172,7 @@ class Agent:
         ok=self.ensure_session()
         reason="CONNECTED" if ok else self.last_error
         if ok: self.recover_uncertain_commands()
-        print(f"[startup] agent={self.config.agent_id}; demo_session={'connected' if ok else reason}; live trading disabled; reconnect=enabled",flush=True)
+        print(f"[startup] agent={self.config.agent_id}; environment={self.config.environment}; session={'connected' if ok else reason}; live_trading_enabled={self.config.live_trading_enabled}; reconnect=enabled",flush=True)
         threading.Thread(target=self.market_data_loop,name="mt5-market-data",daemon=True).start()
         last_heartbeat=0.0
         while not self.stop.is_set():
