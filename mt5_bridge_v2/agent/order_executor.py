@@ -11,8 +11,8 @@ def _finite_positive(value: Any) -> bool:
 
 class OrderExecutor:
     """Demo-only market order executor. Persists SUBMITTING before broker I/O; uncertain results are never retried."""
-    def __init__(self,mt5: Any,outbox: Outbox,symbol: str="XAUUSD"):
-        self.mt5=mt5;self.outbox=outbox;self.symbol=symbol
+    def __init__(self,mt5: Any,outbox: Outbox,symbol: str="XAUUSD",environment: str="DEMO",live_trading_enabled: bool=False):
+        self.mt5=mt5;self.outbox=outbox;self.symbol=symbol;self.environment=environment;self.live_trading_enabled=live_trading_enabled
     def execute(self,command: dict) -> dict:
         command_id=command["id"]; key=command["idempotencyKey"]; payload=command.get("payload")
         def result(state,code,details=None):
@@ -20,8 +20,10 @@ class OrderExecutor:
         prior=self.outbox.command_state(key)
         if prior:
             return result("UNKNOWN" if prior["state"] in ("SUBMITTING","UNKNOWN") else "REJECTED","DUPLICATE_IDEMPOTENCY_KEY",{"previousState":prior["state"],"automaticRetry":False})
-        if not isinstance(payload,dict) or command.get("environment")!="DEMO":
-            return result("REJECTED","DEMO_ONLY_OR_INVALID_PAYLOAD")
+        if not isinstance(payload,dict) or command.get("environment")!=self.environment:
+            return result("REJECTED","ENVIRONMENT_MISMATCH_OR_INVALID_PAYLOAD")
+        if self.environment == "LIVE" and not self.live_trading_enabled:
+            return result("REJECTED","LIVE_TRADING_DISABLED")
         if self.mt5 is None: return result("REJECTED","MT5_PACKAGE_MISSING")
         direction=payload.get("direction")
         volume=payload.get("volume"); sl=payload.get("stopLoss"); tp=payload.get("takeProfit")
@@ -43,7 +45,8 @@ class OrderExecutor:
             if not broker_symbol or not self.mt5.symbol_select(broker_symbol,True): return result("REJECTED","GOLD_SYMBOL_UNAVAILABLE",{"configuredSymbol":configured,"availableGoldSymbols":[n for n in names if n.upper().startswith("XAUUSD")][:20]})
             info=self.mt5.symbol_info(broker_symbol); tick=self.mt5.symbol_info_tick(broker_symbol); account=self.mt5.account_info()
             if not info or not tick or not account: return result("REJECTED","BROKER_MARKET_STATE_UNAVAILABLE")
-            if getattr(account,"trade_mode",None)!=getattr(self.mt5,"ACCOUNT_TRADE_MODE_DEMO",0): return result("REJECTED","DEMO_ACCOUNT_REQUIRED")
+            expected_mode=getattr(self.mt5,"ACCOUNT_TRADE_MODE_REAL",None) if self.environment=="LIVE" else getattr(self.mt5,"ACCOUNT_TRADE_MODE_DEMO",None)
+            if expected_mode is None or getattr(account,"trade_mode",None)!=expected_mode: return result("REJECTED","LIVE_ACCOUNT_REQUIRED" if self.environment=="LIVE" else "DEMO_ACCOUNT_REQUIRED")
             step=float(getattr(info,"volume_step",0)); vmin=float(getattr(info,"volume_min",0)); vmax=float(getattr(info,"volume_max",0))
             if step<=0 or vmin<=0 or vmax<=0 or volume<vmin or volume>vmax or abs(volume/step-round(volume/step))>1e-7:
                 return result("REJECTED","INVALID_VOLUME_STEP")
