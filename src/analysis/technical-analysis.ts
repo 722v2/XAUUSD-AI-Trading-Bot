@@ -30,6 +30,7 @@ export interface TechnicalAnalysisResult {
       closeBreaksPreviousHigh: boolean; closeBreaksPreviousLow: boolean;
       closeBreaksPriorRangeHigh: boolean; closeBreaksPriorRangeLow: boolean;
       macdPositive: boolean; macdNegative: boolean;
+      bullishMomentum: boolean; bearishMomentum: boolean;
       rsiInBuyRange: boolean; rsiInSellRange: boolean;
     }>;
   };
@@ -74,7 +75,7 @@ export function analyzeClosedMarket(input: TechnicalAnalysisInput): TechnicalAna
   const ema9 = ema(closes, 9), ema21 = ema(closes, 21), rsis = rsi(closes, 14);
   const macds = macd(closes), atrs = atr(m1.map((bar) => bar.high), m1.map((bar) => bar.low), closes);
   const i = m1.length - 1;
-  const e9 = ema9[i], e21 = ema21[i], rv = rsis[i], mv = macds[i], av = atrs[i];
+  const e9 = ema9[i], e21 = ema21[i], rv = rsis[i], mv = macds[i], previousMv = macds[i-1], av = atrs[i];
   if (e9 == null || e21 == null || rv == null || mv == null || av == null || av <= 0) {
     return { status: "NO_ANALYSIS", reason: "INSUFFICIENT_HISTORY", evaluatedAt: input.now, latestClosedBarTime: latest.closeTime, evidence: EMPTY };
   }
@@ -84,6 +85,8 @@ export function analyzeClosedMarket(input: TechnicalAnalysisInput): TechnicalAna
     H1: trendContext(input.candles.H1, "H1", nowMs)
   };
   const trendStrength=Math.abs(e9-e21)/av;
+  const bullishMomentum=mv.histogram>0 || (mv.histogram<=0 && previousMv!=null && mv.histogram>previousMv.histogram);
+  const bearishMomentum=mv.histogram<0 || (mv.histogram>=0 && previousMv!=null && mv.histogram<previousMv.histogram);
   const previousEma9=ema9[i-1], ema21FiveBarsAgo=ema21[i-5];
   const previous=m1[i-1]!;
   const priorRange=m1.slice(Math.max(0,i-20),i);
@@ -95,7 +98,7 @@ export function analyzeClosedMarket(input: TechnicalAnalysisInput): TechnicalAna
   const selection=selectAdaptiveStrategy({
     trendStrength,ema9:e9,ema21:e21,ema21FiveBarsAgo,previousEma9,previousClose:previous.close,
     previousHigh:previous.high,previousLow:previous.low,currentOpen:latest.open,currentClose:latest.close,
-    priorRangeHigh,priorRangeLow,rsi14:rv,macdHistogram:mv.histogram,atr14:av
+    priorRangeHigh,priorRangeLow,rsi14:rv,macdHistogram:mv.histogram,previousMacdHistogram:previousMv?.histogram,atr14:av
   });
   const trendUp=e9>e21 && e21>ema21FiveBarsAgo;
   const trendDown=e9<e21 && e21<ema21FiveBarsAgo;
@@ -103,17 +106,17 @@ export function analyzeClosedMarket(input: TechnicalAnalysisInput): TechnicalAna
   const currentBearish=latest.close<latest.open;
   const triggerChecks={
     trendUp,trendDown,currentBullish,currentBearish,
-    continuationBuy:latest.close>previous.high&&currentBullish&&e9>e21&&mv.histogram>0&&rv>=50&&rv<75,
-    continuationSell:latest.close<previous.low&&currentBearish&&e9<e21&&mv.histogram<0&&rv<=50&&rv>25,
-    pullbackBuy:trendUp&&previous.close<=previousEma9&&latest.close>e9&&currentBullish&&mv.histogram>0&&rv>=45&&rv<75,
-    pullbackSell:trendDown&&previous.close>=previousEma9&&latest.close<e9&&currentBearish&&mv.histogram<0&&rv<=55&&rv>25,
+    continuationBuy:latest.close>previous.high&&currentBullish&&e9>e21&&bullishMomentum&&rv>=50&&rv<75,
+    continuationSell:latest.close<previous.low&&currentBearish&&e9<e21&&bearishMomentum&&rv<=50&&rv>25,
+    pullbackBuy:trendUp&&previous.close<=previousEma9&&latest.close>e9&&currentBullish&&bullishMomentum&&rv>=45&&rv<75,
+    pullbackSell:trendDown&&previous.close>=previousEma9&&latest.close<e9&&currentBearish&&bearishMomentum&&rv<=55&&rv>25,
     breakoutBuy:latest.close>priorRangeHigh+0.1*av&&currentBullish&&mv.histogram>0&&rv>=55&&rv<80,
     breakoutSell:latest.close<priorRangeLow-0.1*av&&currentBearish&&mv.histogram<0&&rv<=45&&rv>20,
     closeBreaksPreviousHigh:latest.close>previous.high,
     closeBreaksPreviousLow:latest.close<previous.low,
     closeBreaksPriorRangeHigh:latest.close>priorRangeHigh+0.1*av,
     closeBreaksPriorRangeLow:latest.close<priorRangeLow-0.1*av,
-    macdPositive:mv.histogram>0,macdNegative:mv.histogram<0,
+    macdPositive:mv.histogram>0,macdNegative:mv.histogram<0,bullishMomentum,bearishMomentum,
     rsiInBuyRange:rv>=45&&rv<80,rsiInSellRange:rv<=55&&rv>20
   };
   const metrics = { ema9:e9,ema21:e21,rsi14:rv,macd:mv.macd,macdSignal:mv.signal,macdHistogram:mv.histogram,atr14:av,marketRegime:selection?.regime ?? (trendStrength>=0.25?"TRENDING":"RANGING") as MarketRegime,trendStrength,higherTimeframeContext,triggerChecks };
