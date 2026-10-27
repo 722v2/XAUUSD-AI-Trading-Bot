@@ -1,4 +1,5 @@
 import unittest
+import time
 from types import SimpleNamespace
 from mt5_bridge_v2.agent.health import snapshot
 
@@ -31,10 +32,11 @@ class FakeMT5:
         return [SimpleNamespace(ticket=77, type=0, magic=2601022, comment="XAUAI-test", volume=0.01, price_open=3999.0, sl=3997.0, tp=4005.0, profit=1.0, time=1_700_000_000)]
 
     def history_deals_get(self, start, end):
+        now = int(time.time())
         return [
-            SimpleNamespace(magic=2601022, entry=1, time=1_700_000_001, position_id=77, profit=-2.0, commission=0.0, swap=0.0, fee=0.0),
-            SimpleNamespace(magic=2601022, entry=1, time=1_700_000_002, position_id=78, profit=-1.0, commission=0.0, swap=0.0, fee=0.0),
-            SimpleNamespace(magic=999, entry=1, time=1_700_000_003, position_id=79, profit=-100.0, commission=0.0, swap=0.0, fee=0.0),
+            SimpleNamespace(magic=2601022, entry=1, time=now-2, position_id=77, profit=-2.0, commission=0.0, swap=0.0, fee=0.0),
+            SimpleNamespace(magic=2601022, entry=1, time=now-1, position_id=78, profit=-1.0, commission=0.0, swap=0.0, fee=0.0),
+            SimpleNamespace(magic=999, entry=1, time=now, position_id=79, profit=-100.0, commission=0.0, swap=0.0, fee=0.0),
         ]
 
 class BridgeV2HealthSnapshotTests(unittest.TestCase):
