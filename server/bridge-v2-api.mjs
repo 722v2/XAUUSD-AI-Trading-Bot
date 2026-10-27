@@ -46,10 +46,9 @@ export async function readBridgeV2Candles(env,timeframe,count=120,fetchImpl=fetc
   try {
     const store=new BridgeStore(env,fetchImpl);
     const agentId=env.MT5_AGENT_ID||"windows-mt5-demo-01";
-    const rows=await store.request("/bridge_agents?agent_id=eq."+encodeURIComponent(agentId)+"&select=environment,last_seen_at,payload&limit=1");
+    const rows=await store.request("/bridge_agents?agent_id=eq."+encodeURIComponent(agentId)+"&select=environment,payload&limit=1");
     const agent=rows[0];
-    const heartbeatAge=agent?Date.now()-Date.parse(agent.last_seen_at):Infinity;
-    if(!agent||agent.environment!=="DEMO"||!Number.isFinite(heartbeatAge)||heartbeatAge>30000) return {ok:false,errorCode:"BRIDGE_V2_AGENT_STALE"};
+    if(!agent||agent.environment!=="DEMO") return {ok:false,errorCode:"BRIDGE_V2_AGENT_NOT_AVAILABLE"};
     const snapshot=agent.payload?.marketCandles?.[timeframe];
     if(!snapshot||!Array.isArray(snapshot.candles)) return {ok:false,errorCode:"BRIDGE_V2_CANDLES_NOT_AVAILABLE"};
     const candles=snapshot.candles.slice(-count);
