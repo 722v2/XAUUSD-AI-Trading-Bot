@@ -29,7 +29,7 @@ export interface StrategySelection {
 
 /** Deterministic regime selection. All range levels exclude the current closed candle. */
 export function selectAdaptiveStrategy(input: StrategySelectionInput): StrategySelection | null {
-  const values=Object.values(input).filter(value=>value!==undefined);
+  const values=Object.entries(input).filter(([key,value])=>key!=="higherTimeframeBias"&&value!==undefined).map(([,value])=>value);
   if (values.some(value=>!Number.isFinite(value)) || input.atr14<=0 || input.priorRangeHigh<input.priorRangeLow) return null;
   const regime:MarketRegime=input.trendStrength>=0.25?"TRENDING":"RANGING";
   const trendUp=input.ema9>input.ema21 && input.ema21>input.ema21FiveBarsAgo;
