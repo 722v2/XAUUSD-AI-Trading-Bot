@@ -92,6 +92,38 @@ export async function readBridgeV2DailyRisk(env,fetchImpl=fetch) {
   }
 }
 
+
+export async function readBridgeV2Positions(env,fetchImpl=fetch) {
+  try {
+    const store=new BridgeStore(env,fetchImpl);
+    const agentId=env.MT5_AGENT_ID||"windows-mt5-demo-01";
+    const rows=await store.request("/bridge_agents?agent_id=eq."+encodeURIComponent(agentId)+"&select=environment,last_seen_at,account_login,payload&limit=1");
+    const agent=rows[0],age=agent?Date.now()-Date.parse(agent.last_seen_at):Infinity;
+    if(!agent||agent.environment!=="DEMO"||!Number.isFinite(age)||age>30000) return {ok:false,errorCode:"BRIDGE_V2_AGENT_STALE"};
+    const positions=agent.payload?.positions;
+    if(!Array.isArray(positions)) return {ok:false,errorCode:"BRIDGE_V2_POSITIONS_NOT_AVAILABLE"};
+    return {ok:true,value:{environment:"DEMO",accountLogin:agent.account_login,positions}};
+  } catch(error) {
+    const code=error instanceof Error?error.message:"BRIDGE_V2_POSITIONS_UNAVAILABLE";
+    return {ok:false,errorCode:code.startsWith("BRIDGE_STORAGE")?code:"BRIDGE_V2_POSITIONS_UNAVAILABLE"};
+  }
+}
+export async function readBridgeV2DailyRisk(env,fetchImpl=fetch) {
+  try {
+    const store=new BridgeStore(env,fetchImpl);
+    const agentId=env.MT5_AGENT_ID||"windows-mt5-demo-01";
+    const rows=await store.request("/bridge_agents?agent_id=eq."+encodeURIComponent(agentId)+"&select=environment,last_seen_at,account_login,payload&limit=1");
+    const agent=rows[0],age=agent?Date.now()-Date.parse(agent.last_seen_at):Infinity;
+    if(!agent||agent.environment!=="DEMO"||!Number.isFinite(age)||age>30000) return {ok:false,errorCode:"BRIDGE_V2_AGENT_STALE"};
+    const risk=agent.payload?.dailyRisk;
+    if(!risk||risk.source!=="MT5_CLOSED_DEALS_BOT_MAGIC"||risk.accountLogin!==String(agent.account_login)||!Number.isFinite(risk.balance)||risk.balance<=0||!Number.isFinite(risk.dailyNetPnl)||!Number.isInteger(risk.consecutiveLosses)||risk.consecutiveLosses<0) return {ok:false,errorCode:"BRIDGE_V2_DAILY_RISK_NOT_AVAILABLE"};
+    return {ok:true,value:risk};
+  } catch(error) {
+    const code=error instanceof Error?error.message:"BRIDGE_V2_DAILY_RISK_UNAVAILABLE";
+    return {ok:false,errorCode:code.startsWith("BRIDGE_STORAGE")?code:"BRIDGE_V2_DAILY_RISK_UNAVAILABLE"};
+  }
+}
+
 export async function submitBridgeV2Order(env,intent,fetchImpl=fetch) {
   const store=new BridgeStore(env,fetchImpl);
   const agentId=env.MT5_AGENT_ID||"windows-mt5-demo-01";
