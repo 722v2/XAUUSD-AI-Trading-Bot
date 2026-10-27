@@ -98,7 +98,7 @@ export function analyzeClosedMarket(input: TechnicalAnalysisInput): TechnicalAna
   const selection=selectAdaptiveStrategy({
     trendStrength,ema9:e9,ema21:e21,ema21FiveBarsAgo,previousEma9,previousClose:previous.close,
     previousHigh:previous.high,previousLow:previous.low,currentOpen:latest.open,currentClose:latest.close,
-    priorRangeHigh,priorRangeLow,rsi14:rv,macdHistogram:mv.histogram,previousMacdHistogram:previousMv?.histogram,atr14:av
+    priorRangeHigh,priorRangeLow,rsi14:rv,macdHistogram:mv.histogram,...(previousMv?{previousMacdHistogram:previousMv.histogram}:{}),atr14:av
   });
   const trendUp=e9>e21 && e21>ema21FiveBarsAgo;
   const trendDown=e9<e21 && e21<ema21FiveBarsAgo;
