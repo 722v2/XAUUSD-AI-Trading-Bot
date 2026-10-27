@@ -44,3 +44,15 @@ test('continuation requires a fresh break of the previous candle extreme, not tr
   assert.equal(selected.strategyId,'M1_PULLBACK_RECLAIM_V1');
   assert.ok(!selected.evidenceCodes.includes('TREND_CONTINUATION'));
 });
+
+test('adaptive selector accepts a closed-bar continuation when negative MACD histogram is improving',()=>{
+  const selected=selectAdaptiveStrategy({...base,macdHistogram:-0.1,previousMacdHistogram:-0.2});
+  assert.equal(selected.strategyId,'M1_TREND_CONTINUATION_V1');
+  assert.equal(selected.direction,'BUY');
+});
+
+test('adaptive selector accepts a confirmed pullback reclaim while MACD histogram is recovering',()=>{
+  const selected=selectAdaptiveStrategy({...base,previousHigh:102.5,currentOpen:100.5,currentClose:101.5,rsi14:48,macdHistogram:-0.1,previousMacdHistogram:-0.2});
+  assert.equal(selected.strategyId,'M1_PULLBACK_RECLAIM_V1');
+  assert.equal(selected.direction,'BUY');
+});
