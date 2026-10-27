@@ -56,3 +56,27 @@ test('adaptive selector accepts a confirmed pullback reclaim while MACD histogra
   assert.equal(selected.strategyId,'M1_PULLBACK_RECLAIM_V1');
   assert.equal(selected.direction,'BUY');
 });
+
+test('weak M1 trend can form an early buy candidate when all higher timeframes are bullish and momentum recovers',()=>{
+  const selected=selectAdaptiveStrategy({
+    ...base,trendStrength:0.1,ema9:100,ema21:100.1,ema21FiveBarsAgo:100.2,
+    previousEma9:100.2,previousClose:100,previousHigh:101,previousLow:99,
+    currentOpen:100.5,currentClose:101.2,priorRangeHigh:105,priorRangeLow:95,
+    rsi14:52,macdHistogram:-0.1,previousMacdHistogram:-0.15,atr14:1,
+    higherTimeframeBias:'BULLISH'
+  });
+  assert.equal(selected.strategyId,'M1_MOMENTUM_RECOVERY_V1');
+  assert.equal(selected.direction,'BUY');
+  assert.ok(selected.evidenceCodes.includes('HTF_ALIGNED_MOMENTUM_RECOVERY'));
+});
+
+test('momentum recovery is not accepted when higher-timeframe bias is mixed',()=>{
+  const selected=selectAdaptiveStrategy({
+    ...base,trendStrength:0.1,ema9:100,ema21:100.1,ema21FiveBarsAgo:100.2,
+    previousEma9:100.2,previousClose:100,previousHigh:101,previousLow:99,
+    currentOpen:100.5,currentClose:101.2,priorRangeHigh:105,priorRangeLow:95,
+    rsi14:52,macdHistogram:-0.1,previousMacdHistogram:-0.15,atr14:1,
+    higherTimeframeBias:'MIXED'
+  });
+  assert.equal(selected,null);
+});
