@@ -40,7 +40,7 @@ export async function readBridgeV2Status(env=process.env,agentId="windows-mt5-de
   const a=rows[0];
   if(!a) return {state:"DISCONNECTED",ready:false,reason:"AGENT_NOT_REGISTERED",lastSeenAt:null};
   const age=Date.now()-Date.parse(a.last_seen_at),alive=Number.isFinite(age)&&age<=30000;
-  return {state:alive?a.state:"DISCONNECTED",ready:alive&&a.execution_ready===true,reason:alive?(a.last_error_code||"HEARTBEAT_OK"):"HEARTBEAT_STALE",lastSeenAt:a.last_seen_at,heartbeatAgeMs:Number.isFinite(age)?age:null,environment:a.environment,terminalConnected:alive&&a.terminal_connected,accountConnected:alive&&a.account_connected,executionReady:alive&&a.execution_ready,brokerSymbol:a.broker_symbol,accountLogin:a.account_login,quote:a.payload?.quote??null,symbolSpec:a.payload?.symbolSpec??null};
+  return {state:alive?a.state:"DISCONNECTED",ready:alive&&a.execution_ready===true,reason:alive?(a.last_error_code||"HEARTBEAT_OK"):"HEARTBEAT_STALE",lastSeenAt:a.last_seen_at,heartbeatAgeMs:Number.isFinite(age)?age:null,environment:a.environment,liveTradingEnabled:liveTradingEnabled(env),terminalConnected:alive&&a.terminal_connected,accountConnected:alive&&a.account_connected,executionReady:alive&&a.execution_ready,brokerSymbol:a.broker_symbol,accountLogin:a.account_login,quote:a.payload?.quote??null,symbolSpec:a.payload?.symbolSpec??null};
 }
 export async function readBridgeV2Candles(env,timeframe,count=120,fetchImpl=fetch) {
   if(!["M1","M5","M15","H1"].includes(timeframe)||!Number.isInteger(count)||count<35||count>500) return {ok:false,errorCode:"INVALID_CANDLE_REQUEST"};
@@ -168,7 +168,7 @@ export function createBridgeV2Api(env=process.env,fetchImpl=fetch) {
         if(!a){json(res,200,{state:"DISCONNECTED",ready:false,reason:"AGENT_NOT_REGISTERED",lastSeenAt:null});return true;}
         const age=Date.now()-Date.parse(a.last_seen_at);
         const alive=Number.isFinite(age)&&age<=30000;
-        json(res,200,{state:alive?a.state:"DISCONNECTED",ready:alive&&a.execution_ready===true,reason:alive?(a.last_error_code||"HEARTBEAT_OK"):"HEARTBEAT_STALE",lastSeenAt:a.last_seen_at,heartbeatAgeMs:Number.isFinite(age)?age:null,environment:a.environment,terminalConnected:alive&&a.terminal_connected,accountConnected:alive&&a.account_connected,executionReady:alive&&a.execution_ready,brokerSymbol:a.broker_symbol});return true;
+        json(res,200,{state:alive?a.state:"DISCONNECTED",ready:alive&&a.execution_ready===true,reason:alive?(a.last_error_code||"HEARTBEAT_OK"):"HEARTBEAT_STALE",lastSeenAt:a.last_seen_at,heartbeatAgeMs:Number.isFinite(age)?age:null,environment:a.environment,liveTradingEnabled:liveTradingEnabled(env),terminalConnected:alive&&a.terminal_connected,accountConnected:alive&&a.account_connected,executionReady:alive&&a.execution_ready,brokerSymbol:a.broker_symbol});return true;
       }
       if(method==="GET"&&url.pathname==="/api/bridge/v1/commands/next") {
         const agentId=url.searchParams.get("agentId");
