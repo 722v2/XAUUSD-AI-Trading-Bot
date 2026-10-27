@@ -6,6 +6,7 @@ from mt5_bridge_v2.agent.session import MT5Session
 
 class FakeMT5:
     ACCOUNT_TRADE_MODE_DEMO = 0
+    ACCOUNT_TRADE_MODE_REAL = 1
 
     def __init__(self):
         self.initialized = 0
@@ -60,6 +61,24 @@ class BridgeV2SessionReconnectTests(unittest.TestCase):
         session = MT5Session(mt5, None)
 
         self.assertEqual(session.connect(), (False, "DEMO_ACCOUNT_REQUIRED"))
+        self.assertEqual(mt5.initialized, 0)
+
+    def test_live_agent_accepts_live_account_only_when_selected(self):
+        mt5 = FakeMT5()
+        mt5.connected = True
+        mt5.account = SimpleNamespace(trade_mode=1)
+        session = MT5Session(mt5, None, "LIVE")
+
+        self.assertEqual(session.connect(), (True, "CONNECTED"))
+        self.assertEqual(mt5.initialized, 0)
+
+    def test_live_agent_rejects_demo_account(self):
+        mt5 = FakeMT5()
+        mt5.connected = True
+        mt5.account = SimpleNamespace(trade_mode=0)
+        session = MT5Session(mt5, None, "LIVE")
+
+        self.assertEqual(session.connect(), (False, "LIVE_ACCOUNT_REQUIRED"))
         self.assertEqual(mt5.initialized, 0)
 
 
