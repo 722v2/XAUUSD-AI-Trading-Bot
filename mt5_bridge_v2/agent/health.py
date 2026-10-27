@@ -27,7 +27,7 @@ def snapshot(mt5: Any, symbol: str, environment: str, last_error: str | None) ->
         ready=bool(terminal_ok and account_ok and selected and is_demo)
         tick=mt5.symbol_info_tick(selected) if selected else None
         quote={"bid":float(tick.bid),"ask":float(tick.ask),"tickTime":utc_now()} if tick and getattr(tick,"bid",0)>0 and getattr(tick,"ask",0)>0 else None
-        spec={"volumeMin":float(getattr(mt5.symbol_info(selected),"volume_min",0)),"volumeMax":float(getattr(mt5.symbol_info(selected),"volume_max",0)),"volumeStep":float(getattr(mt5.symbol_info(selected),"volume_step",0)),"digits":int(getattr(mt5.symbol_info(selected),"digits",2)),"point":float(getattr(mt5.symbol_info(selected),"point",0)),"stopsLevelPoints":int(getattr(mt5.symbol_info(selected),"trade_stops_level",0))} if selected and mt5.symbol_info(selected) else None
+        spec={"volumeMin":float(getattr(mt5.symbol_info(selected),"volume_min",0)),"volumeMax":float(getattr(mt5.symbol_info(selected),"volume_max",0)),"volumeStep":float(getattr(mt5.symbol_info(selected),"volume_step",0)),"digits":int(getattr(mt5.symbol_info(selected),"digits",2)),"point":float(getattr(mt5.symbol_info(selected),"point",0)),"tickSize":float(getattr(mt5.symbol_info(selected),"trade_tick_size",getattr(mt5.symbol_info(selected),"point",0))),"tickValuePerLot":float(getattr(mt5.symbol_info(selected),"trade_tick_value",0)),"stopsLevelPoints":int(getattr(mt5.symbol_info(selected),"trade_stops_level",0))} if selected and mt5.symbol_info(selected) else None
         positions_snapshot=[]
         if selected and hasattr(mt5,"positions_get"):
             try:
