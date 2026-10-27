@@ -16,6 +16,7 @@ export interface StrategySelectionInput {
   readonly priorRangeLow: number;
   readonly rsi14: number;
   readonly macdHistogram: number;
+  readonly previousMacdHistogram?: number;
   readonly atr14: number;
 }
 export interface StrategySelection {
@@ -27,7 +28,7 @@ export interface StrategySelection {
 
 /** Deterministic regime selection. All range levels exclude the current closed candle. */
 export function selectAdaptiveStrategy(input: StrategySelectionInput): StrategySelection | null {
-  const values=Object.values(input);
+  const values=Object.values(input).filter(value=>value!==undefined);
   if (values.some(value=>!Number.isFinite(value)) || input.atr14<=0 || input.priorRangeHigh<input.priorRangeLow) return null;
   const regime:MarketRegime=input.trendStrength>=0.25?"TRENDING":"RANGING";
   const trendUp=input.ema9>input.ema21 && input.ema21>input.ema21FiveBarsAgo;
@@ -36,10 +37,13 @@ export function selectAdaptiveStrategy(input: StrategySelectionInput): StrategyS
   const bearishCandle=input.currentClose<input.currentOpen;
   // Continuation is an event, not a persistent trend state: require the latest closed
   // candle to break the previous candle's extreme in the direction of momentum.
-  const continuationBuy=input.currentClose>input.previousHigh && bullishCandle && input.ema9>input.ema21 && input.macdHistogram>0 && input.rsi14>=50 && input.rsi14<75;
-  const continuationSell=input.currentClose<input.previousLow && bearishCandle && input.ema9<input.ema21 && input.macdHistogram<0 && input.rsi14<=50 && input.rsi14>25;
-  const pullbackBuy=trendUp && input.previousClose<=input.previousEma9 && input.currentClose>input.ema9 && bullishCandle && input.macdHistogram>0 && input.rsi14>=45 && input.rsi14<75;
-  const pullbackSell=trendDown && input.previousClose>=input.previousEma9 && input.currentClose<input.ema9 && bearishCandle && input.macdHistogram<0 && input.rsi14<=55 && input.rsi14>25;
+  const previousHistogram=input.previousMacdHistogram;
+  const bullishMomentum=input.macdHistogram>0 || (input.macdHistogram<=0 && previousHistogram!==undefined && input.macdHistogram>previousHistogram);
+  const bearishMomentum=input.macdHistogram<0 || (input.macdHistogram>=0 && previousHistogram!==undefined && input.macdHistogram<previousHistogram);
+  const continuationBuy=input.currentClose>input.previousHigh && bullishCandle && input.ema9>input.ema21 && bullishMomentum && input.rsi14>=50 && input.rsi14<75;
+  const continuationSell=input.currentClose<input.previousLow && bearishCandle && input.ema9<input.ema21 && bearishMomentum && input.rsi14<=50 && input.rsi14>25;
+  const pullbackBuy=trendUp && input.previousClose<=input.previousEma9 && input.currentClose>input.ema9 && bullishCandle && bullishMomentum && input.rsi14>=45 && input.rsi14<75;
+  const pullbackSell=trendDown && input.previousClose>=input.previousEma9 && input.currentClose<input.ema9 && bearishCandle && bearishMomentum && input.rsi14<=55 && input.rsi14>25;
   const breakoutBuy=input.currentClose>input.priorRangeHigh+0.1*input.atr14 && bullishCandle && input.macdHistogram>0 && input.rsi14>=55 && input.rsi14<80;
   const breakoutSell=input.currentClose<input.priorRangeLow-0.1*input.atr14 && bearishCandle && input.macdHistogram<0 && input.rsi14<=45 && input.rsi14>20;
 
